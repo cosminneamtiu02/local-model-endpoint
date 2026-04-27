@@ -8,4 +8,4 @@ from app.core.config import Settings
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return cached application settings."""
-    return Settings()  # type: ignore[reportCallIssue]  # pydantic-settings loads fields from env
+    return Settings()  # pyright: ignore[reportCallIssue]  # pydantic-settings loads fields from env
