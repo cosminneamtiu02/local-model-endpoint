@@ -34,7 +34,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.12",
+    "@biomejs/biome": "^2.4.13",
     "@playwright/test": "^1.52.0",
     "@repo/error-contracts": "workspace:*",
     "@storybook/react-vite": "^10.3.5",
