@@ -3,7 +3,7 @@ type: epic
 id: LIP-E004
 parent: LIP
 title: Backpressure, Timeouts & Error Responses
-status: fully-detailed
+status: verifiable
 priority: 40
 dependencies: [LIP-E001]
 ---

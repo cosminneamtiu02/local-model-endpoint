@@ -3,7 +3,7 @@ type: epic
 id: LIP-E005
 parent: LIP
 title: Lifecycle Management
-status: fully-detailed
+status: verifiable
 priority: 50
 dependencies: [LIP-E001]
 ---

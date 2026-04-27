@@ -3,7 +3,7 @@ type: epic
 id: LIP-E003
 parent: LIP
 title: Ollama Backend Adapter
-status: fully-detailed
+status: verifiable
 priority: 30
 dependencies: []
 ---
