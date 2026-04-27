@@ -3,123 +3,98 @@
 ## System Overview
 
 ```
-                    +-----------+
-                    |  Browser  |
-                    +-----+-----+
-                          |
-                    /$lang/widgets
-                          |
-                    +-----v-----+
-                    |  Frontend |    React 19, Vite, TanStack Router/Query
-                    |  (SPA)    |    i18next, Zustand, Tailwind, shadcn/ui
-                    +-----+-----+
-                          |
-                    /api/v1/widgets
-                          |
-                    +-----v-----+
-                    |  Backend  |    FastAPI, Pydantic v2, structlog
-                    |  (API)    |    SQLAlchemy 2.0 async, Alembic
-                    +-----+-----+
-                          |
-                    +-----v-----+
-                    | PostgreSQL|    17
-                    |   (DB)    |
-                    +-----------+
++----------------------------+
+| Consumer backend project   |  (1 today; up to 4 within 12 months)
++-------------+--------------+
+              |
+              | HTTP (httpx)
+              v
++-------------+--------------+
+| Local Inference Provider   |  FastAPI, Pydantic v2
+| (this service)             |  asyncio.Semaphore(1) gating
++-------------+--------------+
+              |
+              | HTTP (httpx)
+              v
++-------------+--------------+
+| Ollama daemon (launchd)    |  KEEP_ALIVE=300s
+| Gemma 4 E2B (in v1)        |
++----------------------------+
 ```
 
 ## Backend Architecture: Vertical Slices
 
 ```
 app/
-+-- core/               Config, database, logging. Cross-cutting infrastructure.
-+-- api/                 Middleware, exception handler, health/ready, shared deps.
-+-- exceptions/          DomainError base (base.py) + generated subclasses (_generated/).
-+-- shared/              BaseRepository[ModelT], BaseService[M,C,R,U], base SQLAlchemy model.
-+-- schemas/             Page[T], ErrorResponse. Shared response shapes.
-+-- types/               Money, Currency. Value objects.
-+-- features/
-    +-- widget/          One folder per feature. Self-contained vertical slice.
-        +-- model.py         SQLAlchemy model
-        +-- repository.py    Data access (BaseRepository subclass)
-        +-- service.py       Business logic (BaseService subclass)
-        +-- router.py        HTTP endpoints (FastAPI APIRouter)
-        +-- schemas/         Pydantic schemas (create, read, update)
+├── core/               -- config, logging. Cross-cutting infrastructure.
+├── api/                -- middleware (request_id only), exception handler, health, shared deps.
+├── exceptions/         -- DomainError base (base.py) + generated subclasses (_generated/).
+├── schemas/            -- ErrorResponse, ErrorBody, ErrorDetail. Shared response shapes.
+└── features/
+    └── <feature>/      -- One folder per feature. Self-contained vertical slice.
+        ├── model/          -- Pydantic value-objects (Message, ModelParams, ModelInfo)
+        ├── repository/     -- Ollama HTTP client wrapper (the "data" boundary)
+        ├── service/        -- Inference orchestration (Semaphore, registry lookup)
+        ├── router/         -- FastAPI endpoints
+        └── schemas/        -- Wire schemas (request and response envelopes)
 ```
 
-### Layer Flow
+The LIP feature itself does not yet exist in code — it is scaffolded during feature-dev.
+The directory structure above describes where it will live. See [graphs/LIP/](../graphs/LIP/)
+for the planned features.
+
+### Layer Flow (within a feature)
 
 ```
 HTTP Request
     |
     v
-router.py       Thin handler. Declares Depends(), calls service, returns result.
+router        Thin handler. Declares Depends(), calls service, returns result.
     |
     v
-service.py       Business logic. Validates, orchestrates, converts model <-> schema.
+service       Inference orchestration. Semaphore-gated. Resolves model via registry.
     |
     v
-repository.py    Data access. SQLAlchemy queries. Raises NotFoundError/ConflictError.
+repository    Ollama HTTP client. Translates envelope <-> Ollama API.
     |
     v
-model.py         SQLAlchemy model. Maps to database table.
+model         Pydantic value-objects passed through the layers.
 ```
 
-No layer skipping. Router never touches the database. Repository never knows about schemas.
+No layer skipping. Router never calls Ollama directly. Repository never owns service-level
+concerns like the semaphore.
 
 ### Error Flow
 
 ```
-Repository raises NotFoundError (generic, no params)
+Ollama HTTP error
     |
     v
-Service catches, re-raises WidgetNotFoundError(widget_id=...) (typed params)
+Repository catches (httpx.RequestError or non-2xx) and raises a typed DomainError
+    |
+    v
+Service may catch and re-raise with more specific typed params, or let it propagate
     |
     v
 Exception handler serializes to JSON: {error: {code, params, details, request_id}}
     |
     v
-Frontend ApiError.is("WIDGET_NOT_FOUND") -> t("WIDGET_NOT_FOUND", {widget_id})
-    |
-    v
-User sees: "Widget 'abc-123' was not found." (localized)
-```
-
-## Frontend Architecture: Vertical Slices
-
-```
-src/
-+-- routes/              TanStack Router file-based routes. /$lang/ prefix.
-+-- features/
-|   +-- widgets/
-|       +-- api/         TanStack Query hooks (useWidgets, useCreateWidget, ...)
-|       +-- components/  Each component in its own folder with test + story
-+-- shared/
-|   +-- components/
-|   |   +-- ui/          shadcn/ui generated components
-|   |   +-- error-message/  <ErrorMessage> -- the only error renderer
-|   |   +-- date-time/      <DateTime> -- the only timestamp renderer
-|   |   +-- money-display/  <MoneyDisplay> -- the only money renderer
-|   |   +-- language-switcher/
-|   +-- hooks/           useCurrentLanguage
-|   +-- lib/             api-client, money, format, logger, cn
-|   +-- types/           ApiError re-export
-+-- i18n/                Config + locales (en, ro). Error codes = i18n keys.
-+-- stores/              Zustand. Client state only. Never caches API data.
-+-- app/                 Providers, error boundary.
+Consumer receives a structured error envelope it can program against
 ```
 
 ## API Versioning
 
-- Business endpoints: `/api/v1/widgets`, `/api/v1/widgets/{id}`
-- Health/readiness: `/health`, `/ready` (root, unversioned)
+- Inference endpoints: `/api/v1/...` (path TBD by LIP-E001-F002).
+- Health: `/health` (root, unversioned).
 
 ## Packages
 
-- `packages/api-client/` -- Generated TypeScript types from backend OpenAPI spec.
-- `packages/error-contracts/` -- Error code definitions (errors.yaml), codegen, validator.
+- `packages/error-contracts/` — Error code definitions (errors.yaml), Python codegen,
+  generator tests. No frontend codegen in v1.
 
 ## Infrastructure
 
-- `infra/compose/` -- docker-compose for dev and prod.
-- `infra/docker/` -- Dockerfiles for backend and frontend.
-- `infra/terraform/` -- Structure and conventions only. Cloud-agnostic empty shells.
+- Native deployment via `uv` and `launchd`. No Docker, no cloud.
+- Ollama runs as a `launchd`-managed always-on daemon (small idle footprint).
+- The FastAPI service is on-demand: launched by consumers, self-shuts after 10 min idle
+  (LIP-E005-F002 will implement the timer).

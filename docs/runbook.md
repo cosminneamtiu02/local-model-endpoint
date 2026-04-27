@@ -1,67 +1,52 @@
 # Runbook
 
-Operational guide for running and maintaining the system.
+Operational guide for running and maintaining LIP.
+
+## Prerequisites
+
+- Python 3.13
+- `uv` (https://docs.astral.sh/uv/)
+- Ollama installed natively on macOS, with `gemma4:e2b` pulled
+
+```bash
+brew install ollama
+ollama pull gemma4:e2b
+```
+
+The Ollama daemon is configured to run as a `launchd` service (the plist will be added
+by LIP-E005-F003 during feature-dev) with `KEEP_ALIVE=300s`, `NUM_PARALLEL=1`,
+`MAX_LOADED_MODELS=1`, `FLASH_ATTENTION=1`, `KV_CACHE_TYPE=q8_0`.
 
 ## Local Development
 
 ```bash
-# Start everything
-task dev
-
-# Backend only
-task dev:backend
-
-# Frontend only
-task dev:frontend
-```
-
-### First-time setup (fresh clone)
-
-```bash
-# Start Postgres
-task docker:up
-
-# Generate and run initial migration
+# Install dependencies
 cd apps/backend
-task db:revision -- "create_initial_tables"
-task db:migrate
+uv sync --dev
+
+# Start the service with hot reload
+task dev
+# Equivalent: uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Services:
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-- API docs: http://localhost:8000/docs
-- Storybook: `task storybook` -> http://localhost:6006
-
-## Database
-
-```bash
-# Run migrations
-task db:migrate
-
-# Create a new migration
-task db:revision -- "describe_change"
-
-# Reset database (dev only)
-task db:reset
-```
+Service: http://127.0.0.1:8000
+- `/health` — liveness probe
+- `/openapi.json` — auto-generated OpenAPI schema
+- `/docs` — Swagger UI (dev only)
+- `/redoc` — ReDoc (dev only)
 
 ## Testing
 
 ```bash
+# All checks (run before declaring work done)
+task check
+
 # All tests
 task test
 
-# Unit only (fast)
+# By level
 task test:unit
-
-# Integration (needs Docker for Testcontainers)
 task test:integration
-
-# E2E (needs full stack running)
-task test:e2e
-
-# Contract tests
 task test:contract
 ```
 
@@ -70,38 +55,35 @@ task test:contract
 ```bash
 # After editing errors.yaml:
 task errors:generate
-task errors:check
+task check:errors  # verifies generated files match committed files
 ```
 
-## Docker
+## Linting & Formatting
 
 ```bash
-# Build images
-task docker:build
-
-# Start stack
-task docker:up
-
-# Stop stack
-task docker:down
+task lint
+task format
 ```
 
-## Health Checks
+## Health Check
 
 - Liveness: `GET /health` -> `{"status": "ok"}`
-- Readiness: `GET /ready` -> `{"status": "ready"}` (checks DB)
+- Readiness: will be added by LIP-E006-F001 when the warm-up signal lands during feature-dev.
 
 ## Troubleshooting
 
-### Backend won't start
-- Check `DATABASE_URL` in `.env`
-- Ensure Postgres is running: `docker compose -f infra/compose/docker-compose.yml up db`
-- Run migrations: `task db:migrate`
+### Service won't start
 
-### Frontend won't start
-- Run `pnpm install` in `apps/frontend/`
-- Check Node version: must be 22+
+- Check that `pyproject.toml` and `uv.lock` are in sync: `uv sync --dev`
+- Check that Python 3.13 is available: `uv python install 3.13`
 
-### Tests fail with "connection refused"
-- Integration tests need Docker running (for Testcontainers)
-- E2E tests need the full stack: `task docker:up`
+### Tests fail with import errors
+
+- Run `uv sync --dev` from `apps/backend/` to install all dev dependencies.
+- Run from the `apps/backend/` directory (or use `task` which handles `cd` for you).
+
+### Ollama daemon not reachable (after LIP-E003 lands)
+
+- Verify Ollama is running: `curl http://localhost:11434/api/tags`
+- Verify the Gemma model is pulled: `ollama list | grep gemma`
+- Override the host if needed: `OLLAMA_HOST=http://localhost:11500 uv run uvicorn ...`

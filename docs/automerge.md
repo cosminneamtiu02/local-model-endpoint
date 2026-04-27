@@ -2,6 +2,8 @@
 
 How the "Dependabot PRs auto-merge if and only if everything is green" invariant is actually enforced. Read this end-to-end the first time. Bookmark it as a reference the next time something misbehaves.
 
+> **Note (post-bootstrap):** This document was originally written for the full-stack template that LIP was bootstrapped from. The auto-merge workflow, ruleset, variable, and PAT mechanics described below are unchanged for LIP. The historical incident references and lockfile-sync sections that mention `frontend-checks`, `api-client-checks`, `pnpm-lock.yaml`, and pnpm package groups describe the pre-bootstrap state — those parts of the surface no longer apply (LIP has no frontend, no Node, no `pnpm-lock.yaml`). Required status checks for LIP are `backend-checks` and `error-contracts`. The lockfile-sync workflow now operates only on `uv.lock` files in `apps/backend` and `packages/error-contracts`.
+
 ## TL;DR
 
 Dependabot-authored PRs that pass all required status checks are automatically squash-merged. Human-authored PRs always merge manually via the Squash button. The mechanism is a **paired contract** between three things that must all exist and all agree:
@@ -57,8 +59,6 @@ Lives at Settings → Rules → Rulesets → `main-protection`. Active. Targets 
   - Allowed merge methods: squash only
 - **Require status checks to pass** — with `strict: true` (branches must be up to date). Required contexts:
   - `backend-checks`
-  - `frontend-checks`
-  - `api-client-checks`
   - `error-contracts`
 - **Block force pushes** — cannot rewrite history on main.
 
@@ -133,7 +133,7 @@ If at any point a check goes red, the PR stays open until the red check flips gr
 | "Allow auto-merge" repo setting off | `gh pr merge --auto` may fail inside the workflow | Workflow runs but errors on the merge call. Graceful but noisy. |
 | "Allow Actions to create/approve PRs" off | Workflow's `gh` command fails with permission error | Workflow runs but errors. Graceful but noisy. |
 
-The invariant only holds when every component is correctly configured. The setup sequence in [docs/new-project-setup.md](new-project-setup.md) is the canonical order — follow it exactly, in order, once per new project.
+The invariant only holds when every component is correctly configured. The setup sequence in the project bootstrap notes (now in TEMPLATE_FRICTION.md and git history) is the canonical order — follow it exactly, in order, once per new project.
 
 ---
 
@@ -314,7 +314,7 @@ All three must be satisfied. The workflow reports `conclusion: skipped` if any a
 2. **Repo secret** `DEPENDABOT_LOCKFILE_SYNC_PAT` containing a fine-grained PAT as described above.
 3. **"Allow GitHub Actions to create and approve pull requests"** enabled under Settings → Actions → General → Workflow permissions. This is already required for `dependabot-automerge.yml`, so it's assumed here too.
 
-See [new-project-setup.md Phase 5b](new-project-setup.md) for step-by-step setup.
+See the project bootstrap notes (now in TEMPLATE_FRICTION.md and git history) for step-by-step setup.
 
 ### How the sync workflow composes with the auto-merge workflow
 
