@@ -114,18 +114,18 @@ The project operates within a fixed and non-negotiable set of constraints, summa
 
 ## Quality Attributes
 
-The non-functional requirements below apply at the project level. **Numerical targets in the Performance and Concurrency sections are provisional pre-measurement** — extrapolated from the brainstorm's stated 30–50 tok/s expectation and from public Apple-Silicon LLM-inference benchmarks for similarly-sized quantized models. They are concrete enough for downstream design but should be revised once Cosmin runs the brief's pre-elicitation homework (Ollama on the Mini, real prompts, real timings) before v1 implementation is finalized.
+The non-functional requirements below apply at the project level. **Numerical targets in the Performance and Concurrency sections were measured on 2026-04-27** on the actual M4 Mac Mini base via the brief's pre-elicitation homework (gemma4:e2b in Ollama, two representative prompt shapes timed through the Ollama HTTP API). The pre-elicitation homework is complete; numbers below are grounded in actual M4 Mini behavior with comfortable safety margin. Measured headline values: ~52 tok/s sustained decode, ~600–715 tok/s prefill, 6.6s cold model-load, 10.1s end-to-end for the light shape, 20.1s end-to-end for the heavy shape.
 
 ### Performance
 
-**Wake-up latency.** From "consumer issues wake call" to "service is ready for first inference" — including Ollama daemon model load (when the model is unloaded), FastAPI startup, and the warm-up dummy inference. Target: under 15 seconds when the model is not currently loaded in Ollama; under 5 seconds when the Ollama daemon already has the model warm (within `KEEP_ALIVE=300s` TTL of the previous session). Hard ceiling: 30 seconds — beyond this, something is wrong (disk pressure, OS thermal throttling, etc.) and Cosmin investigates manually. *Provisional; revise after measurement.*
+**Wake-up latency.** From "consumer issues wake call" to "service is ready for first inference" — including Ollama daemon model load (when the model is unloaded), FastAPI startup, and the warm-up dummy inference. Target: under 12 seconds when the model is not currently loaded in Ollama (measured cold-load ~6.6s + FastAPI startup ~1s + warm-up dummy inference ~1s); under 3 seconds when the Ollama daemon already has the model warm (within `KEEP_ALIVE=300s` TTL of the previous session). Hard ceiling: 20 seconds — beyond this, something is wrong (disk pressure, OS thermal throttling, etc.) and Cosmin investigates manually. *Measured 2026-04-27.*
 
 **Per-request inference latency.** P95 latency targets per representative prompt shape:
 
-- *Light shape* — approximately 200 input tokens, 500 output tokens (typical interactive use): under 20 seconds.
-- *Heavy shape* — approximately 500 input tokens, 1,000 output tokens (representative batch document-analysis call): under 40 seconds.
+- *Light shape* — approximately 200 input tokens, 500 output tokens (typical interactive use): under 15 seconds (measured single-shot 10.1 seconds, p95 sized at ~1.5x).
+- *Heavy shape* — approximately 500 input tokens, 1,000 output tokens (representative batch document-analysis call): under 30 seconds (measured single-shot 20.1 seconds, p95 sized at ~1.5x).
 
-These targets derive from a midpoint estimate of 40 tok/s decode and ~600 tok/s prefill on M4 Apple Silicon, with safety margin for variance. Both must be revised after measurement.
+These targets are derived from measured 52 tok/s sustained decode and 611–715 tok/s prefill on the M4 Mac Mini base, with p95 sized at roughly 1.5x single-shot latency to absorb system variance and the occasional thermal-throttle blip. *Measured 2026-04-27.*
 
 **Throughput.** Bounded by `asyncio.Semaphore(1)` — strictly serial inference. Throughput equals one over per-request-latency. Not independently targeted; emerges from the latency target above.
 
@@ -165,9 +165,9 @@ macOS arm64 only. Not portable to Linux, Windows, or Apple Silicon variants othe
 
 **Serial inference at the service layer.** `asyncio.Semaphore(1)` gates all inference calls regardless of HTTP-level concurrency. Multiple concurrent HTTP requests to the inference endpoint are accepted up to the bounded waiter count below, then rejected with 503.
 
-**Backpressure threshold.** Maximum 4 waiters; beyond that, the service returns 503. With one request actively executing under the semaphore, this means the system holds at most five requests at once (one in-flight plus four waiting). For four consumer projects calling serially, this leaves comfortable headroom for one burst above the steady state before the threshold is hit. Worst-case in-queue wait for the fifth request is approximately five times p95 latency — about 85 seconds for the light shape, about 200 seconds for the heavy shape — which is acceptable for batch-style consumer patterns and unsuitable for interactive use; consumers can detect the queued state by request duration if they need to behave differently. *Provisional; revise after measurement.*
+**Backpressure threshold.** Maximum 4 waiters; beyond that, the service returns 503. With one request actively executing under the semaphore, this means the system holds at most five requests at once (one in-flight plus four waiting). For four consumer projects calling serially, this leaves comfortable headroom for one burst above the steady state before the threshold is hit. Worst-case in-queue wait for the fifth request is approximately five times p95 latency — about 75 seconds for the light shape, about 150 seconds for the heavy shape — which is acceptable for batch-style consumer patterns and unsuitable for interactive use; consumers can detect the queued state by request duration if they need to behave differently. *Confirmed by 2026-04-27 measurements.*
 
-**Per-request timeout.** Server-side `asyncio.wait_for` is set to 180 seconds. Selected to accommodate the heavy-shape p95 (about 40 seconds) plus a safety margin for the worst-case realistic prompt shape (large input plus large output, up to roughly 4,000 tokens each), while still cutting off requests that have hung due to memory pressure, OS thermal throttling, or other pathological conditions. *Provisional; revise after measurement.*
+**Per-request timeout.** Server-side `asyncio.wait_for` is set to 180 seconds. Selected to accommodate the heavy-shape p95 (about 30 seconds, measured) plus a safety margin for the worst-case realistic prompt shape (large input plus large output, up to roughly 4,000 tokens each, which at the measured 52 tok/s decode would take ~80 seconds for output alone), while still cutting off requests that have hung due to memory pressure, OS thermal throttling, or other pathological conditions. *Confirmed by 2026-04-27 measurements; 6× safety margin over the heavy-shape p95 is intentional.*
 
 ## Project Boundary
 
