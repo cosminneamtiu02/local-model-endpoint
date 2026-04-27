@@ -3,7 +3,7 @@ type: epic
 id: LIP-E002
 parent: LIP
 title: Model Registry
-status: not-started
+status: partially-detailed
 priority: 20
 dependencies: []
 ---
