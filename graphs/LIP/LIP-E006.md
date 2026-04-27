@@ -3,7 +3,7 @@ type: epic
 id: LIP-E006
 parent: LIP
 title: Operational Visibility
-status: not-started
+status: fully-detailed
 priority: 60
 dependencies: [LIP-E001, LIP-E004]
 ---
@@ -26,8 +26,8 @@ In scope: the `/health` endpoint with liveness and readiness semantics; one or m
 
 ## Open questions
 
-*This list is not exhaustive. Additional questions may surface during feature elicitation.*
+None. All three Epic-level questions raised at requirements-elicitation time were resolved during feature thickening:
 
-- The exact paths and structures of state-inspection endpoints (one big `/state`, or several focused endpoints like `/state/queue`, `/state/model`, `/state/last-request`) is to be decided during feature thickening.
-- Whether `/health` follows the kubelet liveness/readiness probe convention (separate paths) or a single endpoint with structured fields requires a decision.
-- Whether the model-loaded probe to Ollama is performed on every state-inspection request (potentially adding latency) or cached with a short TTL needs a design decision.
+- **State-inspection endpoint structure** — resolved by F002: single consolidated `GET /state` returning all live operational state in one structured-JSON response. Single round-trip is operator-friendly; ≤4-consumer load doesn't benefit from selective fetching; one OpenAPI entry instead of three.
+- **`/health` path convention** — resolved by F001: single `GET /health` endpoint with HTTP-status-as-readiness-signal (200 = ready; 503 = not-ready; connection-refused = down). Kubelet's separate `/health/live` and `/health/ready` paths are over-engineered for a personal local-network single-machine service. The single-endpoint design conveys all three observable states cleanly via HTTP status alone.
+- **Ollama model-loaded probe latency** — resolved by F002: probed on every `/state` request (no TTL cache). Ollama's `/api/ps` is sub-100 ms locally; ≤4 consumers + occasional operator curls produce nowhere near enough load to warrant caching. The Ollama probe is best-effort — failure produces `ollama_reachable: false` + empty `ollama_loaded_models`, never a 5xx.

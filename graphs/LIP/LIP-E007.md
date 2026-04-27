@@ -3,7 +3,7 @@ type: epic
 id: LIP-E007
 parent: LIP
 title: Documentation & Contract Discoverability
-status: not-started
+status: fully-detailed
 priority: 70
 dependencies: [LIP-E001, LIP-E002, LIP-E003, LIP-E004, LIP-E005, LIP-E006]
 ---
@@ -26,7 +26,7 @@ In scope: the README content covering the conceptual model — request envelope,
 
 ## Open questions
 
-*This list is not exhaustive. Additional questions may surface during feature elicitation.*
+None. Both Epic-level questions raised at requirements-elicitation time were resolved during feature thickening:
 
-- Whether OpenAPI is exposed at `/docs` (Swagger UI), `/redoc`, both, or neither in v1 requires a decision; the FastAPI default exposes both.
-- Where the README lives in the monorepo — at the feature slice's root (`apps/backend/app/features/<feature>/README.md`) or at the project root — requires a decision matching CLAUDE.md conventions.
+- **OpenAPI exposure** — resolved by F001: both `/docs` (Swagger UI) and `/redoc` (Redoc UI) are exposed (FastAPI defaults retained). No production-disabling logic in v1 (no production/dev distinction; single deployment trusts local-network callers). README documents both URLs alongside `/openapi.json` (machine-readable contract source).
+- **README location** — resolved by F001: project root `README.md` (replaces the post-bootstrap generic README). Project-root location is the canonical landing page for the repo; consumers cloning land here. Feature-scoped README would split discoverability since LIP has effectively one consumer-facing surface (the inference endpoint).

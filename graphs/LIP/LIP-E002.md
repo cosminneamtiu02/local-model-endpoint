@@ -3,7 +3,7 @@ type: epic
 id: LIP-E002
 parent: LIP
 title: Model Registry
-status: partially-detailed
+status: fully-detailed
 priority: 20
 dependencies: []
 ---
@@ -26,8 +26,8 @@ In scope: the in-process registry data structure; the initial Gemma 4 E2B entry 
 
 ## Open questions
 
-*This list is not exhaustive. Additional questions may surface during feature elicitation.*
+None. The three Epic-level open questions raised at requirements-elicitation time were resolved during feature thickening:
 
-- The exact schema of a registry entry (what fields beyond logical name, backend tag, sampling defaults, capability flags, context max) is to be resolved during feature thickening.
-- Whether logical names are namespaced (e.g., `"text/default-fast"`) or flat (e.g., `"default-fast"`) is undecided.
-- The initial sampling defaults for Gemma 4 E2B (temperature, top_p, top_k) need concrete values, ideally informed by the brief's pre-elicitation homework.
+- **Registry entry schema** — resolved by F001 (`ModelInfo` Pydantic value-object with `logical_name`, `backend: Literal["ollama"]`, `backend_tag`, `sampling_defaults: ModelParams`, `capabilities: frozenset[Literal["text", "image", "audio"]]`, `context_max: int`).
+- **Logical-name format (namespaced vs flat)** — resolved by F001: flat (e.g., `"default-task"`, not `"text/default-task"`).
+- **Initial Gemma 4 E2B sampling defaults** — resolved by F001: `temperature=0.0` (cognitive-task workload, fully greedy/deterministic decoding per Ollama's documented behavior), all other `ModelParams` fields `None`, `think=False`.

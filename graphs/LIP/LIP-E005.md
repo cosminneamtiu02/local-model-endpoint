@@ -3,7 +3,7 @@ type: epic
 id: LIP-E005
 parent: LIP
 title: Lifecycle Management
-status: not-started
+status: fully-detailed
 priority: 50
 dependencies: [LIP-E001]
 ---
@@ -26,8 +26,8 @@ In scope: the FastAPI startup hook performing the warm-up dummy inference; the i
 
 ## Open questions
 
-*This list is not exhaustive. Additional questions may surface during feature elicitation.*
+None. All three Epic-level questions raised at requirements-elicitation time were resolved during feature thickening:
 
-- The exact mechanism for the idle-shutdown timer — a background task using `asyncio.sleep` and a request-counter, vs a per-request reset of an idle timestamp checked by a watchdog — requires a design decision during thickening.
-- Whether the warm-up dummy inference uses the actual `default-fast` model or a fixed minimal prompt is undecided.
-- The exact location of the Ollama `launchd` plist within the repo (`infra/launchd/`, `apps/backend/launchd/`, etc.) needs to fit existing template conventions.
+- **Idle-shutdown timer mechanism** — resolved by F002: a polling background watchdog (`async def idle_watchdog`) that sleeps 60 s per iteration, checks `time.monotonic() - tracker.last_finish() >= idle_seconds`, and skips when `waiter_counter.current() > 0`. Simpler than per-request-reset + remaining-time-recompute; granularity (60 s on a 600 s default) is acceptable. `LastRequestTracker.record()` is called at both entry and `finally` of `InferenceService.run()` so all paths through the orchestrator update the timer.
+- **Warm-up dummy inference body** — resolved by F001: real registry-resolved path. Calls `client.chat()` with the `default-task` registry entry, `Message(role="user", content="ok")`, `ModelParams(max_tokens=1)`. Exercises the full registry → backend-tag resolution at startup, catching mis-wirings before the first user request. Bypasses the orchestrator's QoS layer (no semaphore/counter pollution).
+- **launchd plist location** — resolved by F003: `infra/launchd/com.lip.ollama.plist` with `docs/ollama-launchd.md` documenting install/uninstall/customize procedures. Validated by `plutil -lint` in `task check`. Plist installed to `~/Library/LaunchAgents/com.lip.ollama.plist` and bootstrapped via `launchctl bootstrap gui/$(id -u) …`.

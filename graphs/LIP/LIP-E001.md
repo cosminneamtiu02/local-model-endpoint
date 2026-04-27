@@ -3,7 +3,7 @@ type: epic
 id: LIP-E001
 parent: LIP
 title: Inference Contract & Happy Path
-status: partially-detailed
+status: fully-detailed
 priority: 10
 dependencies: []
 ---
@@ -26,8 +26,8 @@ In scope: the request and response Pydantic schemas; the FastAPI router endpoint
 
 ## Open questions
 
-*This list is not exhaustive. Additional questions may surface during feature elicitation.*
+None. All three Epic-level questions raised at requirements-elicitation time were resolved during feature thickening:
 
-- The exact endpoint path (`/v1/chat`, `/v1/complete`, `/inference`, etc.) and HTTP verb pattern have not been chosen. Likely follows OpenAI-compatible conventions for familiarity, but the project does not require OpenAI compatibility.
-- The exact shape of the `Message` value-object (role + content fields, support for multipart content for multimodal inputs) requires resolution during feature thickening.
-- Whether the response includes any metadata beyond the model output (timing, model used, request id) is undecided in v1.
+- **Endpoint path and HTTP verb** — resolved by F002: `POST /v1/inference`. Path uses the project's domain language ("inference", per Project Boundary) rather than OpenAI's "chat", and the versioned `/v1` prefix establishes URL-level forward compatibility for future contract changes. The project does not require OpenAI compatibility — backed-into-project-vocabulary path is preferred.
+- **`Message` value-object shape** — resolved by F001: `role: Literal["user", "assistant", "system"]` and `content: str | list[ContentPart]` where `ContentPart` is a discriminated union over `TextContent | ImageContent | AudioContent` keyed by a `type` discriminator. Multipart support exists from day one because the v1 registry entry (Gemma 4 E2B) declares all three capability flags.
+- **Response metadata beyond model output** — resolved by F001: yes, an 8-field `metadata` block carrying `model` (logical name), `prompt_tokens`, `completion_tokens`, `request_id`, `latency_ms`, `queue_wait_ms`, `finish_reason`, and `backend`. F002 composes these from a mix of the orchestrator's wall-clock measurements, the request-id middleware, and the adapter's `OllamaChatResult`.

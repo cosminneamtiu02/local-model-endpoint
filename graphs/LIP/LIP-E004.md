@@ -3,7 +3,7 @@ type: epic
 id: LIP-E004
 parent: LIP
 title: Backpressure, Timeouts & Error Responses
-status: partially-detailed
+status: fully-detailed
 priority: 40
 dependencies: [LIP-E001]
 ---
@@ -26,7 +26,7 @@ In scope: the `asyncio.Semaphore(1)` wrapper; the bounded waiter-count enforceme
 
 ## Open questions
 
-*This list is not exhaustive. Additional questions may surface during feature elicitation.*
+None. Both Epic-level questions raised at requirements-elicitation time were resolved during feature thickening:
 
-- The exact structured error response schema (fields, naming conventions, whether to follow RFC 7807 `application/problem+json` or a simpler service-owned shape) requires resolution during feature thickening.
-- Whether the bounded waiter count and per-request timeout are configurable via `pydantic-settings` or hardcoded at 4 and 180 s in v1 needs a decision; configurable is closer to the CLAUDE.md pattern.
+- **Structured error response schema** — resolved by F004: RFC 7807 `application/problem+json` with five standard fields (`type`, `title`, `status`, `detail`, `instance`) plus two project extensions (`code`, `request_id`) plus typed params spread at the root level. The `type` field is a non-resolvable URN of the form `urn:lip:error:<code-kebab>` per RFC 7807 §3.1.
+- **Configurability of waiter count and timeout** — resolved by F002 + F003: both are `pydantic-settings` fields with `Field(default=4, gt=0)` / `Field(default=180, gt=0)` validation. Env vars `MAX_INFERENCE_WAITERS` and `INFERENCE_TIMEOUT_SECONDS`. Configurable matches CLAUDE.md's "Never use os.environ — use pydantic-settings" pattern; defaults match the disambiguated-idea Quality Attributes (≤4 concurrent consumers; cognitive-task workloads bound to <2k tokens — 180 s is a "definitely broken" threshold against measured 52 tok/s decode on the M4 Mini, not a "slow but normal" threshold).

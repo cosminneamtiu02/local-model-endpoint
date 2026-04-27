@@ -3,7 +3,7 @@ type: epic
 id: LIP-E003
 parent: LIP
 title: Ollama Backend Adapter
-status: not-started
+status: fully-detailed
 priority: 30
 dependencies: []
 ---
@@ -26,7 +26,7 @@ In scope: the configurable Ollama host via `pydantic-settings`; the `httpx.Async
 
 ## Open questions
 
-*This list is not exhaustive. Additional questions may surface during feature elicitation.*
+None. Both Epic-level questions raised at requirements-elicitation time were resolved during feature thickening:
 
-- Whether the adapter exposes a single high-level `chat()` method or multiple methods (one per Ollama endpoint family — `/api/chat`, `/api/generate`, `/api/embeddings`) is to be resolved during feature thickening.
-- Connection-pool sizing and `httpx` transport-layer timeout (separate from LIP-E004's per-request timeout) will need a default value.
+- **Single `chat()` method vs multiple endpoint-family methods** — resolved by F002: a single high-level `async def chat(*, model_tag, messages, params) -> OllamaChatResult` against `/api/chat`. Embeddings and pure `/api/generate` are out of v1 scope (v1 ships only Gemma 4 E2B chat workloads).
+- **Connection-pool sizing and `httpx` transport-layer timeout** — resolved by F001: `httpx.Timeout(connect=5.0, read=None, write=None, pool=None)` (5s to dial Ollama, no read deadline since LIP-E004-F003's `asyncio.wait_for` owns the per-request budget). Connection pool uses `httpx`'s defaults (10 keepalive / 100 max) — adequate for v1's 1-concurrent-call serialized workload (LIP-E004-F001).
