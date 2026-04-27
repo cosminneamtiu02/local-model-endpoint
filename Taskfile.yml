@@ -49,6 +49,13 @@ tasks:
     cmds:
       - task: errors:generate
       - git diff --exit-code apps/backend/app/exceptions/_generated/
+      - |
+        UNTRACKED=$(git ls-files --others --exclude-standard apps/backend/app/exceptions/_generated/)
+        if [ -n "$UNTRACKED" ]; then
+          echo "Untracked generated error files (forgot to git add?):"
+          echo "$UNTRACKED"
+          exit 1
+        fi
 
   # ── Testing ──────────────────────────────────────────────────
   test:
@@ -94,7 +101,7 @@ tasks:
     desc: Generate Python error classes from errors.yaml
     dir: packages/error-contracts
     cmds:
-      - uv run --with pyyaml python -c "
+      - uv run python -c "
         from pathlib import Path;
         from scripts.generate import generate_python;
         p = Path('errors.yaml');

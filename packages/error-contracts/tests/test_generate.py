@@ -13,12 +13,12 @@ errors:
     http_status: 404
     description: Resource not found
     params: {}
-  WIDGET_NOT_FOUND:
+  EXAMPLE_NOT_FOUND:
     http_status: 404
     description: Widget not found
     params:
       widget_id: string
-  WIDGET_NAME_TOO_LONG:
+  EXAMPLE_NAME_TOO_LONG:
     http_status: 422
     description: Name too long
     params:
@@ -82,21 +82,21 @@ def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Pat
 
     generate_python(sample_errors_path, output_dir)
 
-    # Should produce: not_found_error.py, widget_not_found_error.py,
-    # widget_not_found_params.py, widget_name_too_long_error.py,
-    # widget_name_too_long_params.py, __init__.py, _registry.py
+    # Should produce: not_found_error.py, example_not_found_error.py,
+    # example_not_found_params.py, example_name_too_long_error.py,
+    # example_name_too_long_params.py, __init__.py, _registry.py
     assert (output_dir / "not_found_error.py").exists()
-    assert (output_dir / "widget_not_found_error.py").exists()
-    assert (output_dir / "widget_not_found_params.py").exists()
-    assert (output_dir / "widget_name_too_long_error.py").exists()
-    assert (output_dir / "widget_name_too_long_params.py").exists()
+    assert (output_dir / "example_not_found_error.py").exists()
+    assert (output_dir / "example_not_found_params.py").exists()
+    assert (output_dir / "example_name_too_long_error.py").exists()
+    assert (output_dir / "example_name_too_long_params.py").exists()
     assert (output_dir / "__init__.py").exists()
     assert (output_dir / "_registry.py").exists()
 
     # Verify content of a parameterized error
-    content = (output_dir / "widget_not_found_error.py").read_text()
-    assert "class WidgetNotFoundError" in content
-    assert "WIDGET_NOT_FOUND" in content
+    content = (output_dir / "example_not_found_error.py").read_text()
+    assert "class ExampleNotFoundError" in content
+    assert "EXAMPLE_NOT_FOUND" in content
     assert "404" in content
 
 
@@ -109,7 +109,7 @@ def test_codegen_produces_valid_typescript(sample_errors_path: Path, output_dir:
     content = ts_path.read_text()
     assert "ErrorCode" in content
     assert '"NOT_FOUND"' in content
-    assert '"WIDGET_NOT_FOUND"' in content
+    assert '"EXAMPLE_NOT_FOUND"' in content
     assert "widget_id: string" in content
     assert "ErrorParamsByCode" in content
 
@@ -127,9 +127,9 @@ def test_codegen_produces_valid_required_keys(
     data = json.loads(json_path.read_text())
     assert "keys" in data
     assert "NOT_FOUND" in data["keys"]
-    assert "WIDGET_NOT_FOUND" in data["keys"]
+    assert "EXAMPLE_NOT_FOUND" in data["keys"]
     assert "params_by_key" in data
-    assert data["params_by_key"]["WIDGET_NOT_FOUND"] == ["widget_id"]
+    assert data["params_by_key"]["EXAMPLE_NOT_FOUND"] == ["widget_id"]
     assert data["params_by_key"]["NOT_FOUND"] == []
 
 

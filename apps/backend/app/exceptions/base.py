@@ -14,7 +14,7 @@ class DomainError(Exception):
     """Base class for all domain errors.
 
     Each subclass has:
-    - code: machine-readable error code (e.g. "WIDGET_NOT_FOUND")
+    - code: machine-readable error code (e.g. "NOT_FOUND")
     - http_status: HTTP status code to return
     - params: typed parameter object (or None for parameterless errors)
     """
