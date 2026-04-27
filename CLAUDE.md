@@ -63,7 +63,11 @@ preserved but with redefined semantics for a no-DB feature:
 
 - Features cannot import from other features.
 - Within a feature: router -> service -> repository -> model. No skipping.
-- Schemas never import models. Models never import schemas.
+- Schemas may import value-objects from `model/`. The original "schemas never
+  import models" rule decoupled wire shapes from SQLAlchemy ORM models; LIP has
+  no DB and `model/` holds project value-objects (Message, ModelParams,
+  ContentPart, ModelInfo, OllamaChatResult), not ORM types. Models never
+  import schemas — that direction stays strict.
 - core/ never imports from features/.
 - exceptions/ never imports from features/.
 
