@@ -1,12 +1,16 @@
-"""Request middleware — request ID, security headers, access logging, CORS."""
+"""Request middleware — request ID propagation only.
+
+Access-log emission, security headers, and CORS were stripped during
+project-bootstrap because the service is local-network-only and v1's
+Project Boundary defers structured logging emission and browser-
+protective surfaces to a future milestone (G3 architectural foundation).
+"""
 
 import re
-import time
 import uuid
 
 import structlog
 from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 logger = structlog.get_logger(__name__)
@@ -36,68 +40,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class AccessLogMiddleware(BaseHTTPMiddleware):
-    """Log every request with method, path, status, and duration."""
+def configure_middleware(app: FastAPI) -> None:
+    """Attach middleware to the FastAPI app.
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        start = time.perf_counter()
-        response = await call_next(request)
-        duration_ms = (time.perf_counter() - start) * 1000
-
-        logger.info(
-            "http_request",
-            method=request.method,
-            path=request.url.path,
-            status_code=response.status_code,
-            duration_ms=round(duration_ms, 2),
-        )
-        return response
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Set security headers on every response."""
-
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        response = await call_next(request)
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=(), payment=()"
-        )
-        # Permissive CSP default — blocks external script/style loading but allows
-        # inline (needed for Tailwind/Vite). Tighten per project.
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; "
-            "font-src 'self'; "
-            "connect-src 'self'"
-        )
-        return response
-
-
-def configure_middleware(app: FastAPI, cors_origins: list[str]) -> None:
-    """Attach all middleware to the FastAPI app.
-
-    Order matters — outermost middleware runs first. The stack from outside in:
-    1. CORS (handles preflight before anything else)
-    2. RequestId (sets request_id for all downstream middleware and handlers)
-    3. AccessLog (logs after response is generated, includes request_id from contextvars)
-    4. SecurityHeaders (sets headers on every response)
-
-    Note: Rate limiting is a per-project decision. When needed, add it between
-    RequestId and AccessLog so rate-limited requests are still logged.
+    LIP runs only the RequestIdMiddleware in v1.
     """
-    app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(AccessLogMiddleware)
     app.add_middleware(RequestIdMiddleware)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )

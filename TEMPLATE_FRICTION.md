@@ -70,3 +70,48 @@ When multiple Dependabot PRs modify adjacent lines in the same manifest file (e.
 **Template-level fix we shipped:** aggressive `groups:` in [.github/dependabot.yml](.github/dependabot.yml) for every ecosystem where interlocking dependencies touch the same manifest file. Specifically: `sqlalchemy-stack` (sqlalchemy + alembic + asyncpg), `fastapi-stack`, `pydantic`, `pytest`, `tanstack`, `react`, `storybook`, `vitest`, `testing-library`, `tailwind`, `i18next`, `dinero`.
 
 **Takeaway codified:** when you see a fifth Dependabot PR for the same ecosystem, it's almost always doomed to cascade-conflict. Add a group and don't merge siblings individually.
+
+### 2026-04-27 — LIP project bootstrap stripped the template to backend-only
+
+The Local Inference Provider (LIP) project was bootstrapped from this template using the `project-bootstrap` skill on 2026-04-27. The template was stripped to its backend-only foundation and tailored to LIP's specifications:
+
+**Stripped (whole directories):**
+- `apps/frontend/` — entire React tree, Storybook, i18n, locales, FE tests
+- `infra/docker/` + `infra/compose/` + `infra/terraform/` + `infra/` parent dir — no Docker, no cloud
+- `packages/api-client/` — no FE to consume types
+- `apps/backend/alembic/` — no database
+- `apps/backend/app/features/widget/` — reference slice not relevant to LIP
+- `apps/backend/app/shared/` — DB-coupled BaseModel/BaseRepository/BaseService
+- `apps/backend/app/types/` — Money type not needed
+
+**Stripped (single files):**
+- `app/core/database.py`, `app/schemas/page.py`
+- `pnpm-lock.yaml`, `pnpm-workspace.yaml`
+- `.github/workflows/deploy.yml`, `.github/workflows/copilot-review.yml`
+- Widget `_generated/` error classes, widget tests, DB-coupled tests, Money/Page/config-validator tests
+- `packages/error-contracts/{src/, scripts/validate_translations.py, package.json, tests/test_validate_translations.py}`
+
+**Stripped (subset deletions inside multi-purpose files):**
+- HTTP middleware: kept only `RequestIdMiddleware`. Stripped access log, security headers, CORS.
+- `.pre-commit-config.yaml`: stripped biome + vitest hooks
+- `.github/dependabot.yml`: stripped npm × 2 + terraform ecosystems
+- `.github/workflows/ci.yml`: stripped frontend-checks + api-client-checks jobs and the postgres service
+- `Taskfile.yml`: stripped frontend / DB / Docker / Storybook tasks
+
+**Stripped docs (template-internal, no longer relevant to a bootstrapped project):**
+- `docs/reshape-plan.md` (template meta-history)
+- `docs/new-project-setup.md` (project setup checklist for a fresh template clone)
+
+**Rewritten:** `CLAUDE.md`, `README.md`, `.env.example`, all surviving `docs/*.md`,
+`apps/backend/pyproject.toml`, `app/main.py`, `app/core/config.py`, `app/api/middleware.py`,
+`app/api/health_router.py`, `architecture/import-linter-contracts.ini`, `errors.yaml`,
+`Taskfile.yml`, `ci.yml`, `dependabot.yml`. `TEMPLATE_FRICTION.md` preserved with this
+entry appended.
+
+**Friction observed during bootstrap (feedback into future template improvements):**
+
+- The template's HTTP middleware bundles four concerns (request_id, access log, security headers, CORS) into one `configure_middleware()` factory whose signature includes `cors_origins`. Stripping three of the four required rewriting the factory signature, which cascaded into a `main.py` edit. A per-middleware `add_X_middleware()` factory pattern would let projects opt in/out individually without changing the factory's call site.
+- The `_generated/_registry.py` and `_generated/__init__.py` had to be hand-edited after deleting widget _generated/ files because `task errors:generate` couldn't run without first installing dependencies (chicken-and-egg with stripped pyproject.toml). Future bootstraps could skip the hand-edit by running `uv sync --dev && task errors:generate` immediately after `errors.yaml` is edited.
+- `docs/automerge.md` is heavily template-flavored (frontend-checks references, pnpm lockfile examples). Most of its content is generic Dependabot mechanics that apply unchanged, but a project-specific scrub is needed. A header note + a few surgical edits got it acceptable for v1; a fuller rewrite would be cleaner.
+- `docs/decisions.md` had four ADRs scoped to stripped capabilities (ADR-002 Pagination, ADR-006 i18n-from-day-one, ADR-007 Money, ADR-008 Biome+ESLint). Project-bootstrap stripped them rather than keeping them as historical decisions, on the grounds that ADRs document *current* decisions; historical decisions live in git history.
+- The integration test `conftest.py` had Testcontainers + DB + widget references baked deeply into one file. A no-DB project could not preserve any part of it; the entire fixture file had to be rewritten into a 10-line ASGI-transport client fixture. A modular `conftest.py` (one module per fixture concern: `_db.py`, `_client.py`, `_auth.py`) would let projects keep relevant fixtures and strip the rest with targeted file deletions instead of rewriting from scratch.

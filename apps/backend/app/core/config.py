@@ -1,30 +1,24 @@
 """Application configuration via pydantic-settings."""
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Application settings loaded from environment variables.
+
+    LIP-specific fields (queue depth, per-request timeout, idle-shutdown
+    interval) are added during feature-dev as LIP-E004 and LIP-E005 are
+    thickened.
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
     )
 
-    database_url: str
     app_env: str = "development"
     log_level: str = "info"
-    cors_origins: list[str] = ["http://localhost:5173"]
 
-    @field_validator("database_url")
-    @classmethod
-    def validate_database_url(cls, v: str) -> str:
-        """Reject non-PostgreSQL URLs at startup."""
-        if not v.startswith("postgresql"):
-            msg = (
-                f"DATABASE_URL must start with 'postgresql' (got '{v[:20]}...'). "
-                "SQLite is not supported. See CLAUDE.md."
-            )
-            raise ValueError(msg)
-        return v
+    # Ollama backend host. Configurable so tests can point at a fixture
+    # and future deployments can target a different Ollama instance.
+    ollama_host: str = "http://localhost:11434"

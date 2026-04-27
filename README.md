@@ -1,49 +1,49 @@
-# Project Template
+# Local Inference Provider (LIP)
 
-Full-stack monorepo template with React frontend, FastAPI backend, and PostgreSQL.
+A FastAPI service on a 16 GB M4 Mac Mini base that wraps a local Ollama daemon and
+exposes a stable backend-agnostic inference contract to up to four locally-networked
+consumer backend projects.
+
+See [docs/disambigued-idea.md](docs/disambigued-idea.md) for the full project description
+and [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 
 ## Tech Stack
 
-- **Frontend**: React 19, Vite, TypeScript strict, TanStack Query/Router, Tailwind, shadcn/ui, Storybook, i18next
-- **Backend**: Python 3.13, FastAPI, SQLAlchemy 2.0 async, Alembic, Pydantic v2, structlog
-- **Database**: PostgreSQL 17
-- **Testing**: Vitest + RTL + Playwright (FE), pytest + Testcontainers + Schemathesis (BE)
-- **Tooling**: Taskfile, Biome, Ruff, Pyright, import-linter
+- **Backend**: Python 3.13, FastAPI, Pydantic v2, asyncio, httpx, structlog
+- **Inference backend**: Ollama running natively on macOS (Gemma 4 E2B in v1)
+- **Testing**: pytest + pytest-asyncio + Schemathesis
+- **Tooling**: Taskfile, Ruff, Pyright, import-linter, uv
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Python 3.13, Node 22, pnpm 10, Docker
+# Prerequisites: Python 3.13, uv, Ollama with gemma4:e2b pulled
 
-# Install backend
-cd apps/backend && uv sync --dev
+cd apps/backend
+uv sync --dev
 
-# Install frontend
-cd apps/frontend && pnpm install
-
-# Start with Docker
-task dev
+# Run the service
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `task dev` | Start full stack via docker-compose |
-| `task check` | Run all linters, type checkers, and tests |
-| `task test:unit` | Run unit tests (backend + frontend) |
-| `task test:integration` | Run integration tests (Testcontainers) |
-| `task test:e2e` | Run Playwright E2E tests |
-| `task test:contract` | Run contract tests |
-| `task lint` | Run all linters |
-| `task format` | Run all formatters |
-| `task storybook` | Start Storybook |
-| `task db:migrate` | Run Alembic migrations |
-| `task errors:generate` | Generate error classes from errors.yaml |
-| `task errors:check` | Validate translations |
+| `task dev` | Start backend with hot reload |
+| `task check` | Run all linters, type checkers, architecture, tests, error contracts |
+| `task test` | Run all tests (unit + integration + contract) |
+| `task test:unit` | Run unit tests |
+| `task test:integration` | Run integration tests (in-process via ASGI transport) |
+| `task test:contract` | Run contract tests (Schemathesis) |
+| `task lint` | Run ruff lint |
+| `task format` | Run ruff format |
+| `task errors:generate` | Generate Python error classes from errors.yaml |
+| `task check:errors` | Verify error contracts are up to date |
 
 ## Documentation
 
+- [Disambiguated idea](docs/disambigued-idea.md) — full project description
 - [Architecture](docs/architecture.md)
 - [Conventions](docs/conventions.md)
 - [Decisions](docs/decisions.md)
@@ -53,6 +53,7 @@ task dev
 ## AI-Assisted Development
 
 See [CLAUDE.md](CLAUDE.md) for the discipline contract governing AI-assisted work.
+See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 
 ## License
 

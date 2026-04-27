@@ -30,23 +30,9 @@ errors:
     params:
       retry_after_seconds: integer
 
-  # Widget domain
-  WIDGET_NOT_FOUND:
-    http_status: 404
-    description: Requested widget does not exist
-    params:
-      widget_id: string
-
-  WIDGET_NAME_CONFLICT:
-    http_status: 409
-    description: A widget with this name already exists
-    params:
-      name: string
-
-  WIDGET_NAME_TOO_LONG:
-    http_status: 422
-    description: Widget name exceeds maximum length
-    params:
-      name: string
-      max_length: integer
-      actual_length: integer
+# LIP-specific error codes will be added here during feature-dev. See
+# graphs/LIP/ for the planned codes:
+#   - QUEUE_FULL          (HTTP 503, LIP-E004-F002)
+#   - INFERENCE_TIMEOUT   (HTTP 504, LIP-E004-F003)
+#   - ADAPTER_CONNECTION  (HTTP 502, LIP-E003-F003)
+#   - REGISTRY_NOT_FOUND  (HTTP 404, LIP-E002-F001)
