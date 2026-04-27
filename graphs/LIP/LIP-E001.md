@@ -3,7 +3,7 @@ type: epic
 id: LIP-E001
 parent: LIP
 title: Inference Contract & Happy Path
-status: not-started
+status: partially-detailed
 priority: 10
 dependencies: []
 ---

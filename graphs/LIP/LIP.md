@@ -2,6 +2,7 @@
 type: project
 slug: LIP
 title: Local Inference Provider
+status: outlined
 ---
 
 ## Short description
