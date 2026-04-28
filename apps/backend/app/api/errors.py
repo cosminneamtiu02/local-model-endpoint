@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.exceptions.base import DomainError
+from app.exceptions import DomainError
 
 logger = structlog.get_logger(__name__)
 
@@ -37,7 +37,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def handle_validation_error(  # pyright: ignore[reportUnusedFunction]
+    async def handle_validation_error(  # pyright: ignore[reportUnusedFunction]  # registered via decorator
         request: Request,
         exc: RequestValidationError,
     ) -> JSONResponse:
@@ -64,7 +64,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def handle_unhandled(  # pyright: ignore[reportUnusedFunction]
+    async def handle_unhandled(  # pyright: ignore[reportUnusedFunction]  # registered via decorator
         request: Request,
         exc: Exception,
     ) -> JSONResponse:

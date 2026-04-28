@@ -44,6 +44,7 @@ tasks:
     cmds:
       - task: test:unit
       - task: test:integration
+      - task: test:contract
 
   check:errors:
     desc: Verify error contracts are up to date
@@ -51,6 +52,7 @@ tasks:
       - task: errors:generate
       - git diff --exit-code apps/backend/app/exceptions/_generated/
       - |
+        set -euo pipefail
         UNTRACKED=$(git ls-files --others --exclude-standard apps/backend/app/exceptions/_generated/)
         if [ -n "$UNTRACKED" ]; then
           echo "Untracked generated error files (forgot to git add?):"
@@ -94,13 +96,13 @@ tasks:
     desc: Run linter
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run ruff check .
+      - uv run ruff check app/ tests/
 
   format:
     desc: Run formatter
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run ruff format .
+      - uv run ruff format app/ tests/
 
   # ── Code Generation ──────────────────────────────────────────
   errors:generate:

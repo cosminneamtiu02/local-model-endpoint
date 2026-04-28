@@ -1,5 +1,7 @@
 """Application configuration via pydantic-settings."""
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +19,9 @@ class Settings(BaseSettings):
     )
 
     app_env: str = "development"
-    log_level: str = "info"
+    # Lowercase is canonical; configure_logging uppercases via .upper()
+    # before passing to stdlib logging.setLevel.
+    log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
 
     # Ollama backend host. Configurable so tests can point at a fixture
     # and future deployments can target a different Ollama instance.
