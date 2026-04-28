@@ -70,7 +70,7 @@ process running.
 | Layer | What runs | Speed |
 |---|---|---|
 | Pre-commit | ruff (lint + format), trailing-whitespace, end-of-file-fixer, check-yaml/json, large-file guard, detect-secrets, Taskfile syntax check (per ADR-009) | ~5-10s |
-| Pre-push | pytest unit | ~5-15s |
+| Pre-push | pytest unit + pyright + import-linter (per ADR-009) | ~30-60s |
 | CI | All three test levels + type checker + import-linter + error-contracts regen check | Full |
 
 ## Explicitly Excluded

@@ -1,0 +1,1 @@
+"""LIP backend application package."""

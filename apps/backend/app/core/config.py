@@ -13,9 +13,15 @@ def _is_private_host(host: str) -> bool:
         return False
     if host == "localhost" or host.endswith(".local"):
         return True
+    # AnyHttpUrl.host returns IPv6 hosts in bracketed form (``[::1]``); the
+    # stdlib ipaddress module rejects brackets, so strip before classifying.
+    classifiable = host[1:-1] if host.startswith("[") and host.endswith("]") else host
     try:
-        ip = ipaddress.ip_address(host)
+        ip = ipaddress.ip_address(classifiable)
     except ValueError:
+        # Control-flow conversion: a non-IP string (e.g. a custom DNS name) is
+        # not loopback/private — return the safe default. Not a "silent swallow"
+        # per CLAUDE.md; the parse failure encodes a known business case.
         return False
     # 0.0.0.0 / :: are unspecified — nonsensical as outbound targets and
     # the same all-interfaces values the bind-side clamp reject-lists, so

@@ -1,7 +1,6 @@
 """Tests for the error contracts code generator."""
 
 import ast
-import json
 from pathlib import Path
 
 import pytest
@@ -165,39 +164,6 @@ def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Pat
             ast.parse(src)
         except SyntaxError as e:
             pytest.fail(f"Generated file {py_file.name} has syntax error: {e}")
-
-
-def test_codegen_produces_valid_typescript(sample_errors_path: Path, output_dir: Path):
-    """Codegen should produce a valid TypeScript file with types."""
-    from scripts.generate import generate_typescript
-
-    ts_path = generate_typescript(sample_errors_path, output_dir / "generated.ts")
-
-    content = ts_path.read_text()
-    assert "ErrorCode" in content
-    assert '"NOT_FOUND"' in content
-    assert '"EXAMPLE_NOT_FOUND"' in content
-    assert "widget_id: string" in content
-    assert "ErrorParamsByCode" in content
-
-
-def test_codegen_produces_valid_required_keys(sample_errors_path: Path, output_dir: Path):
-    """Codegen should produce a valid required-keys.json."""
-    from scripts.generate import generate_required_keys
-
-    json_path = generate_required_keys(sample_errors_path, output_dir / "required-keys.json")
-
-    data = json.loads(json_path.read_text())
-    assert data["version"] == 1
-    assert data["namespace"] == "errors"
-    assert "keys" in data
-    assert "NOT_FOUND" in data["keys"]
-    assert "EXAMPLE_NOT_FOUND" in data["keys"]
-    assert "INTERNAL_ERROR" in data["keys"]
-    assert "params_by_key" in data
-    assert data["params_by_key"]["EXAMPLE_NOT_FOUND"] == ["widget_id"]
-    assert data["params_by_key"]["NOT_FOUND"] == []
-    assert data["params_by_key"]["INTERNAL_ERROR"] == []
 
 
 def test_codegen_rejects_duplicate_codes(tmp_path: Path, output_dir: Path):

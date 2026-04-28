@@ -57,17 +57,18 @@ def test_configure_logging_round_trips_event_via_capture_logs() -> None:
 def test_configure_logging_json_mode_adds_dict_tracebacks() -> None:
     """JSON mode inserts dict_tracebacks for structured exception rendering."""
     configure_logging(log_level="info", json_output=True)
-    # Force a fresh bound-logger creation (cache_logger_on_first_use=True
-    # would otherwise keep the previous test's cached logger).
-    structlog.get_logger("smoke-json")
-    # Bound logger uses stdlib factory; JSON mode + dict_tracebacks is wired
-    # through ProcessorFormatter, which is exercised end-to-end via the root
-    # handler, not directly here. The presence of the renderer + the lack of
-    # an exception is sufficient signal that the configuration completed.
-    assert structlog.is_configured() is True
+    processors = structlog.get_config()["processors"]
+    # ``dict_tracebacks`` is a singleton ExceptionRenderer in structlog —
+    # identity comparison locks the exact processor (avoids matching any
+    # other ExceptionRenderer that may exist in the chain).
+    assert structlog.processors.dict_tracebacks in processors, processors
 
 
 def test_configure_logging_dev_mode_omits_dict_tracebacks() -> None:
     """Dev/console mode relies on ConsoleRenderer's own exception formatting."""
     configure_logging(log_level="debug", json_output=False)
-    assert structlog.is_configured() is True
+    processors = structlog.get_config()["processors"]
+    # Inverse of the JSON-mode assertion: console mode must NOT install
+    # dict_tracebacks (ConsoleRenderer formats exceptions itself, and
+    # structlog warns when format_exc_info is layered on top of it).
+    assert structlog.processors.dict_tracebacks not in processors, processors

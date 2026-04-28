@@ -86,10 +86,13 @@ tasks:
       - cd apps/backend && uv run ruff format --check app/exceptions/_generated/
 
   check:plist:
-    desc: Validate launchd plist schema with plutil -lint (macOS only)
+    desc: Validate launchd plist template schema with plutil -lint (macOS only)
     platforms: [darwin]
     cmds:
-      - plutil -lint infra/launchd/com.lip.ollama.plist
+      # plutil only checks XML/plist syntax; the __HOME__ placeholder string
+      # is fine syntactically. Path semantics are validated at install time
+      # when the substitution lands in ~/Library/LaunchAgents/.
+      - plutil -lint infra/launchd/com.lip.ollama.plist.tmpl
 
   check:lockfile:
     desc: Verify lockfiles are in sync with pyproject.toml
@@ -172,11 +175,15 @@ tasks:
 
   # ── Ollama launchd agent (one-time per machine; see docs/ollama-launchd.md) ──
   ollama:install:
-    desc: Install the Ollama launchd agent (copies plist + bootstraps under gui/$UID)
+    desc: Install the Ollama launchd agent (renders plist template + bootstraps under gui/$UID)
     cmds:
       - mkdir -p ~/Library/Logs/ollama
       - mkdir -p ~/Library/LaunchAgents
-      - cp infra/launchd/com.lip.ollama.plist ~/Library/LaunchAgents/com.lip.ollama.plist
+      # Refuse to run as root — LaunchAgent must be in user domain, not /Library/LaunchDaemons/.
+      - test "$(id -u)" -ne 0 || { echo "Refuse to install as root — LaunchAgent only"; exit 1; }
+      # Substitute __HOME__ with the operator's $HOME at install time
+      # (launchd does not expand env vars in plists).
+      - sed -e "s|__HOME__|$HOME|g" infra/launchd/com.lip.ollama.plist.tmpl > ~/Library/LaunchAgents/com.lip.ollama.plist
       - launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lip.ollama.plist
 
   ollama:uninstall:

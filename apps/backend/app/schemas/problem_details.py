@@ -39,10 +39,13 @@ class ProblemDetails(BaseModel):
         # violates the URN convention consumers pattern-match on.
         pattern=r"^(about:blank|urn:lip:error:[a-z0-9-]+)$",
     )
-    title: str = Field(description="Short human-readable summary of the problem")
+    title: str = Field(description="Short human-readable summary of the problem", min_length=1)
     status: int = Field(description="HTTP status code", ge=400, le=599)
-    detail: str = Field(description="Per-instance human-readable explanation")
-    instance: str = Field(description="The request URL path that produced this problem")
+    detail: str = Field(description="Per-instance human-readable explanation", min_length=1)
+    instance: str = Field(
+        description="The request URL path that produced this problem",
+        min_length=1,
+    )
     code: str = Field(
         description="LIP error code (SCREAMING_SNAKE)",
         # Mirror the SCREAMING_SNAKE invariant the codegen validator

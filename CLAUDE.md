@@ -114,7 +114,11 @@ preserved but with redefined semantics for a no-DB feature:
 ## Naming Conventions
 
 - Python files: `snake_case.py`
-- Python classes: `PascalCase` with role suffix (`InferenceService`, `OllamaRepository`)
+- Python classes: `PascalCase` with role suffix (`InferenceService`, `OllamaClient`).
+  `Client` is the accepted role-suffix variant for HTTP-only adapters where the
+  boundary IS "talking HTTP to a daemon" (see
+  [apps/backend/app/features/inference/repository/ollama_client.py](apps/backend/app/features/inference/repository/ollama_client.py));
+  reserve `Repository` for non-HTTP data-access boundaries.
 - Python functions: `snake_case` verbs
 - Python tests: `test_<unit>_<scenario>_<expected>`
 
