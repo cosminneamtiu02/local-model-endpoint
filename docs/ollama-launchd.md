@@ -57,10 +57,15 @@ report `state = running`. An HTTP probe to `http://localhost:11434/api/tags`
 should return 200 within ~2 seconds.
 
 The install task is **not** idempotent: re-running it after the agent is
-already loaded will fail at the `bootstrap` step with "Service already
-loaded." The clean reload pattern is `task ollama:uninstall && task
-ollama:install`. To restart in place after editing the plist, prefer
-`launchctl kickstart -k gui/$(id -u)/com.lip.ollama`.
+already loaded will fail at the `bootstrap` step with a non-zero error such
+as `Bootstrap failed: 37: Operation already in progress` (or `5:
+Input/output error` on older macOS). The clean reload pattern is
+`task ollama:uninstall && task ollama:install`. Note that `launchctl
+kickstart -k gui/$(id -u)/com.lip.ollama` only restarts the *running
+daemon* using the already-bootstrapped (in-memory) plist — it does **not**
+re-read the on-disk plist, so it cannot pick up plist edits. Use it to
+recycle the daemon (e.g. after `brew upgrade ollama`); use
+uninstall+install to apply plist changes.
 
 ## Uninstall
 
@@ -93,11 +98,17 @@ single-developer, single-machine, single-model workload on a 16 GB Mini:
 
 | Env var | Value | Why this value |
 |---|---|---|
-| `OLLAMA_KEEP_ALIVE` | `300s` | Unloads the model from RAM after 5 minutes of inactivity. Pairs with LIP's 10-minute idle FastAPI shutdown — by the time LIP exits and the next consumer wake-up arrives, Ollama has unloaded the model and reloads it on demand, freeing RAM for desktop work in between. |
-| `OLLAMA_NUM_PARALLEL` | `1` | Disables Ollama's internal parallel request slots. Defense in depth for LIP's `asyncio.Semaphore(1)` — if the service-layer serialization ever breaks, Ollama still won't run two streams concurrently. |
-| `OLLAMA_MAX_LOADED_MODELS` | `1` | Enforces the 16 GB memory envelope: at most one model resident at a time. Two simultaneously-loaded models won't fit. |
-| `OLLAMA_FLASH_ATTENTION` | `1` | Enables FlashAttention. Cuts attention-step memory and is required (alongside `OLLAMA_KV_CACHE_TYPE`) for the 128K-context Gemma 4 E2B not to OOM the Mini. |
-| `OLLAMA_KV_CACHE_TYPE` | `q8_0` | Quantizes the KV cache to 8-bit. Significantly reduces KV-cache RAM for long contexts on the 16 GB Mini. |
+| `OLLAMA_KEEP_ALIVE` | `300s` | Unloads the model from RAM 300 s (= 5 min) after the last request. **Matches Ollama's current upstream default** (`5m`); pinning explicitly here is defense-in-depth against upstream default drift. Pairs with LIP's 10-minute idle FastAPI shutdown — by the time LIP exits and the next consumer wake-up arrives, Ollama has unloaded the model and reloads it on demand, freeing RAM for desktop work in between. |
+| `OLLAMA_NUM_PARALLEL` | `1` | Pins Ollama's internal parallel-request slots to 1. **Matches Ollama's current upstream default**; pinned explicitly as defense-in-depth for LIP's `asyncio.Semaphore(1)` — if the service-layer serialization ever breaks, or upstream raises the default, Ollama still won't run two streams concurrently. |
+| `OLLAMA_MAX_LOADED_MODELS` | `1` | Caps resident models at 1 (Ollama's default `0` means "auto-derive from VRAM," which on a 16 GB Mini may pick 2–3 and OOM). Enforces the 16 GB memory envelope: at most one model resident at a time. |
+| `OLLAMA_FLASH_ATTENTION` | `1` | Enables FlashAttention (Ollama's default is off). Cuts attention-step memory and is required (alongside `OLLAMA_KV_CACHE_TYPE`) for the 128K-context Gemma 4 E2B not to OOM the Mini. |
+| `OLLAMA_KV_CACHE_TYPE` | `q8_0` | Quantizes the KV cache to 8-bit (Ollama's default is `f16`). Significantly reduces KV-cache RAM for long contexts on the 16 GB Mini. |
+
+LIP intentionally does **not** set `OLLAMA_HOST` — Ollama's default
+`http://127.0.0.1:11434` keeps the daemon bound to loopback only, which is
+the right posture for the local-network-only trust model. Setting
+`OLLAMA_HOST=0.0.0.0:11434` would expose the daemon to the LAN and is not
+something v1 wants.
 
 Calibrated memory footprints from the disambiguated idea
 (`docs/disambigued-idea.md`): idle Ollama ≈ <200 MB, active with Gemma 4
@@ -143,6 +154,14 @@ deployment artifact for *this* machine. Edit those two `<string>` values to
 your home directory's `Logs/ollama/` if you adopt this repo on a different
 account.
 
+> ⚠️ **Heads-up on log-path edits.** `task ollama:install` always runs
+> `mkdir -p ~/Library/Logs/ollama` regardless of what `StandardOutPath` /
+> `StandardErrorPath` say in the plist. If you point the plist at a
+> different log directory, also edit the install task's `mkdir` line in
+> `Taskfile.yml` (or pre-create the target directory manually) — otherwise
+> launchd silently drops stdout/stderr because the file paths don't exist,
+> and Ollama runs but its logs vanish.
+
 To validate your edits before reinstalling:
 
 ```bash
@@ -154,19 +173,31 @@ it reaches `launchctl bootstrap`.
 
 ## Troubleshooting
 
-- **`bootstrap` fails with "Service already loaded"** — the agent is already
-  installed. Run `task ollama:uninstall` first, then `task ollama:install`.
-  Or skip the unload step and just `launchctl kickstart -k
-  gui/$(id -u)/com.lip.ollama` to restart the agent in place.
-- **`bootstrap` fails with "Bootstrap failed: 5: Input/output error"** —
+- **`bootstrap` fails with a non-zero exit (e.g. `Bootstrap failed: 37:
+  Operation already in progress`)** — the agent is already installed. The
+  exact message varies across macOS versions; the symptom is what matters.
+  Run `task ollama:uninstall` first, then `task ollama:install`.
+- **`bootstrap` fails with `Bootstrap failed: 5: Input/output error`** —
   usually a malformed plist. Run `plutil -lint
   infra/launchd/com.lip.ollama.plist` (or `task check:plist`) to find the
   schema problem before re-trying.
+- **You edited the plist and the new env vars don't show up in `task
+  ollama:status`** — `launchctl kickstart -k` does **not** re-read the
+  on-disk plist; it only restarts the daemon under the already-bootstrapped
+  in-memory plist. Plist edits require `task ollama:uninstall && task
+  ollama:install` (or `launchctl bootout` + `bootstrap` directly).
 - **`task ollama:status` shows the agent loaded but Ollama isn't responding
   on `localhost:11434`** — check `~/Library/Logs/ollama/stderr.log` for the
   daemon's own error output. Common causes: the binary path in the plist is
   wrong, or another process already bound port 11434.
+- **You can't stop the daemon with `launchctl kill SIGTERM …`** — `KeepAlive=true`
+  is set, so launchd respawns the process after every signal-induced exit
+  (subject to the ~10 s `ThrottleInterval` default). To actually stop the
+  daemon, use `task ollama:uninstall` (or `launchctl bootout
+  gui/$(id -u)/com.lip.ollama`) — that unloads the agent definition itself,
+  so launchd no longer respawns.
 - **Ollama upgrade via `brew upgrade ollama`** — the binary path doesn't
   change (`/opt/homebrew/bin/ollama` is a stable shim on Apple Silicon
-  Homebrew). Restart the agent so the new binary is loaded:
-  `launchctl kickstart -k gui/$(id -u)/com.lip.ollama`.
+  Homebrew), so no plist edit is needed. Restart the daemon so the new
+  binary is loaded: `launchctl kickstart -k gui/$(id -u)/com.lip.ollama`
+  (this is the one case where `kickstart -k` is the right tool).

@@ -61,7 +61,8 @@ tasks:
         fi
 
   check:plist:
-    desc: Validate launchd plist schema with plutil -lint
+    desc: Validate launchd plist schema with plutil -lint (macOS only).
+    platforms: [darwin]
     cmds:
       - plutil -lint infra/launchd/com.lip.ollama.plist
 
@@ -129,7 +130,9 @@ tasks:
   ollama:uninstall:
     desc: Remove the Ollama launchd agent (boots out + deletes the installed plist).
     cmds:
-      - launchctl bootout gui/$(id -u)/com.lip.ollama
+      # `bootout` exits non-zero when the agent isn't loaded; tolerate that so
+      # the task is idempotent and AC-10 ("exits 0") holds on a clean machine.
+      - launchctl bootout gui/$(id -u)/com.lip.ollama || true
       - rm -f ~/Library/LaunchAgents/com.lip.ollama.plist
 
   ollama:status:

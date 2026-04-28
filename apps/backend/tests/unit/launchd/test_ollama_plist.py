@@ -10,8 +10,6 @@ The accompanying ``docs/ollama-launchd.md`` is also asserted to exist and
 contain the operator-facing section anchors named in the spec.
 """
 
-from __future__ import annotations
-
 import plistlib
 import shutil
 import subprocess
@@ -28,9 +26,11 @@ EXPECTED_ENV: dict[str, str] = {
 }
 
 REQUIRED_DOC_SECTIONS: tuple[str, ...] = (
+    "What this is",
     "Install",
     "Uninstall",
     "Status check",
+    "Env vars explained",
     "Customizing",
 )
 
@@ -62,7 +62,7 @@ def parsed_plist(plist_path: Path) -> dict[str, object]:
     return loaded
 
 
-def test_plist_file_exists(plist_path: Path) -> None:
+def test_plist_file_at_infra_path_is_file(plist_path: Path) -> None:
     assert plist_path.is_file(), f"plist not found at {plist_path}"
 
 
@@ -79,7 +79,7 @@ def test_plutil_lint_exits_zero(plist_path: Path) -> None:
     )
 
 
-def test_label_is_canonical(parsed_plist: dict[str, object]) -> None:
+def test_label_value_equals_com_lip_ollama(parsed_plist: dict[str, object]) -> None:
     assert parsed_plist["Label"] == "com.lip.ollama"
 
 
