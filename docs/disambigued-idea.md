@@ -155,7 +155,7 @@ These targets are derived from measured 52 tok/s sustained decode and 611–715 
 
 ### Maintainability
 
-TDD with the four mandatory test levels per CLAUDE.md (unit, integration, e2e, contract). One class per file. Vertical-slice independence enforced by import-linter contracts. Structured logging via `structlog`. Pyright strict and Schemathesis contract-test passes are build failures, not warnings. Maintainability target: future-Cosmin can change any single layer of the service (router, service, repository, model, schemas) without re-loading the whole project's internals.
+TDD with the three mandatory test levels in v1 per CLAUDE.md (unit, integration, contract); e2e arrives when the LIP feature router lands and there is end-to-end behavior worth covering against a running Ollama. One class per file. Vertical-slice independence enforced by import-linter contracts. Structured logging via `structlog`. Pyright strict and Schemathesis contract-test passes are build failures, not warnings. Maintainability target: future-Cosmin can change any single layer of the service (router, service, repository, model, schemas) without re-loading the whole project's internals.
 
 ### Portability
 
@@ -190,7 +190,7 @@ This section enumerates what the v1 deliverable does and does not cover. It is t
 - Auto-generated OpenAPI schema served from FastAPI as the canonical machine-readable contract (G8).
 - A human-written README documenting the request envelope, semaphore semantics, model registry, error response shape, backpressure behavior, and wake-up sequence (G8).
 - A `launchd` plist for the Ollama daemon configured with `OLLAMA_KEEP_ALIVE=300s`, `OLLAMA_NUM_PARALLEL=1`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`, and `OLLAMA_KV_CACHE_TYPE=q8_0`.
-- A full TDD test suite at the four mandatory levels per CLAUDE.md: unit, integration, e2e, and contract (Schemathesis).
+- A full TDD test suite at the three mandatory levels in v1 per CLAUDE.md (unit, integration, and contract via Schemathesis); e2e arrives when the LIP feature router lands and there is end-to-end behavior worth covering against a running Ollama.
 
 ### Explicitly out of scope for v1
 

@@ -5,16 +5,16 @@
 # This workflow is hard-off until the `main-protection` ruleset exists
 # with required status checks configured. To enable:
 #
-#   1. Complete Phase 4 of docs/new-project-setup.md -- create the
-#      `main-protection` branch ruleset with required status checks for
-#      backend-checks, error-contracts
-#      (and CodeQL once Phase 10 adds it).
-#   2. Complete Phase 3 -- uncheck Allow merge commits / rebase merging,
-#      check Automatically delete head branches.
-#   3. Complete Phase 5 partial -- Settings -> Actions -> General ->
-#      Workflow permissions -> check "Allow GitHub Actions to create and
-#      approve pull requests". Also check "Allow auto-merge" under
-#      Settings -> General -> Pull Requests.
+#   1. Create the `main-protection` branch ruleset with required status
+#      checks for backend-checks and error-contracts (plus CodeQL if/when
+#      it is added). See docs/automerge.md for ruleset rationale.
+#   2. In repo settings, uncheck Allow merge commits / rebase merging
+#      and check Automatically delete head branches so squash is the
+#      single merge method.
+#   3. In Settings -> Actions -> General -> Workflow permissions, check
+#      "Allow GitHub Actions to create and approve pull requests". Also
+#      check "Allow auto-merge" under Settings -> General -> Pull
+#      Requests.
 #   4. THEN set a repo variable to enable this workflow:
 #        gh variable set DEPENDABOT_AUTOMERGE_ENABLED --body "true"
 #      (or via UI: Settings -> Secrets and variables -> Actions ->
@@ -43,9 +43,10 @@
 #     required status check on the `main-protection` ruleset is green
 #     and every conversation is resolved.
 #
-# Merge method is squash, matching docs/new-project-setup.md Phase 3.
-# The exception allowing automated merges for Dependabot PRs (not
-# human PRs) is documented in docs/decisions.md as ADR-010.
+# Merge method is squash, matching the squash-only repo setting (merge
+# commits and rebase merging are disabled). The exception allowing
+# automated merges for Dependabot PRs (not human PRs) is documented in
+# docs/decisions.md as ADR-010.
 
 name: Dependabot auto-merge
 
@@ -54,7 +55,9 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  # contents: write is intentionally omitted -- auto-merge does not push
+  # code; it only queues a merge intent that GitHub's merge engine
+  # executes once required checks are green.
   pull-requests: write
 
 jobs:
