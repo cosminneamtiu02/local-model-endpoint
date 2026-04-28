@@ -104,6 +104,12 @@ markers = [
 ]
 # Forbid test classes — CLAUDE.md sacred rule "Never write a test class".
 python_classes = ["NoTestClassesAllowed"]
+# Pin discovery patterns to match CLAUDE.md naming convention
+# (`test_<unit>_<scenario>_<expected>`). Default pytest also picks up
+# `*_test.py`, which would let a contributor land a misnamed file
+# silently; pinning explicitly locks the convention mechanically.
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
 
 [tool.coverage.run]
 source = ["app"]
@@ -111,6 +117,10 @@ branch = true
 omit = [
     "app/exceptions/_generated/**",
     "**/__init__.py",
+    # `python -m app` launcher — calls uvicorn.run; cannot be unit-tested
+    # without spawning a subprocess. Drop from coverage so the gate
+    # measures testable code only.
+    "app/__main__.py",
 ]
 
 [tool.coverage.report]

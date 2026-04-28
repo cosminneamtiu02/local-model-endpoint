@@ -1,7 +1,6 @@
 """RFC 7807 problem-details response shape.
 
-Canonical wire shape for every error response in LIP, replacing the
-post-bootstrap ``{"error": {...}}`` envelope. Implements RFC 7807
+Canonical wire shape for every error response in LIP. Implements RFC 7807
 (https://datatracker.ietf.org/doc/html/rfc7807) plus two LIP project
 extensions (``code``, ``request_id``) and per-error typed params spread at
 root level (RFC 7807 §3.2).

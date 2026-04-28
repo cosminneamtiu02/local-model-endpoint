@@ -46,9 +46,9 @@ PARAM_TYPE_TO_TS = {
 
 # RFC 7807 standard fields plus LIP project extensions plus the validation_errors
 # extension array name. errors.yaml MUST NOT declare a param with any of these
-# names — the response handler spreads typed params at root level alongside
-# these explicit kwargs (apps/backend/app/api/errors.py::_build_body), and a
-# collision raises TypeError at request time, masking the real error as a 500.
+# names — the response handler in apps/backend/app/api/errors.py spreads typed
+# params at root level alongside these explicit kwargs, and a collision raises
+# TypeError at request time, masking the real error as a 500.
 RESERVED_PARAM_NAMES = frozenset(
     {
         "type",
