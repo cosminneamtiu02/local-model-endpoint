@@ -1,4 +1,4 @@
-# Ollama launchd agent
+# Ollama Launchd Agent
 
 This document describes the user-scope `launchd` agent that keeps the Ollama
 daemon running on the LIP Mac Mini, the env vars it bakes in, and the

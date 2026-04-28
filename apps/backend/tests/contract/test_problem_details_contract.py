@@ -79,3 +79,17 @@ def test_health_route_declares_problem_details_default_response() -> None:
         "Expected the runtime media type 'application/problem+json' to be "
         f"declared on /health's default response, got: {sorted(content.keys())}"
     )
+
+
+def test_problem_details_response_advertises_content_language_en() -> None:
+    """Any error response must carry Content-Language: en per RFC 7807 §3.1.
+
+    The integration suite already asserts this on a typed-handler path; the
+    contract tier locks it for any framework-generated error too (e.g. 404
+    from a missing route).
+    """
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/this-route-definitely-does-not-exist")
+    assert response.status_code == 404
+    assert response.headers.get("content-language") == "en"
+    assert response.headers.get("content-type", "").startswith("application/problem+json")

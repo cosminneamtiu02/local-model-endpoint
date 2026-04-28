@@ -32,6 +32,12 @@ class ProblemDetails(BaseModel):
             "future hosted-docs URL mapping can be introduced without breaking the "
             "URN format."
         ),
+        # Pin the format the handler actually produces: ``about:blank`` for
+        # framework-level HTTP errors (RFC 7807 §4.2) or ``urn:lip:error:<code>``
+        # for typed DomainErrors. A direct ``ProblemDetails(type="oops", ...)``
+        # construction now fails the schema instead of shipping a body that
+        # violates the URN convention consumers pattern-match on.
+        pattern=r"^(about:blank|urn:lip:error:[a-z0-9-]+)$",
     )
     title: str = Field(description="Short human-readable summary of the problem")
     status: int = Field(description="HTTP status code", ge=400, le=599)

@@ -46,7 +46,7 @@ injected into every error body. This is the only middleware in v1.
 `GET /health` is a pure liveness probe returning `{"status":"ok"}`. Readiness gating on
 the warm-up signal will be added by LIP-E006-F001.
 
-### Ollama launchd agent ([infra/launchd/com.lip.ollama.plist](../infra/launchd/com.lip.ollama.plist))
+### Ollama Launchd Agent ([infra/launchd/com.lip.ollama.plist](../infra/launchd/com.lip.ollama.plist))
 User-scope `launchd` agent that keeps the Ollama daemon running with LIP's calibrated
 env vars (`OLLAMA_KEEP_ALIVE=300s`, `OLLAMA_NUM_PARALLEL=1`,
 `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`).

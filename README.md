@@ -61,7 +61,7 @@ task dev
 - [AI guide](docs/ai-guide.md) — overview of the AI-assisted scaffold (skills, graphs, contracts)
 - [Testing](docs/testing.md) — three-level test strategy in v1
 - [Runbook](docs/runbook.md) — day-to-day operational commands
-- [Ollama launchd agent](docs/ollama-launchd.md) — one-time install + operator commands
+- [Ollama Launchd Agent](docs/ollama-launchd.md) — one-time install + operator commands
 - [Auto-merge](docs/automerge.md) — Dependabot auto-merge architecture and runbook
 
 ## AI-Assisted Development

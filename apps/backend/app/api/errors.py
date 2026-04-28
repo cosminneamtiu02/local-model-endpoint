@@ -97,8 +97,11 @@ def _resolve_request_id(request: Request) -> str:
     if isinstance(request_id, str) and request_id:
         return request_id
     fallback = str(uuid.uuid4())
-    # Path + method are added so a single warning identifies the
-    # misconfigured route without forcing operators to re-grep the code.
+    # Bind ``request_id`` so this and any subsequent log lines for this
+    # request use the standard key (correlation by UUID still works
+    # despite the middleware skip). Path + method tag the warning so a
+    # single line identifies the misconfigured route.
+    structlog.contextvars.bind_contextvars(request_id=fallback)
     logger.warning(
         "request_id_missing_in_state",
         fallback_request_id=fallback,
