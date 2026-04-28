@@ -1,34 +1,108 @@
-"""Schemathesis fuzz of the auto-generated OpenAPI spec.
+"""Contract tests — validates OpenAPI spec compliance.
 
-Loads the spec from a freshly-built ASGI app and parametrizes a single
-test function over every operation Schemathesis discovers. Pre-feature-
-dev, only /health is registered; once LIP-E001-F002 lands, /v1/inference
-becomes the primary fuzz target.
-
-The 4.x API uses `schema.parametrize()` as the operation-level
-parametrization decorator and `case.call_and_validate()` to call the
-ASGI app and validate the response against the schema in one step.
+The spec-shape test below always runs as the canary for "did the
+OpenAPI even generate correctly." A full Schemathesis fuzz test will
+be added once the LIP feature router (LIP-E001-F002) lands and there
+are operations to fuzz against.
 """
 
-from __future__ import annotations
+from starlette.testclient import TestClient
 
-import schemathesis
-
-from app.main import create_app
-
-# Build the app once at module import; from_asgi reads /openapi.json
-# through the ASGI transport (no real network).
-_app = create_app()
-schema = schemathesis.openapi.from_asgi("/openapi.json", _app)
+from app.main import app
 
 
-@schema.parametrize()
-def test_openapi_operations_pass_default_checks(case: schemathesis.Case) -> None:
-    """Every discovered operation must round-trip and validate against the schema.
+def test_openapi_spec_is_valid() -> None:
+    """The OpenAPI spec should be valid and contain the expected endpoints."""
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
 
-    `call_and_validate` issues the request through Schemathesis's ASGI
-    transport (so no real network) and runs the default check set, which
-    includes status-code conformance, content-type conformance, and
-    response-schema conformance.
+    spec = response.json()
+    assert spec["openapi"].startswith("3.")
+    assert spec["info"]["title"] == "Local Inference Provider"
+
+    paths = spec["paths"]
+
+    # Health endpoint at root, outside /api/v1/
+    assert "/health" in paths
+
+    # The LIP feature router will add inference paths under /api/v1/
+    # when LIP-E001-F002 lands during feature-dev. Pre-feature-dev,
+    # /api/v1/ has no operations and is not present in the spec.
+
+
+def test_health_endpoint_conforms_to_spec() -> None:
+    """Health endpoint should return the expected shape."""
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+# ── LIP-E004-F004: ProblemDetails contract ────────────────────────────────
+
+
+def test_openapi_publishes_problem_details_component() -> None:
+    """ProblemDetails appears as a named component once a route references it."""
+    client = TestClient(app, raise_server_exceptions=False)
+    spec = client.get("/openapi.json").json()
+    schemas = spec.get("components", {}).get("schemas", {})
+    assert "ProblemDetails" in schemas, (
+        "ProblemDetails must be in components.schemas — it is the "
+        "F004 contract surface other features build on."
+    )
+
+
+def test_problem_details_component_has_rfc7807_fields_and_extensions() -> None:
+    """All five RFC 7807 standard fields plus code + request_id appear in the schema."""
+    client = TestClient(app, raise_server_exceptions=False)
+    spec = client.get("/openapi.json").json()
+    pd_schema = spec["components"]["schemas"]["ProblemDetails"]
+    properties = pd_schema.get("properties", {})
+
+    # RFC 7807 standard fields
+    for field in ("type", "title", "status", "detail", "instance"):
+        assert field in properties, f"Missing RFC 7807 field: {field}"
+    # LIP project extensions
+    for field in ("code", "request_id"):
+        assert field in properties, f"Missing LIP extension: {field}"
+
+
+def test_problem_details_component_allows_additional_properties() -> None:
+    """extra='allow' must serialize to additionalProperties: true (or schema)."""
+    client = TestClient(app, raise_server_exceptions=False)
+    spec = client.get("/openapi.json").json()
+    pd_schema = spec["components"]["schemas"]["ProblemDetails"]
+    additional = pd_schema.get("additionalProperties")
+    # Pydantic v2 emits either True or a schema dict for extra='allow'
+    assert additional is True or isinstance(additional, dict), (
+        f"ProblemDetails must declare additionalProperties; got {additional!r}"
+    )
+
+
+def test_health_route_declares_problem_details_default_response() -> None:
+    """The /health route advertises ProblemDetails on its OpenAPI ``default`` response.
+
+    The route uses ``responses={"default": ...}`` instead of enumerating
+    individual 5xx codes (``500``, ``503``). This matches the truth on the
+    ground: the global exception handler in ``app/api/errors.py`` runs
+    against every status code we don't enumerate, and ``/health`` itself
+    is liveness-only and never raises (so listing 500/503 as endpoint-
+    specific responses would imply behavior that doesn't exist).
     """
-    case.call_and_validate()
+    client = TestClient(app, raise_server_exceptions=False)
+    spec = client.get("/openapi.json").json()
+    health = spec["paths"]["/health"]["get"]
+    responses = health.get("responses", {})
+
+    assert "default" in responses, (
+        "Expected a 'default' response on /health (the project-wide error "
+        f"shape), got responses keys: {sorted(responses.keys())}"
+    )
+    content = responses["default"].get("content", {})
+    # FastAPI/Pydantic emits the schema under application/json by default;
+    # the runtime Content-Type is overridden to application/problem+json
+    # by the handler. The contract here is "the schema is referenced".
+    assert any("ProblemDetails" in str(media) for media in content.values()), (
+        f"/health 'default' response must reference ProblemDetails, got {content}"
+    )

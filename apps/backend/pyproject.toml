@@ -63,6 +63,7 @@ ignore = [
     "E501",    # generated code may have long lines
     "I001",    # generated imports may not be sorted
     "RUF022",  # generated __all__ may not be sorted
+    "S101",    # assert narrows self.params for pyright (invariant guaranteed by codegen)
 ]
 
 [tool.pytest.ini_options]

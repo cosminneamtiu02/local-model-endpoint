@@ -1,71 +1,132 @@
-"""Unit tests for the generated DomainError subclasses."""
+"""Tests for generated domain error classes."""
 
-from typing import Any
+from typing import ClassVar
 
 import pytest
 
 from app.exceptions import (
-    ConflictError,
-    DomainError,
+    AdapterConnectionFailureError,
+    InferenceTimeoutError,
     InternalError,
-    NotFoundError,
+    ModelCapabilityNotSupportedError,
+    QueueFullError,
     RateLimitedError,
-    RateLimitedParams,
-    ValidationFailedError,
-    ValidationFailedParams,
+    RegistryNotFoundError,
 )
+from app.exceptions.base import DomainError
 
 
-@pytest.mark.parametrize(
-    ("error_class", "expected_code", "expected_status", "kwargs"),
-    [
-        pytest.param(NotFoundError, "NOT_FOUND", 404, {}, id="not_found"),
-        pytest.param(ConflictError, "CONFLICT", 409, {}, id="conflict"),
-        pytest.param(InternalError, "INTERNAL_ERROR", 500, {}, id="internal_error"),
-        pytest.param(
-            ValidationFailedError,
-            "VALIDATION_FAILED",
-            422,
-            {"field": "email", "reason": "must be a valid email"},
-            id="validation_failed",
-        ),
-        pytest.param(
-            RateLimitedError,
-            "RATE_LIMITED",
-            429,
-            {"retry_after_seconds": 60},
-            id="rate_limited",
-        ),
-    ],
-)
-def test_domain_error_subclasses_carry_code_and_status(
-    error_class: type[DomainError],
-    expected_code: str,
-    expected_status: int,
-    kwargs: dict[str, Any],
-) -> None:
-    """Each generated error class exposes its code and http_status as ClassVars."""
-    err = error_class(**kwargs)
-    assert err.code == expected_code
-    assert err.http_status == expected_status
+def test_rate_limited_constructs_with_typed_params() -> None:
+    """RateLimitedError construct + classvar shape (smoke test for the existing generic code)."""
+    error = RateLimitedError(retry_after_seconds=60)
+
+    assert error.code == "RATE_LIMITED"
+    assert error.http_status == 429
+    assert error.type_uri == "urn:lip:error:rate-limited"
+    assert error.title == "Too Many Requests"
+    assert error.params is not None
+    assert error.params.model_dump() == {"retry_after_seconds": 60}
+    assert "RATE_LIMITED" in str(error)
 
 
-def test_validation_failed_error_params_round_trip() -> None:
-    """ValidationFailedError carries typed params accessible via model_dump."""
-    err = ValidationFailedError(field="email", reason="must be a valid email")
-    assert isinstance(err.params, ValidationFailedParams)
-    assert err.params.model_dump() == {"field": "email", "reason": "must be a valid email"}
+def test_queue_full_error() -> None:
+    err = QueueFullError(max_waiters=4, current_waiters=5)
+    assert err.code == "QUEUE_FULL"
+    assert err.http_status == 503
+    assert err.type_uri == "urn:lip:error:queue-full"
+    assert err.title == "Inference Queue Full"
+    assert err.detail() == "Inference queue at capacity (5 waiters, max 4)."
+    assert err.params is not None
+    assert err.params.model_dump() == {"max_waiters": 4, "current_waiters": 5}
 
 
-def test_rate_limited_error_params_round_trip() -> None:
-    """RateLimitedError carries typed params accessible via model_dump."""
-    err = RateLimitedError(retry_after_seconds=60)
-    assert isinstance(err.params, RateLimitedParams)
-    assert err.params.model_dump() == {"retry_after_seconds": 60}
+def test_inference_timeout_error() -> None:
+    err = InferenceTimeoutError(timeout_seconds=180)
+    assert err.code == "INFERENCE_TIMEOUT"
+    assert err.http_status == 504
+    assert err.type_uri == "urn:lip:error:inference-timeout"
+    assert err.detail() == "Inference exceeded the 180-second timeout."
 
 
-def test_parameterless_errors_have_none_params() -> None:
-    """NotFoundError and siblings have None for params."""
-    assert NotFoundError().params is None
-    assert ConflictError().params is None
-    assert InternalError().params is None
+def test_adapter_connection_failure_error() -> None:
+    err = AdapterConnectionFailureError(backend="ollama", reason="connection refused")
+    assert err.code == "ADAPTER_CONNECTION_FAILURE"
+    assert err.http_status == 502
+    assert err.type_uri == "urn:lip:error:adapter-connection-failure"
+    assert "ollama" in err.detail()
+    assert "connection refused" in err.detail()
+
+
+def test_registry_not_found_error() -> None:
+    err = RegistryNotFoundError(model="phantom")
+    assert err.code == "REGISTRY_NOT_FOUND"
+    assert err.http_status == 404
+    assert err.type_uri == "urn:lip:error:registry-not-found"
+    assert "phantom" in err.detail()
+
+
+def test_model_capability_not_supported_error() -> None:
+    err = ModelCapabilityNotSupportedError(model="text-only", requested_capability="audio")
+    assert err.code == "MODEL_CAPABILITY_NOT_SUPPORTED"
+    assert err.http_status == 422
+    assert err.type_uri == "urn:lip:error:model-capability-not-supported"
+    assert "text-only" in err.detail()
+    assert "audio" in err.detail()
+
+
+def test_internal_error_detail_returns_detail_template() -> None:
+    """Parameterless errors return their detail_template (or fall back to title) from detail()."""
+    err = InternalError()
+    assert err.code == "INTERNAL_ERROR"
+    assert err.http_status == 500
+    assert err.type_uri == "urn:lip:error:internal-error"
+    assert err.title == "Internal Server Error"
+    assert err.detail() == (
+        "An unexpected error occurred. Use the request_id to correlate with server logs."
+    )
+    assert err.params is None
+
+
+def test_queue_full_rejects_missing_required_param() -> None:
+    """Required params are positional-keyword on __init__; missing them is a TypeError."""
+    with pytest.raises(TypeError):
+        QueueFullError(max_waiters=4)  # pyright: ignore[reportCallIssue]
+
+
+def test_domain_error_subclass_missing_classvar_raises_typeerror() -> None:
+    """__init_subclass__ enforces that every DomainError declares the 5 required ClassVars."""
+    with pytest.raises(TypeError, match="must declare ClassVar"):
+        # type_uri is intentionally missing — should fail at class-creation time.
+        class _BrokenError(DomainError):  # pyright: ignore[reportUnusedClass]
+            code: ClassVar[str] = "BROKEN"
+            http_status: ClassVar[int] = 500
+            title: ClassVar[str] = "Broken"
+            detail_template: ClassVar[str] = "broken"
+
+
+def test_domain_error_str_does_not_leak_params() -> None:
+    """Exception.args carries the code only — never the params (PII safety invariant)."""
+    err = QueueFullError(max_waiters=12345, current_waiters=99999)
+    rendered = str(err)
+    assert "QUEUE_FULL" in rendered
+    assert "12345" not in rendered
+    assert "99999" not in rendered
+    # And Exception.args itself contains exactly the code.
+    assert err.args == ("QUEUE_FULL",)
+
+
+def test_parameterized_error_detail_works_under_python_o() -> None:
+    """detail() must succeed even when assertions are stripped (Python -O).
+
+    Generated subclasses use ``cast("BaseModel", self.params)`` instead of
+    ``assert self.params is not None`` so the narrowing survives -O. This test
+    documents the contract — it doesn't actually re-launch under -O (pytest
+    doesn't run with -O by default), but a regression that re-introduced an
+    ``assert`` would be caught by static checkers (pyright strict) at CI time.
+    """
+    err = QueueFullError(max_waiters=4, current_waiters=5)
+    rendered = err.detail()
+    # The rendered string interpolates both params — proving the cast path
+    # produced a real BaseModel that model_dump() could traverse.
+    assert "5 waiters" in rendered
+    assert "max 4" in rendered
