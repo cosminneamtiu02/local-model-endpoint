@@ -15,7 +15,7 @@ Dependabot-authored PRs that pass all required status checks are automatically s
 | Ruleset | `main-protection` (Settings → Rules → Rulesets) | **What** has to be green before any merge |
 | Auto-merge variable | `DEPENDABOT_AUTOMERGE_ENABLED` (Settings → Actions → Variables) | **Whether** the auto-merge workflow is armed |
 | Lockfile sync variable | `DEPENDABOT_LOCKFILE_SYNC_ENABLED` (Settings → Actions → Variables) | **Whether** the sync workflow is armed |
-| Lockfile sync PAT | `DEPENDABOT_LOCKFILE_SYNC_PAT` (Settings → Actions → Secrets) | **Authentication** the sync workflow uses to push lockfile fixes back (must be a PAT, not `GITHUB_TOKEN`) |
+| Lockfile sync PAT | `DEPENDABOT_LOCKFILE_SYNC_PAT` (Settings → Secrets and variables → **Dependabot** tab) | **Authentication** the sync workflow uses to push lockfile fixes back (must be a PAT, not `GITHUB_TOKEN`; must live in the Dependabot secret store, not the Actions one — Dependabot-triggered workflows cannot read Actions-context secrets) |
 
 If any single one of these is missing, misconfigured, or out of sync with the others, the invariant breaks. This document explains each, explains how they compose, and walks through the three historical incidents that taught us why every piece is necessary.
 
@@ -375,9 +375,16 @@ step 4 is only safe to flip on after the ruleset in step 1 is verified
 3. **Workflow permissions.** Settings → Actions → General → Workflow
    permissions:
    - **Check** "Allow GitHub Actions to create and approve pull requests"
-   - The default `GITHUB_TOKEN` permissions ("Read repository contents and
-     packages permissions") are sufficient for `dependabot-automerge.yml`;
-     the lockfile-sync workflow uses the PAT below, not `GITHUB_TOKEN`.
+   - The repo's default `GITHUB_TOKEN` permissions can stay at "Read
+     repository contents and packages permissions" — they are not what
+     gates `dependabot-automerge.yml`. That workflow declares its own
+     `permissions:` block (`contents: write` + `pull-requests: write`),
+     which fully overrides the repo default for that job. Both scopes
+     are required: `gh pr merge --auto` calls the `enablePullRequestAutoMerge`
+     GraphQL mutation, which needs both, even though no commit is pushed
+     by this workflow itself. Omitting `contents` produces a misleading
+     "Resource not accessible by integration" error.
+   - The lockfile-sync workflow uses the PAT below, not `GITHUB_TOKEN`.
 
 4. **Arm auto-merge.** Only after step 1 is verified:
    ```bash
@@ -386,11 +393,18 @@ step 4 is only safe to flip on after the ruleset in step 1 is verified
 
 5. **Arm lockfile sync** (optional but recommended). Create a fine-grained
    PAT scoped to this single repo with `Contents: Read and write` and
-   `Pull requests: Read and write`. Save it as a repo secret:
+   `Pull requests: Read and write`. Save it as a **Dependabot** secret —
+   not an Actions secret — because Dependabot-triggered workflows can
+   only read secrets from the Dependabot secret store (a 2021 supply-chain
+   mitigation). The `--app dependabot` flag is what selects that store:
    ```bash
-   gh secret set DEPENDABOT_LOCKFILE_SYNC_PAT --body "<paste PAT>"
+   gh secret set DEPENDABOT_LOCKFILE_SYNC_PAT --app dependabot --body "<paste PAT>"
    gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED --body "true"
    ```
+   If you save it as a regular Actions secret (no `--app dependabot`), the
+   `secrets.DEPENDABOT_LOCKFILE_SYNC_PAT` lookup inside the workflow
+   resolves to an empty string and the "Verify PAT is configured" step
+   fails on every Dependabot PR.
 
 After step 5, Dependabot PRs that touch a `pyproject.toml` are
 auto-corrected and auto-merged end-to-end with zero human intervention.

@@ -63,9 +63,17 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  # contents: write is intentionally omitted -- auto-merge does not push
-  # code; it only queues a merge intent that GitHub's merge engine
-  # executes once required checks are green.
+  # `permissions:` blocks are declarative, not additive. Specifying any
+  # scope sets every UNlisted scope to `none` for this workflow's
+  # GITHUB_TOKEN -- including the defaults you would otherwise inherit.
+  # `gh pr merge --auto` (which calls the `enablePullRequestAutoMerge`
+  # GraphQL mutation) needs both `contents: write` AND `pull-requests:
+  # write`; omitting `contents` produces a misleading "Resource not
+  # accessible by integration (enablePullRequestAutoMerge)" error.
+  # The actual squash-merge commit is still produced by GitHub's native
+  # merge engine when required checks pass; this token only queues the
+  # merge intent.
+  contents: write
   pull-requests: write
 
 jobs:
