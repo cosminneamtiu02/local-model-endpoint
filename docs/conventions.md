@@ -31,8 +31,11 @@ Each feature owns its wire schemas in `features/<name>/schemas/`. Common file ro
 - `<entity>_request.py` — fields the consumer sends.
 - `<entity>_response.py` — fields the service returns.
 
-Schemas never import models. Conversion happens in the service layer via explicit
-mapping methods.
+Schemas may import value-objects from `model/` (Message, ModelParams, ContentPart,
+ModelInfo, OllamaChatResult) — `model/` in LIP holds project value-objects, not ORM
+types, since the service has no database. Models never import schemas; that direction
+stays strict. See the Layer Rules in [CLAUDE.md](../CLAUDE.md) for the authoritative
+statement.
 
 ## Error System
 
