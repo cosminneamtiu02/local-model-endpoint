@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.errors import PROBLEM_JSON_MEDIA_TYPE, register_exception_handlers
@@ -16,9 +16,10 @@ from app.exceptions import (
     RateLimitedError,
     RegistryNotFoundError,
 )
+from app.schemas import ValidationErrorDetail
 
 
-def _create_test_app() -> FastAPI:
+def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger routes is the simplest expression
     """A minimal app exposing routes that raise each error variant."""
     test_app = FastAPI()
     register_exception_handlers(test_app)
@@ -51,10 +52,18 @@ def _create_test_app() -> FastAPI:
     async def trigger_validation(required_param: int) -> dict[str, int]:  # noqa: ARG001
         return {"ok": 1}
 
+    @test_app.get("/trigger-multi-validation")
+    async def trigger_multi_validation(first_param: int, second_param: int) -> dict[str, int]:
+        return {"ok": first_param + second_param}
+
     @test_app.get("/trigger-unhandled")
     async def trigger_unhandled() -> dict[str, str]:
         msg = "Something unexpected"
         raise RuntimeError(msg)
+
+    @test_app.get("/trigger-http-405")
+    async def trigger_http_405() -> dict[str, str]:
+        raise HTTPException(status_code=405)
 
     test_app.add_middleware(RequestIdMiddleware)
     return test_app
@@ -70,10 +79,16 @@ def test_client() -> TestClient:
 
 
 def test_domain_error_returns_problem_json_content_type(test_client: TestClient) -> None:
-    """Every error response sets Content-Type: application/problem+json."""
+    """Every error response sets Content-Type: application/problem+json; charset=utf-8."""
     response = test_client.get("/trigger-rate-limited")
     assert response.status_code == 429
     assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
+
+
+def test_domain_error_response_includes_content_language_en(test_client: TestClient) -> None:
+    """Every error response advertises Content-Language: en (RFC 7807 §3.1)."""
+    response = test_client.get("/trigger-rate-limited")
+    assert response.headers["content-language"] == "en"
 
 
 def test_domain_error_body_has_all_rfc7807_standard_fields(test_client: TestClient) -> None:
@@ -197,6 +212,21 @@ def test_validation_error_body_has_validation_errors_extension(test_client: Test
     assert "reason" in first
 
 
+def test_validation_error_entries_match_validation_error_detail_shape(
+    test_client: TestClient,
+) -> None:
+    """Each validation_errors[] item is exactly {field, reason} — no extras leak."""
+    response = test_client.get("/trigger-validation?required_param=not_an_int")
+    body = response.json()
+    first = body["validation_errors"][0]
+    # Only the two keys allowed by the ValidationErrorDetail schema (extra='forbid').
+    assert set(first.keys()) == {"field", "reason"}
+    # And the dict re-validates cleanly through the schema as a sanity check.
+    detail = ValidationErrorDetail.model_validate(first)
+    assert detail.field == first["field"]
+    assert detail.reason == first["reason"]
+
+
 def test_validation_error_field_path_uses_dotted_form(test_client: TestClient) -> None:
     """validation_errors[].field is dotted form of Pydantic's loc tuple."""
     response = test_client.get("/trigger-validation?required_param=not_an_int")
@@ -206,6 +236,19 @@ def test_validation_error_field_path_uses_dotted_form(test_client: TestClient) -
     assert "query" in field_path
     assert "required_param" in field_path
     assert "." in field_path
+
+
+def test_multi_field_validation_error_detail_points_to_array(test_client: TestClient) -> None:
+    """When >1 fields fail, the detail names the count and refers to validation_errors[]."""
+    # Both query params are missing AND would coerce to int — two errors.
+    response = test_client.get("/trigger-multi-validation")
+    assert response.status_code == 422
+    body = response.json()
+    assert len(body["validation_errors"]) >= 2
+    n = len(body["validation_errors"])
+    assert body["detail"] == (
+        f"Validation failed for {n} fields. See validation_errors[] for details."
+    )
 
 
 # ── Unhandled exception path ──────────────────────────────────────────────
@@ -232,23 +275,13 @@ def test_unhandled_exception_does_not_leak_pii_or_stack(test_client: TestClient)
     assert "params" not in body
 
 
-def test_unhandled_exception_still_includes_request_id(test_client: TestClient) -> None:
-    """The body carries request_id for log correlation even on the 500 path.
-
-    Note: the X-Request-ID *response header* is intentionally not asserted
-    here. Starlette's ``BaseHTTPMiddleware`` does not run its post-call_next
-    code when the inner app raises an exception type that is not registered
-    via ``app.exception_handler`` — the catch-all 500 response is produced by
-    ``ServerErrorMiddleware`` further out. The handler-side ``request_id`` in
-    the body is still populated because the middleware sets
-    ``request.state.request_id`` *before* ``call_next``. Hardening that gap
-    (writing the header even on unhandled exceptions) is a middleware
-    concern, not an F004 concern.
-    """
+def test_unhandled_exception_request_id_matches_response_header(test_client: TestClient) -> None:
+    """The 500 path now sets X-Request-ID on the JSONResponse, so body and header match."""
     response = test_client.get("/trigger-unhandled")
     body = response.json()
     assert isinstance(body["request_id"], str)
     assert len(body["request_id"]) > 0
+    assert body["request_id"] == response.headers["X-Request-ID"]
 
 
 # ── Handler ordering ──────────────────────────────────────────────────────
@@ -262,3 +295,31 @@ def test_domain_error_handler_takes_priority_over_generic(test_client: TestClien
     assert body["code"] == "QUEUE_FULL"
     assert response.status_code == 503
     assert body["max_waiters"] == 4
+
+
+# ── HTTPException path (404 missing route, 405 method mismatch) ───────────
+
+
+def test_http_exception_405_returns_about_blank_problem_json(test_client: TestClient) -> None:
+    """A bare HTTPException(405) is wrapped into RFC 7807 with type='about:blank'."""
+    response = test_client.get("/trigger-http-405")
+    assert response.status_code == 405
+    assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
+    body = response.json()
+    assert body["type"] == "about:blank"
+    assert body["status"] == 405
+    assert body["code"] == "METHOD_NOT_ALLOWED"
+    assert body["request_id"] == response.headers["X-Request-ID"]
+
+
+def test_unmatched_route_returns_about_blank_404_problem_json(test_client: TestClient) -> None:
+    """A request for an undefined route surfaces RFC 7807 with code NOT_FOUND."""
+    response = test_client.get("/this-route-does-not-exist")
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
+    body = response.json()
+    # 404 routes through NotFoundError (typed URN), not about:blank.
+    assert body["type"] == "urn:lip:error:not-found"
+    assert body["status"] == 404
+    assert body["code"] == "NOT_FOUND"
+    assert body["request_id"] == response.headers["X-Request-ID"]

@@ -1,5 +1,7 @@
 """Tests for generated domain error classes."""
 
+from typing import ClassVar
+
 import pytest
 
 from app.exceptions import (
@@ -11,6 +13,7 @@ from app.exceptions import (
     RateLimitedError,
     RegistryNotFoundError,
 )
+from app.exceptions.base import DomainError
 
 
 def test_rate_limited_constructs_with_typed_params() -> None:
@@ -71,14 +74,16 @@ def test_model_capability_not_supported_error() -> None:
     assert "audio" in err.detail()
 
 
-def test_internal_error_detail_falls_back_to_title() -> None:
-    """Parameterless errors return their title from detail()."""
+def test_internal_error_detail_returns_detail_template() -> None:
+    """Parameterless errors return their detail_template (or fall back to title) from detail()."""
     err = InternalError()
     assert err.code == "INTERNAL_ERROR"
     assert err.http_status == 500
     assert err.type_uri == "urn:lip:error:internal-error"
-    assert err.detail() == err.title
     assert err.title == "Internal Server Error"
+    assert err.detail() == (
+        "An unexpected error occurred. Use the request_id to correlate with server logs."
+    )
     assert err.params is None
 
 
@@ -86,3 +91,42 @@ def test_queue_full_rejects_missing_required_param() -> None:
     """Required params are positional-keyword on __init__; missing them is a TypeError."""
     with pytest.raises(TypeError):
         QueueFullError(max_waiters=4)  # pyright: ignore[reportCallIssue]
+
+
+def test_domain_error_subclass_missing_classvar_raises_typeerror() -> None:
+    """__init_subclass__ enforces that every DomainError declares the 5 required ClassVars."""
+    with pytest.raises(TypeError, match="must declare ClassVar"):
+        # type_uri is intentionally missing — should fail at class-creation time.
+        class _BrokenError(DomainError):  # pyright: ignore[reportUnusedClass]
+            code: ClassVar[str] = "BROKEN"
+            http_status: ClassVar[int] = 500
+            title: ClassVar[str] = "Broken"
+            detail_template: ClassVar[str] = "broken"
+
+
+def test_domain_error_str_does_not_leak_params() -> None:
+    """Exception.args carries the code only — never the params (PII safety invariant)."""
+    err = QueueFullError(max_waiters=12345, current_waiters=99999)
+    rendered = str(err)
+    assert "QUEUE_FULL" in rendered
+    assert "12345" not in rendered
+    assert "99999" not in rendered
+    # And Exception.args itself contains exactly the code.
+    assert err.args == ("QUEUE_FULL",)
+
+
+def test_parameterized_error_detail_works_under_python_o() -> None:
+    """detail() must succeed even when assertions are stripped (Python -O).
+
+    Generated subclasses use ``cast("BaseModel", self.params)`` instead of
+    ``assert self.params is not None`` so the narrowing survives -O. This test
+    documents the contract — it doesn't actually re-launch under -O (pytest
+    doesn't run with -O by default), but a regression that re-introduced an
+    ``assert`` would be caught by static checkers (pyright strict) at CI time.
+    """
+    err = QueueFullError(max_waiters=4, current_waiters=5)
+    rendered = err.detail()
+    # The rendered string interpolates both params — proving the cast path
+    # produced a real BaseModel that model_dump() could traverse.
+    assert "5 waiters" in rendered
+    assert "max 4" in rendered

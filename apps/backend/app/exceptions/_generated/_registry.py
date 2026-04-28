@@ -21,14 +21,14 @@ from app.exceptions._generated.registry_not_found_error import RegistryNotFoundE
 from app.exceptions._generated.validation_failed_error import ValidationFailedError
 
 ERROR_CLASSES: dict[str, type[DomainError]] = {
-    "NOT_FOUND": NotFoundError,
-    "CONFLICT": ConflictError,
-    "VALIDATION_FAILED": ValidationFailedError,
-    "INTERNAL_ERROR": InternalError,
-    "RATE_LIMITED": RateLimitedError,
-    "QUEUE_FULL": QueueFullError,
-    "INFERENCE_TIMEOUT": InferenceTimeoutError,
     "ADAPTER_CONNECTION_FAILURE": AdapterConnectionFailureError,
-    "REGISTRY_NOT_FOUND": RegistryNotFoundError,
+    "CONFLICT": ConflictError,
+    "INFERENCE_TIMEOUT": InferenceTimeoutError,
+    "INTERNAL_ERROR": InternalError,
     "MODEL_CAPABILITY_NOT_SUPPORTED": ModelCapabilityNotSupportedError,
+    "NOT_FOUND": NotFoundError,
+    "QUEUE_FULL": QueueFullError,
+    "RATE_LIMITED": RateLimitedError,
+    "REGISTRY_NOT_FOUND": RegistryNotFoundError,
+    "VALIDATION_FAILED": ValidationFailedError,
 }

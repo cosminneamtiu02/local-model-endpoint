@@ -284,22 +284,25 @@ def test_codegen_emits_detail_method_with_template_substitution(
         in content
     )
     assert "def detail(self) -> str:" in content
-    # Parameterized branch performs str.format(**params.model_dump())
-    assert "self.params.model_dump()" in content
+    # Parameterized branch type-narrows via cast (survives `python -O`) then formats.
+    assert 'cast("BaseModel", self.params)' in content
+    assert "params.model_dump()" in content
 
 
-def test_codegen_emits_detail_method_falling_back_to_title(
+def test_codegen_emits_detail_method_returning_detail_template_for_parameterless(
     sample_errors_path: Path, output_dir: Path
 ):
-    """Parameterless errors' detail() returns title when params is None."""
+    """Parameterless errors' detail() returns detail_template (or title fallback)."""
     from scripts.generate import generate_python
 
     generate_python(sample_errors_path, output_dir)
 
     content = (output_dir / "internal_error.py").read_text()
     assert "def detail(self) -> str:" in content
-    # The parameterless body returns the title (no template substitution path)
-    assert "return self.title" in content
+    # The parameterless body returns the YAML-declared detail_template; the
+    # ``or self.title`` fallback fires only if detail_template happens to be
+    # empty (load_and_validate forbids that, but the fallback is defensive).
+    assert "return self.detail_template or self.title" in content
 
 
 def test_codegen_derives_kebab_type_uri_from_screaming_snake_code(
@@ -393,28 +396,209 @@ errors:
 def test_codegen_emits_template_format_call_for_parameterized_errors(
     sample_errors_path: Path, output_dir: Path
 ):
-    """Parameterized error's detail() body uses str.format(**params.model_dump())."""
+    """Parameterized error's detail() body uses str.format(**params.model_dump()) via a cast."""
     from scripts.generate import generate_python
 
     generate_python(sample_errors_path, output_dir)
 
     content = (output_dir / "example_not_found_error.py").read_text()
-    # The generated body must invoke template substitution via the params dump.
-    assert "self.detail_template.format(**self.params.model_dump())" in content
+    # Body type-narrows via cast (survives `python -O`) then renders the template.
+    assert 'params = cast("BaseModel", self.params)' in content
+    assert "self.detail_template.format(**params.model_dump())" in content
 
 
-def test_codegen_emits_title_fallback_for_parameterless_errors(
+def test_codegen_emits_detail_template_for_parameterless_errors(
     sample_errors_path: Path, output_dir: Path
 ):
-    """Parameterless error's detail() body returns self.title (no substitution path)."""
+    """Parameterless error's detail() returns detail_template (with title fallback)."""
     from scripts.generate import generate_python
 
     generate_python(sample_errors_path, output_dir)
 
     content = (output_dir / "internal_error.py").read_text()
-    # No template substitution branch — just the title fallback.
-    assert "return self.title" in content
-    assert "self.params.model_dump()" not in content
+    assert "return self.detail_template or self.title" in content
+    # No template-substitution path (no params to substitute).
+    assert "params.model_dump()" not in content
+
+
+def test_codegen_emits_extra_forbid_on_params_classes(
+    sample_errors_path: Path, output_dir: Path
+):
+    """Generated *_params.py classes declare extra='forbid' to fail loudly on typos."""
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
+
+    content = (output_dir / "example_not_found_params.py").read_text()
+    assert 'model_config = ConfigDict(extra="forbid")' in content
+    assert "from pydantic import BaseModel, ConfigDict" in content
+
+
+def test_codegen_rejects_reserved_param_names(tmp_path: Path, output_dir: Path):
+    """errors.yaml params named after RFC 7807 / LIP envelope keys are rejected at codegen."""
+    yaml_text = """
+version: 1
+errors:
+  COLLIDES_WITH_STATUS:
+    http_status: 500
+    description: Collides
+    title: Collides
+    detail_template: "x {status}"
+    params:
+      status: integer
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=r"Param name 'status'.*reserved"):
+        load_and_validate(path)
+
+
+def test_codegen_rejects_positional_template_placeholders(
+    tmp_path: Path, output_dir: Path
+):
+    """detail_template with positional placeholders ({0}) is rejected at codegen."""
+    yaml_text = """
+version: 1
+errors:
+  POSITIONAL:
+    http_status: 400
+    description: Positional
+    title: Positional
+    detail_template: "value {0}"
+    params:
+      x: string
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=r"positional placeholder"):
+        load_and_validate(path)
+
+
+def test_codegen_rejects_attribute_access_in_template(tmp_path: Path, output_dir: Path):
+    """detail_template with attribute access ({x.attr}) is rejected at codegen."""
+    yaml_text = """
+version: 1
+errors:
+  ATTR_ACCESS:
+    http_status: 400
+    description: Attr access
+    title: Attr Access
+    detail_template: "value {x.__class__}"
+    params:
+      x: string
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=r"attribute access or indexing"):
+        load_and_validate(path)
+
+
+def test_codegen_rejects_template_referencing_undeclared_param(
+    tmp_path: Path, output_dir: Path
+):
+    """detail_template referencing a placeholder absent from params is rejected at codegen."""
+    yaml_text = """
+version: 1
+errors:
+  MISMATCHED:
+    http_status: 400
+    description: Mismatched
+    title: Mismatched
+    detail_template: "saw {present} but template wants {missing}"
+    params:
+      present: string
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(
+        ValueError, match=r"references \['missing'\] but params declares \['present'\]"
+    ):
+        load_and_validate(path)
+
+
+def test_codegen_cleans_up_orphan_files(tmp_path: Path, output_dir: Path):
+    """When a code is removed from errors.yaml, its generated files are deleted on regeneration."""
+    from scripts.generate import generate_python
+
+    initial_yaml = """
+version: 1
+errors:
+  KEPT:
+    http_status: 400
+    description: Will stay
+    title: Kept
+    detail_template: "kept"
+    params: {}
+  REMOVED:
+    http_status: 400
+    description: Will be removed
+    title: Removed
+    detail_template: "removed"
+    params: {}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(initial_yaml)
+    generate_python(path, output_dir)
+    assert (output_dir / "removed_error.py").exists()
+    assert (output_dir / "kept_error.py").exists()
+
+    # Drop REMOVED from the YAML and regenerate.
+    updated_yaml = """
+version: 1
+errors:
+  KEPT:
+    http_status: 400
+    description: Will stay
+    title: Kept
+    detail_template: "kept"
+    params: {}
+"""
+    path.write_text(updated_yaml)
+    generate_python(path, output_dir)
+    assert (output_dir / "kept_error.py").exists()
+    assert not (output_dir / "removed_error.py").exists(), (
+        "Codegen must clean up orphaned files when a code is removed from errors.yaml."
+    )
+
+
+def test_codegen_handles_special_chars_in_title_and_template(
+    tmp_path: Path, output_dir: Path
+):
+    """Newlines, tabs, quotes, and unicode in title/detail_template don't break codegen."""
+    yaml_text = """
+version: 1
+errors:
+  WEIRD:
+    http_status: 400
+    description: Weird chars
+    title: "A\\tB\\n\\"C\\""
+    detail_template: "Got value=\\"{x}\\" — non-ASCII: \\u00e9"
+    params:
+      x: string
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import generate_python
+
+    generate_python(path, output_dir)
+    # File compiles cleanly under ast.parse — proof the literal is valid Python.
+    src = (output_dir / "weird_error.py").read_text()
+    ast.parse(src)
+    # The unicode character round-trips through json.dumps(ensure_ascii=False).
+    assert "é" in src
 
 
 def test_str_format_raises_keyerror_when_template_placeholder_absent_from_params():
@@ -431,22 +615,10 @@ def test_str_format_raises_keyerror_when_template_placeholder_absent_from_params
         template.format(**params_dump)
 
 
-def test_codegen_processes_mismatched_template_yaml_without_error(
-    tmp_path: Path, output_dir: Path
-):
-    """codegen does not pre-validate template/params alignment — that surfaces
-    at runtime via str.format. This documents the choice: errors.yaml is
-    permitted to have any template; the developer error appears the first
-    time detail() is called.
-    """
-    from scripts.generate import generate_python
-
-    path = tmp_path / "errors.yaml"
-    path.write_text(MISMATCHED_TEMPLATE_YAML)
-
-    # Should generate cleanly even though the template is mismatched.
-    generated = generate_python(path, output_dir)
-    assert any("template_mismatch_error.py" in str(f) for f in generated)
-    content = (output_dir / "template_mismatch_error.py").read_text()
-    # The body still emits the format call; the developer error surfaces at runtime.
-    assert "self.detail_template.format(**self.params.model_dump())" in content
+# LIP-E004-F004 follow-up: codegen now pre-validates template/params alignment
+# at build time (load_and_validate uses string.Formatter().parse to compare
+# placeholders against declared params). A mismatched errors.yaml entry is
+# rejected before any file is written. The original "permitted at codegen,
+# discovered at runtime" choice is replaced by build-time enforcement; the
+# rejection path is exercised by
+# test_codegen_rejects_template_referencing_undeclared_param above.

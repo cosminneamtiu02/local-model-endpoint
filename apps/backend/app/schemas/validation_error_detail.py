@@ -1,10 +1,7 @@
 """ValidationErrorDetail — one entry inside the ``validation_errors`` extension.
 
-The RFC 7807 ``ProblemDetails`` shape has no standard validation-error field,
-so VALIDATION_FAILED responses extend the body with a ``validation_errors``
-array of these objects, one per failed field. Renamed from the bootstrap
-``error_detail`` so the file name matches the class purpose (the original
-``detail`` was overloaded with RFC 7807's ``detail`` summary string).
+RFC 7807 has no standard validation-error field, so VALIDATION_FAILED responses
+extend the body with a ``validation_errors`` array of these objects.
 """
 
 from pydantic import BaseModel, ConfigDict

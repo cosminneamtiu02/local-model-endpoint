@@ -21,4 +21,4 @@ class InternalError(DomainError):
 
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
-        return self.title
+        return self.detail_template or self.title

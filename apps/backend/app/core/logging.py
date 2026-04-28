@@ -13,14 +13,23 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
         log_level: The minimum log level (debug, info, warning, error).
         json_output: If True, output JSON. If False, output pretty console format.
     """
+    # Build the shared processor chain. In JSON mode we insert
+    # `dict_tracebacks` AFTER StackInfoRenderer so structlog converts
+    # `exc_info` into a structured `exception` key for the JSONRenderer;
+    # without it, `logger.exception` would render an opaque `repr` of the
+    # exc_info tuple in production logs. In dev mode we omit the processor
+    # because ConsoleRenderer already pretty-prints exceptions itself
+    # (and structlog warns when `format_exc_info` is added on top of it).
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
-        structlog.processors.UnicodeDecoder(),
     ]
+    if json_output:
+        shared_processors.append(structlog.processors.dict_tracebacks)
+    shared_processors.append(structlog.processors.UnicodeDecoder())
 
     if json_output:
         renderer: structlog.types.Processor = structlog.processors.JSONRenderer()

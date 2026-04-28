@@ -1,29 +1,39 @@
 """RFC 7807 problem-details response shape.
 
-This is the canonical wire shape for every error response in LIP.
-Replaces the post-bootstrap ``{"error": {...}}`` envelope.
-
-RFC 7807 (https://datatracker.ietf.org/doc/html/rfc7807) standard fields:
-    type     — URN identifying the problem type (non-resolvable, per §3.1)
-    title    — short human-readable summary
-    status   — HTTP status code
-    detail   — per-instance human-readable explanation
-    instance — request URL path
-
-LIP project extensions (placed at root per RFC 7807's extension convention):
-    code        — SCREAMING_SNAKE error code for ergonomic pattern matching
-    request_id  — propagated from RequestIdMiddleware
-
-Per-error typed params (e.g. ``max_waiters``, ``current_waiters`` for
-``QUEUE_FULL``) and the ``validation_errors`` array for ``VALIDATION_FAILED``
-are also placed at root level — that's what ``extra='allow'`` enables.
+Canonical wire shape for every error response in LIP, replacing the
+post-bootstrap ``{"error": {...}}`` envelope. Implements RFC 7807
+(https://datatracker.ietf.org/doc/html/rfc7807) plus two LIP project
+extensions (``code``, ``request_id``) and per-error typed params spread at
+root level (RFC 7807 §3.2).
 
 Asymmetric ``extra`` policy: request envelopes use ``extra='forbid'`` to catch
 consumer bugs at the boundary; response envelopes use ``extra='allow'`` to
-permit per-error typed extensions per RFC 7807 §3.2.
+permit per-error typed extensions. Per-field ``Field(description=...)`` strings
+are the source of truth for OpenAPI; this docstring stays high-level.
+
+Untrusted-extension warning: some fields reflect raw request input.
+``instance`` is the request URL path, and ``validation_errors[].field``
+echoes user-supplied field names from the failing payload. Downstream
+consumers MUST treat both as untrusted strings — escape on render, never
+interpolate into shells, queries, or HTML without sanitization.
 """
 
+from typing import TypedDict
+
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.validation_error_detail import ValidationErrorDetail
+
+
+class ProblemExtras(TypedDict, total=False):
+    """Allowed extension keys layered on top of ProblemDetails.
+
+    Used by ``app.api.errors._build_body`` to type the ``extras`` parameter
+    instead of ``dict[str, Any]``. ``total=False`` because every key is
+    optional — only ``VALIDATION_FAILED`` populates ``validation_errors``.
+    """
+
+    validation_errors: list[ValidationErrorDetail]
 
 
 class ProblemDetails(BaseModel):
@@ -32,7 +42,12 @@ class ProblemDetails(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     type: str = Field(
-        description="URN identifying the problem type (non-resolvable per RFC 7807 §3.1)",
+        description=(
+            "Stable URN identifying the problem type. LIP uses non-resolvable URNs "
+            "in v1, deviating from RFC 7807 §3.1's SHOULD-resolve guidance — a "
+            "future hosted-docs URL mapping can be introduced without breaking the "
+            "URN format."
+        ),
     )
     title: str = Field(description="Short human-readable summary of the problem")
     status: int = Field(description="HTTP status code", ge=400, le=599)

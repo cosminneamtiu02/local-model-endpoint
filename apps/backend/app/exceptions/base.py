@@ -16,7 +16,10 @@ class DomainError(Exception):
     Each subclass has:
     - code: machine-readable error code (e.g. "NOT_FOUND")
     - http_status: HTTP status code to return
-    - type_uri: stable URN per RFC 7807 §3.1 (e.g. "urn:lip:error:not-found")
+    - type_uri: stable URN identifying the problem type. LIP uses
+      non-resolvable URNs in v1 (e.g. "urn:lip:error:not-found"), deviating
+      from RFC 7807 §3.1's SHOULD-resolve guidance — a future hosted-docs
+      URL mapping can be introduced without breaking the URN format.
     - title: short human-readable summary per RFC 7807 §3.1
     - detail_template: per-instance human-readable explanation; substituted via
       ``str.format(**params.model_dump())`` for parameterized errors. For
@@ -49,8 +52,9 @@ class DomainError(Exception):
     def detail(self) -> str:
         """Render the per-instance human-readable detail.
 
-        Subclasses generated from errors.yaml override this. The base's
-        implementation is the parameterless fallback, used by tests that
-        construct DomainError directly via .__new__ (rare).
+        Subclasses generated from errors.yaml override this. The base
+        implementation returns ``title`` as the most informative default if a
+        subclass is constructed without overriding (e.g. a hand-rolled
+        subclass — forbidden by CLAUDE.md, but kept safe).
         """
         return self.title

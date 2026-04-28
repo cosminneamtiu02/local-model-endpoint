@@ -1,7 +1,4 @@
-"""Domain exception hierarchy.
-
-Import errors from this module, never from _generated/ directly.
-"""
+"""Domain exception hierarchy. See architecture/import-linter-contracts.ini."""
 
 from app.exceptions._generated import (
     AdapterConnectionFailureError,

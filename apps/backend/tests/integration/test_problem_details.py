@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 
 from app.api.errors import PROBLEM_JSON_MEDIA_TYPE, register_exception_handlers
 from app.api.middleware import RequestIdMiddleware
@@ -60,6 +60,10 @@ def _build_app() -> FastAPI:
     async def raise_validate(required_param: int) -> dict[str, Any]:  # noqa: ARG001
         return {"ok": True}
 
+    @app.get("/raise/multi-validate")
+    async def raise_multi_validate(first_param: int, second_param: int) -> dict[str, Any]:
+        return {"ok": first_param + second_param}
+
     app.add_middleware(RequestIdMiddleware)
     return app
 
@@ -76,14 +80,34 @@ async def asgi_client() -> AsyncGenerator[AsyncClient]:
         yield c
 
 
+def _assert_problem_json(response: Response, *, status: int, code: str) -> dict[str, Any]:
+    """Assert the canonical RFC 7807 envelope on every error response.
+
+    Locks the four invariants every error path must honor:
+      1. Status line matches the body's ``status`` field (RFC 7807 §3.1 MUST).
+      2. Content-Type is ``application/problem+json; charset=utf-8`` (RFC 7807 §3).
+      3. Body's ``code`` matches the expected SCREAMING_SNAKE error code.
+      4. Body's ``request_id`` matches the ``X-Request-ID`` response header
+         (correlation contract — middleware ↔ handler).
+    Returns the parsed body so the call site can make code-specific assertions.
+    """
+    assert response.status_code == status
+    assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
+    body = response.json()
+    assert body["code"] == code
+    assert body["status"] == status
+    assert body["request_id"] == response.headers["X-Request-ID"]
+    # Content-Language is the v1 contract for "the response is English-only".
+    assert response.headers["content-language"] == "en"
+    return body
+
+
 # ── DomainError → typed RFC 7807 response ─────────────────────────────────
 
 
 async def test_queue_full_full_envelope(asgi_client: AsyncClient) -> None:
     response = await asgi_client.get("/raise/queue-full")
-    assert response.status_code == 503
-    assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
-    body = response.json()
+    body = _assert_problem_json(response, status=503, code="QUEUE_FULL")
     assert body == {
         "type": "urn:lip:error:queue-full",
         "title": "Inference Queue Full",
@@ -99,35 +123,27 @@ async def test_queue_full_full_envelope(asgi_client: AsyncClient) -> None:
 
 async def test_inference_timeout_full_envelope(asgi_client: AsyncClient) -> None:
     response = await asgi_client.get("/raise/timeout")
-    assert response.status_code == 504
-    body = response.json()
-    assert body["code"] == "INFERENCE_TIMEOUT"
+    body = _assert_problem_json(response, status=504, code="INFERENCE_TIMEOUT")
     assert body["timeout_seconds"] == 180
     assert body["instance"] == "/raise/timeout"
 
 
 async def test_adapter_failure_full_envelope(asgi_client: AsyncClient) -> None:
     response = await asgi_client.get("/raise/adapter")
-    assert response.status_code == 502
-    body = response.json()
-    assert body["code"] == "ADAPTER_CONNECTION_FAILURE"
+    body = _assert_problem_json(response, status=502, code="ADAPTER_CONNECTION_FAILURE")
     assert body["backend"] == "ollama"
     assert body["reason"] == "connection refused"
 
 
 async def test_registry_not_found_full_envelope(asgi_client: AsyncClient) -> None:
     response = await asgi_client.get("/raise/registry")
-    assert response.status_code == 404
-    body = response.json()
-    assert body["code"] == "REGISTRY_NOT_FOUND"
+    body = _assert_problem_json(response, status=404, code="REGISTRY_NOT_FOUND")
     assert body["model"] == "phantom-model"
 
 
 async def test_capability_not_supported_full_envelope(asgi_client: AsyncClient) -> None:
     response = await asgi_client.get("/raise/capability")
-    assert response.status_code == 422
-    body = response.json()
-    assert body["code"] == "MODEL_CAPABILITY_NOT_SUPPORTED"
+    body = _assert_problem_json(response, status=422, code="MODEL_CAPABILITY_NOT_SUPPORTED")
     assert body["model"] == "text-only"
     assert body["requested_capability"] == "audio"
 
@@ -139,10 +155,7 @@ async def test_pydantic_validation_error_includes_validation_errors_array(
     asgi_client: AsyncClient,
 ) -> None:
     response = await asgi_client.get("/raise/validate?required_param=not_an_int")
-    assert response.status_code == 422
-    assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
-    body = response.json()
-    assert body["code"] == "VALIDATION_FAILED"
+    body = _assert_problem_json(response, status=422, code="VALIDATION_FAILED")
     assert body["type"] == "urn:lip:error:validation-failed"
     assert len(body["validation_errors"]) >= 1
     first = body["validation_errors"][0]
@@ -151,16 +164,39 @@ async def test_pydantic_validation_error_includes_validation_errors_array(
     assert "required_param" in first["field"]
 
 
+async def test_multi_field_validation_error_detail_points_to_array(
+    asgi_client: AsyncClient,
+) -> None:
+    """When 2+ fields fail, ``detail`` names the count and refers to validation_errors[]."""
+    response = await asgi_client.get("/raise/multi-validate")
+    body = _assert_problem_json(response, status=422, code="VALIDATION_FAILED")
+    n = len(body["validation_errors"])
+    assert n >= 2
+    assert body["detail"] == (
+        f"Validation failed for {n} fields. See validation_errors[] for details."
+    )
+
+
 # ── Unhandled exception → 500 with no PII / stack leak ────────────────────
 
 
 async def test_unhandled_exception_returns_500_problem_json(asgi_client: AsyncClient) -> None:
     response = await asgi_client.get("/raise/unhandled")
-    assert response.status_code == 500
-    assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
-    body = response.json()
-    assert body["code"] == "INTERNAL_ERROR"
+    body = _assert_problem_json(response, status=500, code="INTERNAL_ERROR")
     assert body["type"] == "urn:lip:error:internal-error"
     # The original exception message must not leak through
     assert "boom" not in body["detail"]
     assert "RuntimeError" not in body["detail"]
+
+
+# ── HTTPException path (404 from unmatched route) ─────────────────────────
+
+
+async def test_unmatched_route_returns_404_problem_json(asgi_client: AsyncClient) -> None:
+    """An undefined path surfaces as RFC 7807 problem+json via the HTTPException handler."""
+    response = await asgi_client.get("/this-route-does-not-exist")
+    body = _assert_problem_json(response, status=404, code="NOT_FOUND")
+    # 404 routes through NotFoundError so the body matches a typed-raise 404
+    # exactly — single source of truth for the wire shape.
+    assert body["type"] == "urn:lip:error:not-found"
+    assert body["instance"] == "/this-route-does-not-exist"

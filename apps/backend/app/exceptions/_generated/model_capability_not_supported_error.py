@@ -1,11 +1,14 @@
 """Generated from errors.yaml. Do not edit."""
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from app.exceptions._generated.model_capability_not_supported_params import (
     ModelCapabilityNotSupportedParams,
 )
 from app.exceptions.base import DomainError
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 
 class ModelCapabilityNotSupportedError(DomainError):
@@ -29,5 +32,5 @@ class ModelCapabilityNotSupportedError(DomainError):
 
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
-        assert self.params is not None  # parameterized error
-        return self.detail_template.format(**self.params.model_dump())
+        params = cast("BaseModel", self.params)
+        return self.detail_template.format(**params.model_dump())

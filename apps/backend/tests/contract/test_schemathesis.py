@@ -80,18 +80,29 @@ def test_problem_details_component_allows_additional_properties() -> None:
     )
 
 
-def test_health_route_declares_problem_details_for_5xx_responses() -> None:
-    """The /health route advertises ProblemDetails on its 5xx responses."""
+def test_health_route_declares_problem_details_default_response() -> None:
+    """The /health route advertises ProblemDetails on its OpenAPI ``default`` response.
+
+    The route uses ``responses={"default": ...}`` instead of enumerating
+    individual 5xx codes (``500``, ``503``). This matches the truth on the
+    ground: the global exception handler in ``app/api/errors.py`` runs
+    against every status code we don't enumerate, and ``/health`` itself
+    is liveness-only and never raises (so listing 500/503 as endpoint-
+    specific responses would imply behavior that doesn't exist).
+    """
     client = TestClient(app, raise_server_exceptions=False)
     spec = client.get("/openapi.json").json()
     health = spec["paths"]["/health"]["get"]
     responses = health.get("responses", {})
-    for status in ("500", "503"):
-        assert status in responses
-        content = responses[status].get("content", {})
-        # FastAPI/Pydantic emits the schema under application/json by default;
-        # the runtime Content-Type is overridden to application/problem+json
-        # by the handler. The contract here is "the schema is referenced".
-        assert any("ProblemDetails" in str(media) for media in content.values()), (
-            f"/health 5xx response must reference ProblemDetails, got {content}"
-        )
+
+    assert "default" in responses, (
+        "Expected a 'default' response on /health (the project-wide error "
+        f"shape), got responses keys: {sorted(responses.keys())}"
+    )
+    content = responses["default"].get("content", {})
+    # FastAPI/Pydantic emits the schema under application/json by default;
+    # the runtime Content-Type is overridden to application/problem+json
+    # by the handler. The contract here is "the schema is referenced".
+    assert any("ProblemDetails" in str(media) for media in content.values()), (
+        f"/health 'default' response must reference ProblemDetails, got {content}"
+    )
