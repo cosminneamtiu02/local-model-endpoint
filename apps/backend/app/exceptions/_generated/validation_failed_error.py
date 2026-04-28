@@ -7,7 +7,7 @@ from app.exceptions.base import DomainError
 
 
 class ValidationFailedError(DomainError):
-    """Error: VALIDATION_FAILED."""
+    """Request payload failed validation"""
 
     code: ClassVar[str] = "VALIDATION_FAILED"
     http_status: ClassVar[int] = 422

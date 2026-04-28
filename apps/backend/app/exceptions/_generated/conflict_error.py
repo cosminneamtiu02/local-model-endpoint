@@ -6,7 +6,7 @@ from app.exceptions.base import DomainError
 
 
 class ConflictError(DomainError):
-    """Error: CONFLICT."""
+    """Operation conflicts with current state"""
 
     code: ClassVar[str] = "CONFLICT"
     http_status: ClassVar[int] = 409

@@ -14,9 +14,9 @@ from app.exceptions._generated.rate_limited_error import RateLimitedError
 from app.exceptions._generated.validation_failed_error import ValidationFailedError
 
 ERROR_CLASSES: dict[str, type[DomainError]] = {
-    "NOT_FOUND": NotFoundError,
     "CONFLICT": ConflictError,
-    "VALIDATION_FAILED": ValidationFailedError,
     "INTERNAL_ERROR": InternalError,
+    "NOT_FOUND": NotFoundError,
     "RATE_LIMITED": RateLimitedError,
+    "VALIDATION_FAILED": ValidationFailedError,
 }
