@@ -19,8 +19,8 @@ dependencies = [
     "fastapi==0.135.3",
     "starlette==1.0.0",
     "uvicorn[standard]==0.44.0",
-    "pydantic==2.12.5",
-    "pydantic-settings==2.13.1",
+    "pydantic==2.13.3",
+    "pydantic-settings==2.14.0",
     "structlog==25.5.0",
     "httpx==0.28.1",
 ]
