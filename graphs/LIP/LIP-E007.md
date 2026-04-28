@@ -3,7 +3,7 @@ type: epic
 id: LIP-E007
 parent: LIP
 title: Documentation & Contract Discoverability
-status: fully-detailed
+status: verifiable
 priority: 70
 dependencies: [LIP-E001, LIP-E002, LIP-E003, LIP-E004, LIP-E005, LIP-E006]
 ---

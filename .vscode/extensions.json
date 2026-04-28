@@ -3,10 +3,6 @@
     "ms-python.python",
     "ms-python.vscode-pylance",
     "charliermarsh.ruff",
-    "biomejs.biome",
-    "hashicorp.terraform",
-    "ms-azuretools.vscode-docker",
-    "eamodio.gitlens",
-    "ms-playwright.playwright"
+    "eamodio.gitlens"
   ]
 }

@@ -3,7 +3,7 @@ type: epic
 id: LIP-E006
 parent: LIP
 title: Operational Visibility
-status: fully-detailed
+status: verifiable
 priority: 60
 dependencies: [LIP-E001, LIP-E004]
 ---

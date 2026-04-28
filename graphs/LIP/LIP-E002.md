@@ -3,7 +3,7 @@ type: epic
 id: LIP-E002
 parent: LIP
 title: Model Registry
-status: fully-detailed
+status: verifiable
 priority: 20
 dependencies: []
 ---

@@ -11,16 +11,13 @@ trim_trailing_whitespace = true
 [*.py]
 indent_size = 4
 
-[*.{ts,tsx,js,jsx,json,yaml,yml,css,html}]
+[*.{yml,yaml,json}]
 indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = false
 
 [Taskfile.yml]
-indent_size = 2
-
-[*.tf]
 indent_size = 2
 
 [Makefile]
