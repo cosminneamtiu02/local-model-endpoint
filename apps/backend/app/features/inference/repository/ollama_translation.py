@@ -22,8 +22,9 @@ from app.features.inference.model.ollama_chat_result import OllamaChatResult
 from app.features.inference.model.text_content import TextContent
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
+    from app.features.inference.model.content_part import ContentPart
     from app.features.inference.model.finish_reason import FinishReason
     from app.features.inference.model.message import Message
     from app.features.inference.model.model_params import ModelParams
@@ -46,52 +47,77 @@ _OLLAMA_TO_LIP_FINISH: Final[Mapping[str, FinishReason]] = MappingProxyType(
 )
 
 
-def translate_message(msg: Message) -> dict[str, Any]:
-    """Service Message -> Ollama /api/chat message dict.
+def _flatten_content_parts(
+    parts: Sequence[ContentPart],
+) -> tuple[list[str], list[str], list[str]]:
+    """Walk a multimodal content list, splitting parts into (text, images, audios)
+    base64 buckets. URL-only image/audio parts raise NotImplementedError so an
+    upstream layer is forced to pre-encode them.
 
-    String-content messages pass through unchanged. List-content
-    (multimodal) messages are flattened: text parts joined with the
-    ``\\n\\n`` separator, image base64 payloads collected into an
-    ``images`` array on the same message object. URL-only ImageContent
-    and AudioContent raise NotImplementedError; an upstream layer is
-    expected to pre-encode or reject them.
+    Pyright strict + the closed Literal discriminator on ContentPart make the
+    match exhaustive: adding a fourth variant without extending this block fails
+    type checking, so no silent fallthrough.
     """
-    if isinstance(msg.content, str):
-        return {"role": msg.role, "content": msg.content}
-
     text_parts: list[str] = []
     images: list[str] = []
-    # Pyright strict + a closed Literal discriminator make this an
-    # exhaustive match: adding a fourth ContentPart variant without
-    # extending this block fails type checking, so no silent fallthrough.
-    for part in msg.content:
+    audios: list[str] = []
+    for part in parts:
         match part:
             case TextContent():
                 text_parts.append(part.text)
             case ImageContent():
                 if part.base64 is None:
-                    # Ollama /api/chat images expects raw base64; URLs must be
-                    # pre-encoded by an upstream layer.
                     error_message = "URL-only ImageContent is not supported; supply base64."
                     raise NotImplementedError(error_message)
                 images.append(part.base64)
             case AudioContent():
-                # Audio wire format is unverified against a live daemon; fail
-                # loud rather than silently dropping the audio payload.
-                error_message = (
-                    "audio translation is not supported pending live-daemon verification."
-                )
-                raise NotImplementedError(error_message)
+                if part.base64 is None:
+                    error_message = "URL-only AudioContent is not supported; supply base64."
+                    raise NotImplementedError(error_message)
+                audios.append(part.base64)
+    return text_parts, images, audios
 
-    ollama_msg: dict[str, Any] = {"role": msg.role, "content": "\n\n".join(text_parts)}
+
+def _attach_media_to_message(
+    ollama_msg: dict[str, Any],
+    role: str,
+    images: list[str],
+    audios: list[str],
+) -> None:
+    """Attach images/audios arrays to an Ollama message dict in place. Ollama
+    /api/chat documents both arrays only on user/assistant turns; system-role
+    media raises so the failure is loud rather than silently dropped."""
     if images:
-        # Ollama /api/chat documents `images` only on user/assistant turns.
-        if msg.role == "system":
+        if role == "system":
             error_message = (
                 "system-role messages with images are not supported by Ollama /api/chat."
             )
             raise NotImplementedError(error_message)
         ollama_msg["images"] = images
+    if audios:
+        if role == "system":
+            error_message = (
+                "system-role messages with audios are not supported by Ollama /api/chat."
+            )
+            raise NotImplementedError(error_message)
+        ollama_msg["audios"] = audios
+
+
+def translate_message(msg: Message) -> dict[str, Any]:
+    """Service Message -> Ollama /api/chat message dict.
+
+    String-content messages pass through unchanged. List-content
+    (multimodal) messages are flattened: text parts joined with the
+    ``\\n\\n`` separator, image/audio base64 payloads collected into
+    ``images`` / ``audios`` arrays on the same message object per
+    LIP-E003-F002 [RESOLVED].
+    """
+    if isinstance(msg.content, str):
+        return {"role": msg.role, "content": msg.content}
+
+    text_parts, images, audios = _flatten_content_parts(msg.content)
+    ollama_msg: dict[str, Any] = {"role": msg.role, "content": "\n\n".join(text_parts)}
+    _attach_media_to_message(ollama_msg, msg.role, images, audios)
     return ollama_msg
 
 
@@ -99,11 +125,11 @@ def translate_params(params: ModelParams) -> dict[str, Any]:
     """ModelParams -> Ollama options dict.
 
     Only consumer-set fields are forwarded; registry defaults are merged
-    upstream. ``think`` is excluded here because it is promoted to a
-    top-level Ollama field by ``OllamaClient.chat``, not nested in
-    ``options``.
+    upstream. ``think`` rides inside ``options`` alongside the sampling
+    fields per LIP-E003-F002 [RESOLVED] (single canonical placement; no
+    per-Ollama-version branching).
     """
-    consumer_overrides = params.model_dump(exclude_unset=True, exclude={"think"})
+    consumer_overrides = params.model_dump(exclude_unset=True)
     return {_PARAM_RENAMES.get(k, k): v for k, v in consumer_overrides.items()}
 
 

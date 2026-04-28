@@ -13,10 +13,11 @@ brew install ollama
 ollama pull gemma4:e2b
 ```
 
-The Ollama daemon is configured to run as a `launchd` service via the plist at
-`infra/launchd/com.lip.ollama.plist` (added by PR #9 / LIP-E005-F003) with
-`KEEP_ALIVE=300s`, `NUM_PARALLEL=1`, `MAX_LOADED_MODELS=1`, `FLASH_ATTENTION=1`,
-`KV_CACHE_TYPE=q8_0`. Run `task ollama:install` to install it; see
+The Ollama daemon is configured to run as a `launchd` service via the plist
+template at `infra/launchd/com.lip.ollama.plist.tmpl` (added by PR #9 /
+LIP-E005-F003) with `KEEP_ALIVE=300s`, `NUM_PARALLEL=1`,
+`MAX_LOADED_MODELS=1`, `FLASH_ATTENTION=1`, `KV_CACHE_TYPE=q8_0`. Run
+`task ollama:install` to render `__HOME__` and install it; see
 [docs/ollama-launchd.md](ollama-launchd.md) for env-var rationale and
 customization.
 
@@ -42,7 +43,10 @@ Service: http://127.0.0.1:8000 (defaults; override via `LIP_BIND_HOST` / `LIP_BI
 
 All runtime configuration is through `pydantic-settings`. The full canonical list
 of env vars lives in [`apps/backend/.env.example`](../apps/backend/.env.example);
-the table below summarizes the production-relevant ones.
+the table below summarizes the production-relevant ones. The `.env` file is
+resolved relative to the runtime cwd — `task dev` cd's into `apps/backend/` first,
+so the lookup is `apps/backend/.env`. Running `python -m app` from the repo root
+will not find a `.env`; always launch via `task dev` (or `cd apps/backend` first).
 
 | Env var | Default | Meaning |
 |---|---|---|

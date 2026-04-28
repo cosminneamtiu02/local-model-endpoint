@@ -22,7 +22,7 @@ milestone.
 in [packages/error-contracts/errors.yaml](../packages/error-contracts/errors.yaml) — a
 codegen script produces one Python exception class per error code in
 `app/exceptions/_generated/`. Four handlers in
-[app/api/errors.py](../apps/backend/app/api/errors.py) map `DomainError`,
+[app/api/exception_handlers.py](../apps/backend/app/api/exception_handlers.py) map `DomainError`,
 `RequestValidationError`, `StarletteHTTPException`, and unhandled `Exception` into a
 unified RFC 7807 `application/problem+json` ProblemDetails envelope (LIP-E004-F004).
 
@@ -31,7 +31,7 @@ unified RFC 7807 `application/problem+json` ProblemDetails envelope (LIP-E004-F0
 for liveness. Readiness will be added by LIP-E006-F001 when the warm-up signal from
 LIP-E005-F001 is wired.
 
-**Architecture enforcement** is mechanical: import-linter has thirteen contracts (nine
+**Architecture enforcement** is mechanical: import-linter has ten contracts (six
 cross-cutting layer rules plus four inference-feature-internal rules) — see
 [apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini)
 for the full list. Each cross-cutting layer (`app.core`, `app.exceptions`, `app.schemas`)

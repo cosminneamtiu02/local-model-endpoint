@@ -13,6 +13,7 @@ Two concerns layered on the ASGI scope:
    (silenced in core/logging.py).
 """
 
+import json
 import re
 import time
 import uuid
@@ -39,7 +40,78 @@ _ACCESS_LOG_SUPPRESSED_PATHS: Final[frozenset[str]] = frozenset({"/health"})
 _C0_CONTROL_UPPER: Final[int] = 0x20
 _DEL_CHAR: Final[int] = 0x7F
 
+# Status family bounds for the access-log suppression check on /health.
+_HTTP_STATUS_OK_FLOOR: Final[int] = 200
+_HTTP_STATUS_REDIRECT_CEILING: Final[int] = 400
+
+# When the app raises before sending http.response.start, captured_status
+# stays 0 — Starlette's outer ServerErrorMiddleware will translate the
+# exception to a 500 on the wire. Surface that as 500 in the access log so
+# log filters keyed on `status_code >= 500` actually find these requests.
+_STATUS_ON_UNCAUGHT_EXCEPTION: Final[int] = 500
+
+# Truncation cap on the rejected client-supplied X-Request-ID preview in
+# logs. Bounds log-injection blast radius (the ascii-replace + control-char
+# checks are the primary defense; truncation is belt-and-suspenders).
+_REQUEST_ID_PREVIEW_MAX_CHARS: Final[int] = 32
+
+# Maximum allowed Content-Length on the request body. Larger payloads are
+# rejected before Starlette buffers them, defending against accidental retry
+# loops or pathological consumers OOM-ing uvicorn on the 16 GB M4 host.
+# 64 MiB is well above any realistic single audio clip / multimodal prompt
+# and far below memory-pressure territory; not a configurable wire knob.
+_MAX_REQUEST_BODY_BYTES: Final[int] = 64 * 1024 * 1024
+_PROBLEM_JSON_MEDIA_TYPE: Final[bytes] = b"application/problem+json; charset=utf-8"
+_CONTENT_LANGUAGE: Final[bytes] = b"en"
+_REQUEST_ENTITY_TOO_LARGE: Final[int] = 413
+
 logger = structlog.get_logger(__name__)
+
+
+def _content_length_from_scope(scope: Scope) -> int | None:
+    """Read Content-Length from ASGI scope headers; None if absent or unparseable."""
+    raw = next(
+        (v for k, v in scope.get("headers", []) if k == b"content-length"),
+        None,
+    )
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None:
+    """Send a minimal RFC 7807 problem+json 413 response without invoking the
+    exception handler chain (which lives below this middleware in the ASGI
+    stack). The handler chain owns the typed-DomainError shape; this wire
+    body is built by hand to keep the middleware self-contained.
+    """
+    body = json.dumps(
+        {
+            "type": "about:blank",
+            "title": "Payload Too Large",
+            "status": _REQUEST_ENTITY_TOO_LARGE,
+            "detail": (f"Request body exceeds the {_MAX_REQUEST_BODY_BYTES}-byte limit."),
+            "instance": path,
+            "code": "REQUEST_TOO_LARGE",
+            "request_id": request_id,
+        },
+    ).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": _REQUEST_ENTITY_TOO_LARGE,
+            "headers": [
+                (b"content-type", _PROBLEM_JSON_MEDIA_TYPE),
+                (b"content-language", _CONTENT_LANGUAGE),
+                (b"content-length", str(len(body)).encode("ascii")),
+                (b"x-request-id", request_id.encode("latin-1")),
+            ],
+        },
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 class RequestIdMiddleware:
@@ -77,14 +149,17 @@ class RequestIdMiddleware:
         match_result = _UUID_PATTERN.match(client_id) if client_id else None
 
         if client_id and match_result is None:
-            # Truncate before logging to bound log-injection blast radius
-            # (the ascii-replace + control-char check above is the primary
-            # defense; truncation is belt-and-suspenders).
-            preview = client_id[:32]
+            preview = client_id[:_REQUEST_ID_PREVIEW_MAX_CHARS]
             request_id = str(uuid.uuid4())
+            # rejected_reason / rejected_byte_total give triage-actionable
+            # signal beyond the bare preview when a control-char rewrite
+            # collapsed the value to "<non-printable>".
+            had_control_chars = client_id == "<non-printable>"
             logger.warning(
                 "request_id_rejected_client_value",
                 supplied_value_preview=preview,
+                rejected_reason=("control_char" if had_control_chars else "format_mismatch"),
+                rejected_byte_total=len(client_id_raw),
                 generated_request_id=request_id,
             )
         elif match_result is not None:
@@ -102,6 +177,25 @@ class RequestIdMiddleware:
         method = str(scope.get("method", ""))
         path = str(scope.get("path", ""))
         start = time.perf_counter()
+
+        # Body-size DoS guard: reject early before Starlette buffers the
+        # whole body into memory. Content-Length is the primary signal
+        # (always set by HTTP/1.1 fixed-size requests); chunked uploads
+        # without a length header are not a current LIP profile (LAN-local
+        # backend clients send fixed-size JSON), so the absence of
+        # Content-Length is permitted.
+        content_length = _content_length_from_scope(scope)
+        if content_length is not None and content_length > _MAX_REQUEST_BODY_BYTES:
+            logger.warning(
+                "request_body_too_large",
+                request_id=request_id,
+                method=method,
+                path=path,
+                content_length=content_length,
+                limit=_MAX_REQUEST_BODY_BYTES,
+            )
+            await _send_413_problem_json(send, request_id, path)
+            return
 
         # Bind request_id + method + path so every log line emitted within
         # the request scope (handlers, services, repositories) carries the
@@ -123,20 +217,44 @@ class RequestIdMiddleware:
                     message = {**message, "headers": new_headers}
                 await send(message)
 
+            unhandled_exc: BaseException | None = None
             try:
                 await self.app(scope, receive, send_with_request_id)
+            except BaseException as exc:
+                # Capture and re-raise so Starlette's outer ServerErrorMiddleware
+                # still serializes the response, but the access-log line below
+                # gets the real status (500) instead of the 0 sentinel that
+                # would silently fall outside operator log filters.
+                unhandled_exc = exc
+                raise
             finally:
+                effective_status = (
+                    _STATUS_ON_UNCAUGHT_EXCEPTION
+                    if captured_status == 0 and unhandled_exc is not None
+                    else captured_status
+                )
                 # Health-check pings are silenced unless degraded — a 4xx/5xx
                 # /health response is the case operators DO want to see.
                 suppress = (
-                    path in _ACCESS_LOG_SUPPRESSED_PATHS and 200 <= captured_status < 400  # noqa: PLR2004
+                    path in _ACCESS_LOG_SUPPRESSED_PATHS
+                    and _HTTP_STATUS_OK_FLOOR <= effective_status < _HTTP_STATUS_REDIRECT_CEILING
                 )
                 if not suppress:
                     duration_ms = int((time.perf_counter() - start) * 1000)
                     client = scope.get("client")
+                    # Explicit method=/path= kwargs are belt-and-suspenders
+                    # alongside merge_contextvars: a future regression that
+                    # drops the contextvar processor would otherwise silently
+                    # strip routing context from the access log.
+                    # client_host is the LAN-trusted consumer's peer IP — fine
+                    # to log unconditionally for this single-developer LAN
+                    # profile (consumers are self-owned). Revisit (toggle or
+                    # redact) the day a non-self-owned client class appears.
                     logger.info(
                         "request_completed",
-                        status_code=captured_status,
+                        method=method,
+                        path=path,
+                        status_code=effective_status,
                         duration_ms=duration_ms,
                         client_host=client[0] if client else None,
                     )

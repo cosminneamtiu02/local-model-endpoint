@@ -112,17 +112,28 @@ async def test_chat_renames_max_tokens_to_num_predict_in_options() -> None:
     assert "max_tokens" not in body["options"]
 
 
-async def test_chat_promotes_think_to_top_level_field() -> None:
-    """Per spec [UNRESOLVED] — current placement is top-level, not nested in options."""
+async def test_chat_places_think_inside_options_per_f002_spec() -> None:
+    """LIP-E003-F002 [RESOLVED]: ``think`` rides inside ``options`` (locked placement)."""
     body, _, _ = await _send_and_capture(params=ModelParams(think=True))
-    assert body.get("think") is True
-    # think must NOT also appear inside options
-    assert "think" not in body.get("options", {})
-
-
-async def test_chat_omits_think_when_false() -> None:
-    body, _, _ = await _send_and_capture(params=ModelParams(think=False))
+    assert body["options"]["think"] is True
+    # think must NOT appear at the top level
     assert "think" not in body
+
+
+async def test_chat_includes_think_false_in_options_when_explicitly_set() -> None:
+    """Symmetric with every other ModelParams field: explicitly-set values are
+    faithfully transmitted via ``model_dump(exclude_unset=True)``. ``think=False``
+    set by the consumer rides as ``options.think=False`` (overrides any model-side
+    thinking-mode default at Ollama)."""
+    body, _, _ = await _send_and_capture(params=ModelParams(think=False))
+    assert body["options"]["think"] is False
+    assert "think" not in body  # never top-level
+
+
+async def test_chat_omits_think_when_unset() -> None:
+    body, _, _ = await _send_and_capture(params=ModelParams())
+    assert "think" not in body
+    assert "options" not in body  # bare ModelParams produces no options key at all
 
 
 async def test_chat_omits_options_when_no_consumer_set_params() -> None:

@@ -91,11 +91,54 @@ def test_translate_message_url_only_image_raises_not_implemented() -> None:
         translate_message(msg)
 
 
-def test_translate_message_audio_content_raises_not_implemented() -> None:
-    """F002 leaves AudioContent translation [UNRESOLVED] pending live-Ollama check."""
-    msg = Message(role="user", content=[AudioContent(base64="aaa")])
-    with pytest.raises(NotImplementedError, match="audio"):
+def test_translate_message_emits_audios_array_for_base64_audio_content() -> None:
+    """F002 [RESOLVED]: audios array on the message object, mirroring images."""
+    msg = Message(role="user", content=[TextContent(text="describe"), AudioContent(base64="aaa")])
+    assert translate_message(msg) == {
+        "role": "user",
+        "content": "describe",
+        "audios": ["aaa"],
+    }
+
+
+def test_translate_message_preserves_audio_order_in_audios_array() -> None:
+    msg = Message(
+        role="user",
+        content=[AudioContent(base64="aaa"), AudioContent(base64="bbb")],
+    )
+    out = translate_message(msg)
+    assert out["audios"] == ["aaa", "bbb"]
+
+
+def test_translate_message_no_audios_key_when_only_text_parts() -> None:
+    msg = Message(role="user", content=[TextContent(text="hi")])
+    out = translate_message(msg)
+    assert "audios" not in out
+
+
+def test_translate_message_url_only_audio_raises_not_implemented() -> None:
+    """Symmetric with ImageContent: URL-only audio must be pre-encoded by an upstream layer."""
+    msg = Message(role="user", content=[AudioContent(url="https://x/a.mp3")])
+    with pytest.raises(NotImplementedError, match="base64"):
         translate_message(msg)
+
+
+def test_translate_message_emits_both_images_and_audios_when_mixed() -> None:
+    msg = Message(
+        role="user",
+        content=[
+            TextContent(text="multimodal"),
+            ImageContent(base64="img1"),
+            AudioContent(base64="aud1"),
+        ],
+    )
+    out = translate_message(msg)
+    assert out == {
+        "role": "user",
+        "content": "multimodal",
+        "images": ["img1"],
+        "audios": ["aud1"],
+    }
 
 
 # ── translate_params ────────────────────────────────────────────────
@@ -141,15 +184,14 @@ def test_translate_params_emits_all_six_sampling_fields_with_max_tokens_renamed(
     }
 
 
-def test_translate_params_strips_think_from_options() -> None:
-    """`think` is handled separately as a top-level Ollama field, not in options."""
-    assert translate_params(ModelParams(think=True)) == {}
+def test_translate_params_includes_think_in_options() -> None:
+    """F002 [RESOLVED]: `think` rides inside the options dict; locked placement."""
+    assert translate_params(ModelParams(think=True)) == {"think": True}
 
 
-def test_translate_params_strips_think_when_combined_with_sampling_field() -> None:
+def test_translate_params_includes_think_alongside_sampling_field() -> None:
     out = translate_params(ModelParams(think=True, temperature=0.7))
-    assert out == {"temperature": 0.7}
-    assert "think" not in out
+    assert out == {"temperature": 0.7, "think": True}
 
 
 def test_translate_params_includes_seed_zero() -> None:

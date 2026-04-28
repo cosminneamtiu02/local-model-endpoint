@@ -8,9 +8,12 @@ It is the operator-facing companion to LIP-E005-F003.
 
 ## What this is
 
-`infra/launchd/com.lip.ollama.plist` is the canonical `launchd` config for the
-always-on Ollama daemon that LIP's FastAPI service talks to over HTTP at
-`http://localhost:11434`. The plist:
+`infra/launchd/com.lip.ollama.plist.tmpl` is the canonical `launchd` config
+template for the always-on Ollama daemon that LIP's FastAPI service talks to
+over HTTP at `http://localhost:11434`. The template's ``__HOME__`` placeholder
+is substituted with `$HOME` at install time (launchd does not expand env vars
+in plists), then the rendered file is installed at
+`~/Library/LaunchAgents/com.lip.ollama.plist`. The plist:
 
 - runs `ollama serve` at user login (`RunAtLoad=true`),
 - restarts Ollama if it crashes (`KeepAlive=true`),
@@ -47,8 +50,9 @@ Behind the scenes this:
 1. Creates `~/Library/Logs/ollama/` if missing (so the plist's
    `StandardOutPath`/`StandardErrorPath` have a destination).
 2. Creates `~/Library/LaunchAgents/` if missing.
-3. Copies `infra/launchd/com.lip.ollama.plist` to
-   `~/Library/LaunchAgents/com.lip.ollama.plist`.
+3. Refuses to run as root (LaunchAgent must be in the user domain).
+4. Substitutes `__HOME__` with `$HOME` and writes the rendered plist to
+   `~/Library/LaunchAgents/com.lip.ollama.plist` via `sed`.
 4. Bootstraps the agent into the GUI session domain:
    `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lip.ollama.plist`.
 
@@ -118,10 +122,10 @@ section for why memory assertions aren't in CI).
 
 ## Customizing for non-Homebrew installs
 
-The plist hardcodes `/opt/homebrew/bin/ollama` as the path to the Ollama
-binary — the Apple Silicon Homebrew default. If your Ollama lives elsewhere,
-edit the first `<string>` entry in the `ProgramArguments` array of
-`infra/launchd/com.lip.ollama.plist`:
+The plist template hardcodes `/opt/homebrew/bin/ollama` as the path to the
+Ollama binary — the Apple Silicon Homebrew default. If your Ollama lives
+elsewhere, edit the first `<string>` entry in the `ProgramArguments` array
+of `infra/launchd/com.lip.ollama.plist.tmpl`:
 
 ```xml
 <key>ProgramArguments</key>
@@ -179,8 +183,8 @@ it reaches `launchctl bootstrap`.
   Run `task ollama:uninstall` first, then `task ollama:install`.
 - **`bootstrap` fails with `Bootstrap failed: 5: Input/output error`** —
   usually a malformed plist. Run `plutil -lint
-  infra/launchd/com.lip.ollama.plist` (or `task check:plist`) to find the
-  schema problem before re-trying.
+  infra/launchd/com.lip.ollama.plist.tmpl` (or `task check:plist`) to find
+  the schema problem before re-trying.
 - **You edited the plist and the new env vars don't show up in `task
   ollama:status`** — `launchctl kickstart -k` does **not** re-read the
   on-disk plist; it only restarts the daemon under the already-bootstrapped

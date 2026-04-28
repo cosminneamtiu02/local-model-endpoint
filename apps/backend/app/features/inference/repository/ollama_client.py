@@ -165,8 +165,9 @@ class OllamaClient:
         mapping (httpx exceptions -> typed DomainError) wraps this method.
         """
         # Field order intentionally mirrors the Ollama /api/chat spec
-        # example body (model, messages, options, stream, think) so wire
-        # dumps are reviewable side-by-side with upstream API docs.
+        # example body (model, messages, options, stream) so wire dumps
+        # are reviewable side-by-side with upstream API docs. ``think``
+        # rides inside ``options`` per LIP-E003-F002 [RESOLVED].
         body: dict[str, Any] = {
             "model": model_tag,
             "messages": [translate_message(m) for m in messages],
@@ -175,8 +176,6 @@ class OllamaClient:
         if options:
             body["options"] = options
         body["stream"] = False
-        if params.think:
-            body["think"] = True
 
         logger.info("ollama_call_started", model_id=model_tag, message_count=len(messages))
         start = time.perf_counter()
@@ -188,12 +187,16 @@ class OllamaClient:
         except Exception as call_exc:
             duration_ms = int((time.perf_counter() - start) * 1000)
             status_code = getattr(getattr(call_exc, "response", None), "status_code", None)
+            # exc_info preserves the traceback so operator triage doesn't
+            # collapse to "exc_type=ReadTimeout" on a wedged Ollama — the
+            # original raise site is the most actionable signal.
             logger.warning(
                 "ollama_call_failed",
                 model_id=model_tag,
                 exc_type=type(call_exc).__name__,
                 status_code=status_code,
                 duration_ms=duration_ms,
+                exc_info=call_exc,
             )
             raise
         duration_ms = int((time.perf_counter() - start) * 1000)

@@ -137,6 +137,10 @@ def test_settings_bind_host_accepts_loopback_default() -> None:
         "http://172.16.0.1:11434",
         "http://172.31.255.255:11434",
         "http://gemma.local:11434",
+        # IPv6 bracketed positives — pin the AnyHttpUrl-strips-brackets contract
+        # on the accept side too (negative-side IPv6 is already covered below).
+        "http://[::1]:11434",
+        "http://[fd00::1]:11434",
     ],
 )
 def test_settings_ollama_host_accepts_private_addresses(

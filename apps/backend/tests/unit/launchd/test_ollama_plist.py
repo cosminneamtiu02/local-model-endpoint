@@ -1,10 +1,13 @@
-"""Unit tests for the Ollama launchd plist (LIP-E005-F003).
+"""Unit tests for the Ollama launchd plist template (LIP-E005-F003).
 
-The plist is a repo-shipped configuration artifact at
-``infra/launchd/com.lip.ollama.plist``. These tests validate that the file
-exists, parses, lints under ``plutil``, and contains the five v1 env vars
-plus the structural keys (``Label``, ``ProgramArguments``, ``RunAtLoad``,
-``KeepAlive``, ``ProcessType``, ``StandardOutPath``, ``StandardErrorPath``).
+The plist is a repo-shipped configuration template at
+``infra/launchd/com.lip.ollama.plist.tmpl``; ``task ollama:install``
+substitutes ``__HOME__`` with $HOME at install time so the same file
+serves multiple developer machines. These tests validate that the
+template exists, parses, lints under ``plutil``, and contains the five
+v1 env vars plus the structural keys (``Label``, ``ProgramArguments``,
+``RunAtLoad``, ``KeepAlive``, ``ProcessType``, ``StandardOutPath``,
+``StandardErrorPath``).
 
 The accompanying ``docs/ollama-launchd.md`` is also asserted to exist and
 contain the operator-facing section anchors named in the spec.
@@ -51,7 +54,7 @@ def repo_root() -> Path:
 
 @pytest.fixture(scope="module")
 def plist_path(repo_root: Path) -> Path:
-    return repo_root / "infra" / "launchd" / "com.lip.ollama.plist"
+    return repo_root / "infra" / "launchd" / "com.lip.ollama.plist.tmpl"
 
 
 @pytest.fixture(scope="module")
@@ -120,6 +123,18 @@ def test_log_paths_end_with_dot_log(parsed_plist: dict[str, object]) -> None:
     assert isinstance(stderr_path, str)
     assert stdout_path.endswith(".log"), stdout_path
     assert stderr_path.endswith(".log"), stderr_path
+
+
+def test_log_paths_use_home_placeholder(parsed_plist: dict[str, object]) -> None:
+    """Template form: log paths must use ``__HOME__`` (substituted at install
+    time), never a hardcoded developer-specific absolute path. Guards against
+    accidentally re-baking ``/Users/<someone>/...`` into the template."""
+    stdout_path = parsed_plist["StandardOutPath"]
+    stderr_path = parsed_plist["StandardErrorPath"]
+    assert isinstance(stdout_path, str)
+    assert isinstance(stderr_path, str)
+    assert stdout_path.startswith("__HOME__/"), stdout_path
+    assert stderr_path.startswith("__HOME__/"), stderr_path
 
 
 def test_docs_file_exists_with_required_sections(repo_root: Path) -> None:

@@ -74,7 +74,12 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+# pythonpath is intentionally not set: the project is installed editable via
+# ``[tool.hatch.build.targets.wheel] packages = ["app"]`` (handled by ``uv
+# sync``), so ``import app`` resolves through the install metadata in every
+# invocation path (CI, pre-push, ``task``, direct ``uv run pytest``). Setting
+# pythonpath = ["."] would shadow the editable install in some invocation
+# paths and is "two ways to do the same thing" — drop it.
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
@@ -104,15 +109,10 @@ filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning:_pytest.unraisableexception",
     "ignore::ResourceWarning:anyio",
 ]
-# Project-specific markers must be registered when --strict-markers is on
-# (set in addopts above). Without registration, a typo'd ``@pytest.mark.foo``
-# fails the run; that is the discipline we want, but it also means every
-# legitimate marker has to be declared here.
-# No project-specific markers in use; declared markers must mark something
-# (``--strict-markers`` only blocks unknown markers — it does not warn on
-# declared-but-unused ones, which advertise a selection mechanism that
-# nothing honors). Re-add when a test actually applies the marker.
-markers = []
+# No ``markers = [...]`` block — empty list is a no-op under
+# ``--strict-markers`` (set in addopts above), which already rejects unknown
+# markers. Re-add ``markers = ["slow: ..."]`` etc. only when a test actually
+# applies the marker.
 # Forbid test classes — CLAUDE.md sacred rule "Never write a test class".
 python_classes = ["NoTestClassesAllowed"]
 # Pin discovery patterns to match CLAUDE.md naming convention
