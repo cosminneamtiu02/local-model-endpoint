@@ -8,6 +8,7 @@ land — main.py stays unchanged feature after feature.
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 
 from app.api.app_state import AppState
@@ -37,6 +38,20 @@ async def lifespan_resources(settings: Settings) -> AsyncGenerator[AppState]:
     Using OllamaClient as its own async context manager guarantees
     __aexit__ runs even if construction of a future sibling resource
     fails between client creation and the yield.
+
+    ``phase="lifespan"`` is bound on the contextvars stack ONLY during
+    the construction (__aenter__) and teardown (__aexit__) windows —
+    not across the yield — so request-handler tasks spawned during
+    normal operation do not inherit the sentinel. Without this binding,
+    ``OllamaClient.__aenter__`` / ``__aexit__`` log lines (emitted
+    inside the client itself) would be missing the ``phase`` key that
+    every other lifespan event carries, breaking grep-based correlation.
     """
-    async with OllamaClient(base_url=str(settings.ollama_host)) as client:
+    client = OllamaClient(base_url=str(settings.ollama_host))
+    with structlog.contextvars.bound_contextvars(phase="lifespan"):
+        await client.__aenter__()
+    try:
         yield AppState(ollama_client=client)
+    finally:
+        with structlog.contextvars.bound_contextvars(phase="lifespan"):
+            await client.__aexit__(None, None, None)

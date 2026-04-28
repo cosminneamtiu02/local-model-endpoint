@@ -44,7 +44,14 @@ class ProblemDetails(BaseModel):
     detail: str = Field(description="Per-instance human-readable explanation", min_length=1)
     instance: str = Field(
         description="The request URL path that produced this problem",
+        # Pin URL-path form: every handler populates this from
+        # ``request.url.path`` which is Starlette-guaranteed to start with
+        # ``/``. RFC 7807 §3.1 permits any URI reference, but LIP's wire
+        # contract is the URL-path subset; the pattern documents and
+        # enforces that commitment so a hand-rolled construction in tests
+        # / future helpers cannot ship a malformed ``instance``.
         min_length=1,
+        pattern=r"^/",
     )
     code: str = Field(
         description="LIP error code (SCREAMING_SNAKE)",
@@ -56,5 +63,13 @@ class ProblemDetails(BaseModel):
     )
     request_id: str = Field(
         description="Request UUID from the X-Request-ID middleware",
-        min_length=1,
+        # Mirror the UUID-shape invariant the middleware + handler both
+        # enforce — defense-in-depth so a future code path that builds
+        # ProblemDetails without going through ``_resolve_request_id``
+        # (e.g. a synthetic test fixture leaking into production helpers)
+        # cannot ship a malformed correlation ID. The pattern subsumes
+        # ``min_length``; case-insensitive via the [0-9a-fA-F] character
+        # class because Pydantic's regex flags don't carry into the JSON
+        # Schema published to consumers.
+        pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
     )

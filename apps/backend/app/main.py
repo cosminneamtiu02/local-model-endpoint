@@ -25,15 +25,17 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     feature dependencies can read them via Depends factories.
     """
     settings = get_settings()
-    # ``request_id="lifespan"`` is a sentinel so a jq filter on per-request
-    # request_id keeps lifespan events visible (greppable as a single
-    # log-stream slice rather than dropping out of correlated views).
+    # ``phase="lifespan"`` is the sentinel so a jq filter ``select(.phase ==
+    # "lifespan")`` greps the lifespan slice without violating the UUID-shape
+    # contract that ``request_id`` carries everywhere else (the middleware +
+    # exception handler both enforce UUID-shape on ``request_id``; reusing
+    # that key for a non-UUID literal would break consumer pattern-matchers).
     # Log host/port separately rather than the full URL so a future
     # userinfo-bearing form (unusual for Ollama, possible behind a reverse
     # proxy) cannot leak credentials into stdout.
     logger.info(
         "app_startup",
-        request_id="lifespan",
+        phase="lifespan",
         env=settings.app_env,
         version=application.version,
         bind_host=settings.bind_host,
@@ -43,18 +45,27 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         log_level=settings.log_level,
     )
     start_monotonic = time.monotonic()
+    shutdown_reason = "clean"
     try:
         async with lifespan_resources(settings) as state:
             application.state.context = state
-            logger.info("lifespan_resources_ready", env=settings.app_env)
+            logger.info("lifespan_resources_ready", phase="lifespan", env=settings.app_env)
             try:
                 yield
+            except BaseException:
+                # Shutdown reason captured here so the ``app_shutdown`` line
+                # in the outer ``finally`` records whether the body unwound
+                # cleanly or was interrupted (SIGTERM / exception inside the
+                # request loop). Re-raises so the cause still surfaces.
+                shutdown_reason = "exception"
+                raise
             finally:
                 # uptime_ms keeps the time-unit consistent with the
                 # request_completed log line's duration_ms field.
                 logger.info(
                     "app_shutdown",
-                    request_id="lifespan",
+                    phase="lifespan",
+                    reason=shutdown_reason,
                     version=application.version,
                     env=settings.app_env,
                     uptime_ms=int((time.monotonic() - start_monotonic) * 1000),
@@ -62,9 +73,14 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     except Exception:
         # A resource-construction failure (settings drift, OllamaClient
         # connect-time issue, etc.) would otherwise propagate as an opaque
-        # uvicorn traceback. Log a structured ``app_startup_failed`` event
-        # so the operator gets a single-line cause + correlation surface.
-        logger.exception("app_startup_failed", request_id="lifespan", env=settings.app_env)
+        # uvicorn traceback. Logged at ``critical`` because no traffic can
+        # be served — operator alerting keyed on level should page on this.
+        logger.critical(
+            "app_startup_failed",
+            phase="lifespan",
+            env=settings.app_env,
+            exc_info=True,
+        )
         raise
 
 

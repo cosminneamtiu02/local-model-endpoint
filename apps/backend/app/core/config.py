@@ -13,8 +13,11 @@ def _is_private_host(host: str) -> bool:
         return False
     if host == "localhost" or host.endswith(".local"):
         return True
-    # AnyHttpUrl.host returns IPv6 hosts in bracketed form (``[::1]``); the
-    # stdlib ipaddress module rejects brackets, so strip before classifying.
+    # Pydantic's ``AnyHttpUrl.host`` normalizes brackets out of IPv6 forms
+    # (i.e. ``http://[::1]/`` -> ``"::1"``), so the SSRF clamp normally
+    # sees bare hosts. The bracket-strip below is defense-in-depth for
+    # ``bind_host``, which is a free-form string and could legitimately
+    # carry brackets (e.g. ``LIP_BIND_HOST=[::]``).
     classifiable = host[1:-1] if host.startswith("[") and host.endswith("]") else host
     try:
         ip = ipaddress.ip_address(classifiable)
@@ -75,8 +78,15 @@ class Settings(BaseSettings):
 
     # Interface to bind uvicorn to. Default is loopback only; binding to a
     # non-private host requires opt-in via allow_public_bind because LIP
-    # has no authentication layer.
-    bind_host: str = "127.0.0.1"
+    # has no authentication layer. ``max_length=253`` is the RFC 1035
+    # hostname cap so garbage strings fail at the type boundary before
+    # reaching ``_check_safety_invariants``'s classifier.
+    bind_host: str = Field(
+        default="127.0.0.1",
+        description="Interface to bind uvicorn to (loopback / private LAN).",
+        min_length=1,
+        max_length=253,
+    )
     bind_port: int = Field(default=8000, ge=1024, le=65535)
 
     @model_validator(mode="after")

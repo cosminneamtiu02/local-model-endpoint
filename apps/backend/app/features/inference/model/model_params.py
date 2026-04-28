@@ -33,4 +33,10 @@ class ModelParams(BaseModel):
         max_length=8,
     )
     seed: int | None = Field(default=None, ge=0)
-    think: bool = False
+    think: bool = Field(
+        default=False,
+        description=(
+            "Enable Ollama thinking mode (LIP-E003-F002 [RESOLVED]). Forwarded "
+            "via the Ollama options block alongside sampling fields."
+        ),
+    )

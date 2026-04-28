@@ -28,6 +28,9 @@ def get_app_state(request: Request) -> AppState:
     """
     state: object = getattr(request.app.state, "context", None)
     if not isinstance(state, AppState):
+        # ruff's RSE102 prefers ``raise X`` over ``raise X()`` for
+        # parameterless exception classes — Python auto-instantiates and
+        # the no-parens form makes the intent obvious.
         raise InternalError
     return state
 

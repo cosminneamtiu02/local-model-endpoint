@@ -16,10 +16,14 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
 
+import structlog
+
 from app.features.inference.model.audio_content import AudioContent
 from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.ollama_chat_result import OllamaChatResult
 from app.features.inference.model.text_content import TextContent
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -116,6 +120,11 @@ def translate_message(msg: Message) -> dict[str, Any]:
         return {"role": msg.role, "content": msg.content}
 
     text_parts, images, audios = _flatten_content_parts(msg.content)
+    # Ollama /api/chat exposes ``content`` as a single string (no rich-parts
+    # array on the wire). Two-newline join keeps the resulting prompt
+    # human-readable when several text parts share a turn, per LIP-E003-F002
+    # [RESOLVED]; the choice is documented here so a reader looking at the
+    # wire dump can match it back to the source-of-truth decision.
     ollama_msg: dict[str, Any] = {"role": msg.role, "content": "\n\n".join(text_parts)}
     _attach_media_to_message(ollama_msg, msg.role, images, audios)
     return ollama_msg
@@ -152,12 +161,24 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
         raise KeyError(error_message)
     raw_finish = response_json.get("done_reason", "stop")
     finish_reason: FinishReason = _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop")
-    # Some Ollama responses (tool-call-only frames) omit content or emit null;
-    # OllamaChatResult.content is `str`, so coerce here at the wire boundary
-    # rather than letting Pydantic raise a ValidationError outside the failure-
-    # mapping seam.
-    raw_content = response_json["message"]["content"]
+    raw_message: dict[str, Any] = response_json["message"]
+    # ``raw_message["content"]`` (not ``.get``) surfaces the missing-key case
+    # as KeyError — that's the intended failure-mapping signal for malformed
+    # Ollama frames. ``isinstance`` coerces ``None`` / non-str values to an
+    # empty string so OllamaChatResult.content (typed ``str``) doesn't fail
+    # Pydantic validation outside the seam.
+    raw_content = raw_message["content"]
     content = raw_content if isinstance(raw_content, str) else ""
+    # Tool-calls land on a non-tools-aware model only via a registry update
+    # to a tool-capable model. Today's models (Gemma 4 E2B) don't emit them,
+    # but warning when the frame appears keeps the silent-drop observable
+    # so an operator notices the model upgrade before puzzling over an
+    # empty content string.
+    tool_calls: list[object] | None = (
+        raw_message["tool_calls"] if isinstance(raw_message.get("tool_calls"), list) else None
+    )
+    if tool_calls:
+        logger.warning("ollama_tool_calls_ignored", count=len(tool_calls))
     return OllamaChatResult(
         content=content,
         prompt_tokens=response_json.get("prompt_eval_count", 0),

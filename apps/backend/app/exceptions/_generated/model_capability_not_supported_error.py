@@ -1,6 +1,6 @@
 """Generated from errors.yaml. Do not edit."""
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, cast, override
 
 from app.exceptions._generated.model_capability_not_supported_params import (
     ModelCapabilityNotSupportedParams,
@@ -22,6 +22,7 @@ class ModelCapabilityNotSupportedError(DomainError):
         "Model '{model}' does not support requested capability '{requested_capability}'."
     )
 
+    @override
     def __init__(self, *, model: str, requested_capability: str) -> None:
         super().__init__(
             params=ModelCapabilityNotSupportedParams(
@@ -30,6 +31,7 @@ class ModelCapabilityNotSupportedError(DomainError):
             ),
         )
 
+    @override
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
         params = cast("BaseModel", self.params)

@@ -16,7 +16,10 @@ def _base_kwargs() -> dict[str, object]:
         "detail": "Inference queue at capacity (5 waiters, max 4).",
         "instance": "/api/v1/inference",
         "code": "QUEUE_FULL",
-        "request_id": "abc-123",
+        # UUID-shaped to match the schema's defense-in-depth pattern; the
+        # handler always populates this field from the middleware's
+        # generated UUID, so test fixtures should mirror the real wire shape.
+        "request_id": "12345678-1234-1234-1234-123456789012",
     }
 
 
@@ -29,7 +32,7 @@ def test_problem_details_accepts_canonical_rfc7807_fields() -> None:
     assert pd.detail.startswith("Inference queue")
     assert pd.instance == "/api/v1/inference"
     assert pd.code == "QUEUE_FULL"
-    assert pd.request_id == "abc-123"
+    assert pd.request_id == "12345678-1234-1234-1234-123456789012"
 
 
 def test_problem_details_allows_arbitrary_extension_fields() -> None:

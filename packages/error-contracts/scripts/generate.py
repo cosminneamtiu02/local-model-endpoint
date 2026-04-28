@@ -12,8 +12,10 @@ import json
 import keyword
 import re
 import string
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, cast
+from types import MappingProxyType
+from typing import Any, Final, cast
 
 import yaml
 
@@ -26,20 +28,27 @@ _ParamsMap = dict[str, str]
 _ErrorSpec = dict[str, Any]
 _ErrorsFile = dict[str, Any]
 
-VALID_PARAM_TYPES = {"string", "integer", "number", "boolean"}
-PARAM_TYPE_TO_PYTHON = {
-    "string": "str",
-    "integer": "int",
-    "number": "float",
-    "boolean": "bool",
-}
+# Module-level constants are ``Final`` to mirror the discipline in
+# ``apps/backend/app/api/middleware.py``, ``exception_handlers.py``, and
+# ``ollama_translation.py``: the rebind-immutable annotation lets pyright
+# catch accidental reassignment and keeps the codegen package idiomatically
+# consistent with the backend it generates into.
+VALID_PARAM_TYPES: Final[frozenset[str]] = frozenset({"string", "integer", "number", "boolean"})
+PARAM_TYPE_TO_PYTHON: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "string": "str",
+        "integer": "int",
+        "number": "float",
+        "boolean": "bool",
+    }
+)
 
 # RFC 7807 standard fields plus LIP project extensions plus the validation_errors
 # extension array name. errors.yaml MUST NOT declare a param with any of these
 # names — the response handler in apps/backend/app/api/errors.py spreads typed
 # params at root level alongside these explicit kwargs, and a collision raises
 # TypeError at request time, masking the real error as a 500.
-RESERVED_PARAM_NAMES = frozenset(
+RESERVED_PARAM_NAMES: Final[frozenset[str]] = frozenset(
     {
         "type",
         "title",
@@ -56,12 +65,12 @@ RESERVED_PARAM_NAMES = frozenset(
 # parenthesized continuation form ruff format produces, so the codegen is
 # idempotent under ``ruff format`` and ``task check:errors``' drift guard
 # remains stable across regenerations.
-RUFF_LINE_LENGTH = 100
+RUFF_LINE_LENGTH: Final[int] = 100
 
 # HTTP status range — codes outside [400, 599] are not error responses per
 # RFC 9110 §15.5/§15.6 and have no place in errors.yaml.
-HTTP_ERROR_STATUS_MIN = 400
-HTTP_ERROR_STATUS_MAX = 599
+HTTP_ERROR_STATUS_MIN: Final[int] = 400
+HTTP_ERROR_STATUS_MAX: Final[int] = 599
 
 
 def _code_to_class_name(code: str) -> str:
@@ -258,7 +267,7 @@ def _validate_params(code: str, params: _ParamsMap) -> None:
             raise ValueError(msg)
 
 
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSION: Final[int] = 1
 
 
 def load_and_validate(errors_path: Path) -> _ErrorsFile:
@@ -427,12 +436,17 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
         kw_args = ", ".join(
             f"{name}: {PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
         )
+        # ``@override`` (PEP 698, Python 3.12+) on the generated ``__init__``
+        # and ``detail`` makes a future rename of the base method a static
+        # error rather than a silent shadow — the generator and the runtime
+        # invariant stay in lockstep.
         # detail() body uses `cast` (not `assert`) so the type narrowing also
         # holds under `python -O`, where `assert` is stripped. The codegen
         # invariant guarantees self.params is non-None for parameterized
         # errors; cast documents that invariant for type-checkers without
         # adding a runtime no-op.
         detail_method = (
+            "    @override\n"
             "    def detail(self) -> str:\n"
             '        """Render the human-readable detail for this error."""\n'
             '        params = cast("BaseModel", self.params)\n'
@@ -440,7 +454,7 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
         )
         return (
             '"""Generated from errors.yaml. Do not edit."""\n\n'
-            "from typing import TYPE_CHECKING, ClassVar, cast\n\n"
+            "from typing import TYPE_CHECKING, ClassVar, cast, override\n\n"
             f"{params_import}\n"
             "from app.exceptions.base import DomainError\n\n"
             "if TYPE_CHECKING:\n"
@@ -449,6 +463,7 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
             f'    """{description or f"Error: {code}."}"""\n\n'
             + classvars
             + "\n"
+            + "    @override\n"
             + f"    def __init__(self, *, {kw_args}) -> None:\n"
             + super_block
             + "\n"
@@ -460,6 +475,7 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
     # asserts the template is non-empty, so the previous ``or self.title``
     # fallback was dead code that contradicted the validation invariant.
     detail_method = (
+        "    @override\n"
         "    def detail(self) -> str:\n"
         '        """Render the human-readable detail for this error."""\n'
         "        return self.detail_template\n"
@@ -467,12 +483,13 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
     parameterless_docstring = description or f"Error: {code}."
     return (
         '"""Generated from errors.yaml. Do not edit."""\n\n'
-        "from typing import ClassVar\n\n"
+        "from typing import ClassVar, override\n\n"
         "from app.exceptions.base import DomainError\n\n\n"
         f"class {error_class_name}(DomainError):\n"
         f'    """{parameterless_docstring}"""\n\n'
         + classvars
         + "\n"
+        + "    @override\n"
         + "    def __init__(self) -> None:\n"
         + "        super().__init__(params=None)\n\n"
         + detail_method

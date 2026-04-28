@@ -17,7 +17,13 @@ from app.features.inference.repository.ollama_translation import (
 
 logger = structlog.get_logger(__name__)
 
-_USER_AGENT: Final[str] = "lip/0.1 (httpx)"
+# UA carries no version suffix on purpose: a hardcoded ``0.1`` would drift
+# from ``pyproject.toml``'s ``version`` and ``FastAPI(version=...)`` over
+# time without any forcing function to keep them aligned. Wiring all three
+# to ``importlib.metadata.version`` is a larger refactor; for now the UA
+# is identity-only and consumers correlate via the version field on the
+# OpenAPI doc when they need it.
+_USER_AGENT: Final[str] = "lip (httpx)"
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -29,11 +35,15 @@ if TYPE_CHECKING:
 # 600s read backstop bounds a hung Ollama daemon when no per-request budget
 # is wrapped around the call. Generous enough not to interrupt long thinking-mode
 # inference; finite enough that a wedged daemon eventually releases the slot.
+# ``pool=5.0`` bounds pool-slot acquisition; with the F001 semaphore set to 1
+# in-flight, pool starvation should be unreachable today, but a finite ceiling
+# converts a future regression (a sibling adapter call holding a slot) into a
+# loud ``httpx.PoolTimeout`` rather than a silent hang.
 DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(
     connect=5.0,
     read=600.0,
     write=None,
-    pool=None,
+    pool=5.0,
 )
 
 # Single Ollama target serialized through one in-flight slot — small pool sized
@@ -97,6 +107,11 @@ class OllamaClient:
             "base_url": base_url,
             "timeout": timeout,
             "limits": DEFAULT_LIMITS,
+            # Defense-in-depth vs SSRF: a redirected target bypasses
+            # ``Settings._check_safety_invariants``'s loopback/private-host
+            # clamp on ``ollama_host``. Flipping this to ``True`` would
+            # weaken that defense, so the choice is annotated rather than
+            # implicit.
             "follow_redirects": False,
             "headers": {"User-Agent": _USER_AGENT},
         }
@@ -177,7 +192,16 @@ class OllamaClient:
             body["options"] = options
         body["stream"] = False
 
-        logger.info("ollama_call_started", model_id=model_tag, message_count=len(messages))
+        # ``debug`` (not ``info``): the call-completed line already carries
+        # duration_ms and outcome — the started line is correlation glue
+        # that operators only need at debug log level. Keeping it info would
+        # double the call-related log volume in steady state.
+        logger.debug(
+            "ollama_call_started",
+            model_id=model_tag,
+            message_count=len(messages),
+            base_url=self._base_url,
+        )
         start = time.perf_counter()
         try:
             response = await self._request("POST", "/api/chat", json=body)
@@ -187,16 +211,20 @@ class OllamaClient:
         except Exception as call_exc:
             duration_ms = int((time.perf_counter() - start) * 1000)
             status_code = getattr(getattr(call_exc, "response", None), "status_code", None)
-            # exc_info preserves the traceback so operator triage doesn't
-            # collapse to "exc_type=ReadTimeout" on a wedged Ollama — the
-            # original raise site is the most actionable signal.
-            logger.warning(
+            # ``logger.exception`` (not ``logger.warning``): we ARE inside an
+            # except block, so structlog auto-attaches the traceback via
+            # ``sys.exc_info`` and the level marks the event as the original
+            # raise-site capture for grep-by-level dashboards. ``error`` not
+            # ``exception`` would also be correct, but ``exception`` is the
+            # idiomatic structlog call for "we caught this, here's the
+            # context, now we re-raise".
+            logger.exception(
                 "ollama_call_failed",
                 model_id=model_tag,
                 exc_type=type(call_exc).__name__,
                 status_code=status_code,
                 duration_ms=duration_ms,
-                exc_info=call_exc,
+                base_url=self._base_url,
             )
             raise
         duration_ms = int((time.perf_counter() - start) * 1000)
@@ -206,5 +234,6 @@ class OllamaClient:
             status_code=response.status_code,
             duration_ms=duration_ms,
             finish_reason=result.finish_reason,
+            base_url=self._base_url,
         )
         return result

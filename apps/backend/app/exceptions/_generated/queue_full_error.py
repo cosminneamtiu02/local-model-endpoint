@@ -1,6 +1,6 @@
 """Generated from errors.yaml. Do not edit."""
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, cast, override
 
 from app.exceptions._generated.queue_full_params import QueueFullParams
 from app.exceptions.base import DomainError
@@ -20,6 +20,7 @@ class QueueFullError(DomainError):
         "Inference queue at capacity ({current_waiters} waiters, max {max_waiters})."
     )
 
+    @override
     def __init__(self, *, max_waiters: int, current_waiters: int) -> None:
         super().__init__(
             params=QueueFullParams(
@@ -28,6 +29,7 @@ class QueueFullError(DomainError):
             ),
         )
 
+    @override
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
         params = cast("BaseModel", self.params)

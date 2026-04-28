@@ -174,15 +174,23 @@ def _build_problem_payload(
     """
     spread: dict[str, Any] = exc.params.model_dump(mode="json") if exc.params else {}
     # ProblemDetails uses ``extra='allow'`` at runtime for typed extension
-    # fields; pyright cannot prove the TypedDict keys map to ProblemDetails
-    # kwargs, so we widen via ``cast`` (keeping the TypedDict as the
-    # caller-side contract).
-    extras_widened: dict[str, Any] = cast("dict[str, Any]", extras) if extras else {}
+    # fields. ``dict(extras)`` materializes the TypedDict into a real
+    # ``dict[str, Any]`` so ``**`` unpacking and pyright are both happy
+    # without resorting to ``cast`` (which would be a runtime-unchecked
+    # assertion).
+    extras_widened: dict[str, Any] = dict(extras) if extras else {}
     # Defense-in-depth: an extras key colliding with a typed spread key would
-    # silently win on the ``**`` merge; raise loud so the bug surfaces at the
-    # handler edge rather than as a confusing wire shape.
-    collisions = set(spread).intersection(extras_widened)
+    # silently win on the ``**`` merge; log + raise loud so the bug surfaces
+    # at the handler edge rather than as a confusing wire shape. The raise
+    # propagates to ``_handle_unhandled_exception`` which renders a clean
+    # InternalError problem+json (its own params/extras have no collisions).
+    collisions = spread.keys() & extras_widened.keys()
     if collisions:
+        logger.error(
+            "problem_details_extras_collision",
+            collisions=sorted(collisions),
+            original_code=exc.code,
+        )
         error_message = (
             f"ProblemDetails extras keys collide with typed params: {sorted(collisions)!r}"
         )
@@ -213,7 +221,7 @@ def _build_problem_payload(
         return ProblemDetails(
             type="urn:lip:error:internal-error",
             title="Internal Server Error",
-            status=500,
+            status=HTTPStatus.INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while building the error response.",
             instance=request.url.path,
             code=InternalError.code,
@@ -251,21 +259,25 @@ async def _handle_domain_error(request: Request, exc: Exception) -> Response:
     "how the request completed"); emit a single ``domain_error_raised``
     INFO line at handler-time so the event is greppable on its own.
     """
-    assert isinstance(exc, DomainError)  # noqa: S101 — narrows for static checkers
+    # ``cast`` (not ``assert``) so the narrowing also holds under ``python -O``
+    # where ``assert`` is stripped. Starlette's exception dispatch already
+    # routes by ``type(exc).__mro__``, so this typed cast documents the
+    # invariant without runtime overhead.
+    domain_exc = cast("DomainError", exc)
     request_id, missed_middleware = _resolve_request_id(request)
-    structlog.contextvars.bind_contextvars(error_code=exc.code)
+    structlog.contextvars.bind_contextvars(error_code=domain_exc.code)
     # Branch level on status: 5xx is operator-actionable, 4xx is client-side
     # information; both share the same event name so filters still find them.
     # 5xx ships with exc_info so the traceback survives — a typed 5xx is
     # exactly the case where operators want the original raise site, and
     # without exc_info this is the only place that ever sees the exception
     # (the catch-all unhandled-exception path is bypassed for typed errors).
-    is_server_error = exc.http_status >= HTTPStatus.INTERNAL_SERVER_ERROR
+    is_server_error = domain_exc.http_status >= HTTPStatus.INTERNAL_SERVER_ERROR
     if is_server_error:
-        logger.exception("domain_error_raised", code=exc.code, status=exc.http_status)
+        logger.exception("domain_error_raised", code=domain_exc.code, status=domain_exc.http_status)
     else:
-        logger.warning("domain_error_raised", code=exc.code, status=exc.http_status)
-    problem = _build_problem_payload(exc, request, request_id)
+        logger.warning("domain_error_raised", code=domain_exc.code, status=domain_exc.http_status)
+    problem = _build_problem_payload(domain_exc, request, request_id)
     response = _problem_response(problem)
     _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
     return response
@@ -287,22 +299,33 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     rewritten to point operators at the array instead of a single field —
     the per-field information is canonical only in ``validation_errors[]``.
     """
-    assert isinstance(exc, RequestValidationError)  # noqa: S101 — narrows for static checkers
+    # ``cast`` (not ``assert``) so the narrowing also holds under ``python -O``.
+    validation_exc = cast("RequestValidationError", exc)
     request_id, missed_middleware = _resolve_request_id(request)
 
-    raw_errors = exc.errors()
+    raw_errors = validation_exc.errors()
     # Truncate at the handler edge so over-cap inputs (Pydantic's `msg` can
     # interpolate the offending value, especially for `string_too_long` /
     # `union_tag_invalid`) don't trip ValidationErrorDetail's own length cap
     # and explode the handler. The schema cap is the contract; the handler
     # truncation is belt-and-suspenders.
-    validation_errors: list[dict[str, Any]] = [
+    validation_errors: list[ValidationErrorDetail] = [
         ValidationErrorDetail(
-            field=".".join(str(loc) for loc in e.get("loc", []))[:FIELD_MAX_CHARS],
+            field=".".join(str(loc) for loc in e.get("loc", []))[:FIELD_MAX_CHARS] or "unknown",
             reason=str(e.get("msg", "Unknown validation error"))[:REASON_MAX_CHARS],
-        ).model_dump(mode="json")
+        )
         for e in raw_errors
     ]
+
+    # Bind the typed error code into contextvars BEFORE any handler-side
+    # log line so every event (including the empty-errors warning below)
+    # carries error_code=VALIDATION_FAILED. ``ValidationFailedError``
+    # accepts the first-error field/reason or sentinel values when
+    # Pydantic emitted no details.
+    first_field = validation_errors[0].field if validation_errors else "unknown"
+    first_reason = validation_errors[0].reason if validation_errors else "unknown"
+    domain_err = ValidationFailedError(field=str(first_field), reason=str(first_reason))
+    structlog.contextvars.bind_contextvars(error_code=domain_err.code)
 
     if not validation_errors:
         # Pydantic emitting an empty errors list for a RequestValidationError
@@ -314,16 +337,18 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
             raw_error_types=[type(e).__name__ for e in raw_errors][:5],
         )
 
-    first_field = validation_errors[0]["field"] if validation_errors else "unknown"
-    first_reason = validation_errors[0]["reason"] if validation_errors else "unknown"
-    domain_err = ValidationFailedError(field=str(first_field), reason=str(first_reason))
-    structlog.contextvars.bind_contextvars(error_code=domain_err.code)
-
     detail_override: str | None = None
     if len(validation_errors) > 1:
         detail_override = (
             f"Validation failed for {len(validation_errors)} fields. "
             "See validation_errors[] for details."
+        )
+    elif not validation_errors:
+        # Make the abnormal zero-errors path self-documenting on the wire
+        # rather than synthesizing a misleading single-field detail.
+        detail_override = (
+            "Validation failed but per-field details were not produced "
+            "(upstream Pydantic emitted no errors)."
         )
 
     problem = _build_problem_payload(
@@ -382,17 +407,35 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     the :class:`ProblemDetails` directly because there is no DomainError that
     matches (e.g. 405, 415).
     """
-    assert isinstance(exc, StarletteHTTPException)  # noqa: S101 — narrows for static checkers
+    # ``cast`` (not ``assert``) so the narrowing also holds under ``python -O``.
+    http_exc = cast("StarletteHTTPException", exc)
     request_id, missed_middleware = _resolve_request_id(request)
-    status_code = exc.status_code
+    status_code = http_exc.status_code
+    # A non-error HTTPException (status<400) has no place in the RFC 7807
+    # envelope (problem+json is for error responses) and would fail the
+    # ProblemDetails ``ge=400`` schema constraint, raising a ValidationError
+    # we'd then have to handle as an unhandled exception. Clamp loud to 500
+    # so the failure surfaces as an InternalError rather than masquerading
+    # as a confusing handler-internal Pydantic ValidationError.
+    if status_code < HTTPStatus.BAD_REQUEST:
+        logger.warning(
+            "http_exception_non_error_status",
+            status_code=status_code,
+            detail=str(http_exc.detail) if http_exc.detail else None,
+        )
+        return await _handle_unhandled_exception(request, exc)
     status_phrase = _http_status_phrase(status_code)
-    detail_text = str(exc.detail) if exc.detail else status_phrase
+    detail_text = str(http_exc.detail) if http_exc.detail else status_phrase
     code = _http_code_for_status(status_code)
     structlog.contextvars.bind_contextvars(error_code=code)
     if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
         # 5xx HTTPExceptions raised by the framework would otherwise ship
         # without any log line — operators couldn't grep them by request_id.
-        logger.warning(
+        # ``error`` (not ``warning``) so dashboards keyed on level alert
+        # symmetrically with the typed-DomainError 5xx branch (which uses
+        # ``logger.exception`` because it is inside an except-block; here
+        # there is no live exception to attach a traceback from).
+        logger.error(
             "http_exception_5xx",
             status_code=status_code,
             detail=detail_text,
