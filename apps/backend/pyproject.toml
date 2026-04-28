@@ -104,7 +104,12 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 80
+# Baseline measured at 95% on 2026-04-28 (LIP-E003-F001 landed). Set 5pt
+# below to leave room for transient regressions during feature-dev
+# without flapping the gate. Bump back up after each feature lands and
+# stabilizes its coverage.
+fail_under = 90
+show_missing = true
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

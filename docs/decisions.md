@@ -140,3 +140,44 @@ deliberate, not an oversight.
 `__init__.py` files. Adds dead surface area, makes "what exists" harder to
 read at a glance, and tempts contributors to add stubs that drift from the
 spec.
+
+## ADR-012: Typed `AppState` Lifespan Container
+
+**Status:** Accepted
+**Date:** 2026-04-28
+
+Lifespan-managed resources are stored in a typed `AppState` dataclass at
+`app/api/state.py`, attached to the FastAPI app as `app.state.context`,
+and read by `Depends` factories via `request.app.state.context.<field>`.
+
+**Rationale.** Starlette's `app.state` accessor is `Any`-typed; reaching
+through it directly leaks `Any` into every consumer and reduces Pyright
+strict mode's value to "compiles, no guarantees about shape." Wrapping
+the lifespan resources in a `@dataclass(slots=True)` gives Pyright a
+single typed entry point and forbids dynamic attribute attachment
+(`slots=True`) that would otherwise let `app.state.context.foo = bar`
+silently grow into a service-locator pattern.
+
+`Depends(get_app_state)` and `Depends(get_ollama_client)` factories in
+`app/api/deps.py` are the only call sites that touch `app.state.context`;
+route handlers stay pure (`async def handler(client = Depends(get_ollama_client))`)
+without ever knowing the wrapper exists.
+
+**Implication.** Adding a new lifespan-managed resource is a four-step
+edit: append a field to `AppState`, construct it in `lifespan_resources`
+(pairing it with its async-context-manager teardown), expose a `Depends`
+factory in `deps.py`, and update consumers. No global registry, no
+service-locator helpers, no module-level singletons — `Depends` does
+the work.
+
+**Rejected.**
+
+- *Per-resource attribute on `app.state` directly* (`app.state.ollama_client = ...`).
+  Untyped, drifts as features land, no `slots=True` discipline against
+  ad-hoc additions. This is the shape PR #11 initially shipped with;
+  the typed dataclass replaced it once a second resource was anticipated.
+- *Pydantic model for AppState.* Validation overhead per access on
+  objects holding open httpx clients adds cost without buying anything;
+  the dataclass with slots gives the typing benefit without runtime cost.
+- *Module-level singleton + `get_app_state()` factory.* Service-locator
+  pattern, forbidden by CLAUDE.md, breaks per-test app isolation.

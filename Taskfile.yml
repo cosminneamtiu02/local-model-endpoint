@@ -91,6 +91,12 @@ tasks:
     cmds:
       - uv run --frozen pip-audit --strict --disable-pip
 
+  check:coverage:
+    desc: Run full test suite with coverage and enforce the fail_under gate
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - uv run --frozen pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=90
+
   # ── Testing ──────────────────────────────────────────────────
   test:
     desc: Run all tests (unit + integration + contract)
