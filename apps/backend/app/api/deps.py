@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from fastapi import Request
 
-from app.api.state import AppState
+from app.api.app_state import AppState
 from app.core.config import Settings
 from app.features.inference.repository import OllamaClient
 

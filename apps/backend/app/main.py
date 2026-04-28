@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -26,21 +27,31 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     that feature lands.
     """
     settings = get_settings()
+    # Log host/port separately rather than the full URL so a future
+    # userinfo-bearing form (unusual for Ollama, possible behind a reverse
+    # proxy) cannot leak credentials into stdout.
     logger.info(
         "app_startup",
         env=settings.app_env,
         version=application.version,
         bind_host=settings.bind_host,
         bind_port=settings.bind_port,
-        lip_ollama_host=str(settings.lip_ollama_host),
+        ollama_host=settings.ollama_host.host,
+        ollama_port=settings.ollama_host.port,
         log_level=settings.log_level,
     )
+    start_monotonic = time.monotonic()
     async with lifespan_resources(settings) as state:
         application.state.context = state
         try:
             yield
         finally:
-            logger.info("app_shutdown")
+            logger.info(
+                "app_shutdown",
+                version=application.version,
+                env=settings.app_env,
+                uptime_s=int(time.monotonic() - start_monotonic),
+            )
 
 
 def create_app() -> FastAPI:

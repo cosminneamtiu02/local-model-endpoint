@@ -17,9 +17,18 @@ import keyword
 import re
 import string
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import yaml
+
+# Type aliases for the loaded YAML shape. ``yaml.safe_load`` returns ``Any``,
+# so the generator-internal contract is "validated YAML is a ``_ErrorsFile``"
+# — load_and_validate is the gatekeeper that establishes the invariant via
+# explicit isinstance checks and a final cast. Helpers below accept the
+# narrowed types so pyright strict can verify the call graph.
+_ParamsMap = dict[str, str]
+_ErrorSpec = dict[str, Any]
+_ErrorsFile = dict[str, Any]
 
 VALID_PARAM_TYPES = {"string", "integer", "number", "boolean"}
 PARAM_TYPE_TO_PYTHON = {
@@ -151,7 +160,7 @@ def _python_string_literal(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _validate_detail_template(code: str, template: str, params: dict) -> None:
+def _validate_detail_template(code: str, template: str, params: _ParamsMap) -> None:
     """Validate detail_template placeholders are safe ``{name}`` references.
 
     Disallows positional placeholders ({0}), attribute access ({x.attr}),
@@ -202,9 +211,19 @@ def _validate_detail_template(code: str, template: str, params: dict) -> None:
             f"params declares {sorted(declared)}."
         )
         raise ValueError(msg)
+    unused = declared - referenced
+    if unused:
+        # Symmetric guard: a declared-but-unused param is a typo (e.g. params
+        # `retry_after` while the template references `{retry_after_seconds}`).
+        # Failing loud here keeps params and template in lockstep.
+        msg = (
+            f"Error {code} declares params {sorted(unused)} but "
+            f"detail_template never references them."
+        )
+        raise ValueError(msg)
 
 
-def _validate_params(code: str, params: dict) -> None:
+def _validate_params(code: str, params: _ParamsMap) -> None:
     """Validate param types, reserved-name collisions, and identifier safety.
 
     Three independent checks per param:
@@ -238,12 +257,32 @@ def _validate_params(code: str, params: dict) -> None:
             raise ValueError(msg)
 
 
-def load_and_validate(errors_path: Path) -> dict:
+SUPPORTED_SCHEMA_VERSION = 1
+
+
+def load_and_validate(errors_path: Path) -> _ErrorsFile:
     """Load errors.yaml and validate its contents."""
     raw_text = errors_path.read_text()
     _detect_duplicate_keys(raw_text)
 
-    data = yaml.safe_load(raw_text)
+    raw_data = yaml.safe_load(raw_text)
+    # The top-level ``version`` field is part of the error-contracts schema and
+    # must match SUPPORTED_SCHEMA_VERSION. A future bump means the generator
+    # interprets the YAML differently — we want a loud failure on rev mismatch
+    # rather than silent partial-regeneration of stale code. Validate the YAML
+    # is a dict (not a list / scalar / null) before we trust the cast below.
+    if not isinstance(raw_data, dict):
+        msg = f"errors.yaml top-level must be a mapping, got {type(raw_data).__name__}."
+        raise TypeError(msg)
+    data = cast("_ErrorsFile", raw_data)
+    declared_version = data.get("version")
+    if declared_version != SUPPORTED_SCHEMA_VERSION:
+        msg = (
+            f"errors.yaml declares version {declared_version!r}; "
+            f"this generator only supports version {SUPPORTED_SCHEMA_VERSION}. "
+            "Bump SUPPORTED_SCHEMA_VERSION in lock-step with any schema change."
+        )
+        raise ValueError(msg)
     errors = data.get("errors", {})
 
     seen_class_names: set[str] = set()
@@ -295,7 +334,7 @@ def load_and_validate(errors_path: Path) -> dict:
 
 
 def _render_params_module(
-    *, code: str, params_class_name: str, params: dict, description: str | None
+    *, code: str, params_class_name: str, params: _ParamsMap, description: str | None
 ) -> str:
     """Render the source for a generated *_params.py module.
 
@@ -309,12 +348,16 @@ def _render_params_module(
         docstring = f'"""Parameters for {code} error: {description}"""'
     else:
         docstring = f'"""Parameters for {code} error."""'
+    # ``frozen=True`` matches the project-wide value-object discipline:
+    # every hand-written wire schema and value-object is frozen so a typed
+    # error's params cannot be silently mutated between ``raise`` and the
+    # ``_handle_domain_error`` boundary that renders ``detail_template``.
     return (
         '"""Generated from errors.yaml. Do not edit."""\n\n'
         "from pydantic import BaseModel, ConfigDict\n\n\n"
         f"class {params_class_name}(BaseModel):\n"
         f"    {docstring}\n\n"
-        '    model_config = ConfigDict(extra="forbid")\n\n'
+        '    model_config = ConfigDict(extra="forbid", frozen=True)\n\n'
         f"{fields}\n"
     )
 
@@ -328,7 +371,7 @@ def _render_detail_template_decl(detail_template: str) -> str:
     return f"    detail_template: ClassVar[str] = (\n        {literal}\n    )"
 
 
-def _render_super_block(params_class_name: str, params: dict) -> str:
+def _render_super_block(params_class_name: str, params: _ParamsMap) -> str:
     """Render the ``super().__init__(params=...)`` block, wrapped if long."""
     params_construct = ", ".join(f"{name}={name}" for name in params)
     super_line = f"        super().__init__(params={params_class_name}({params_construct}))"
@@ -352,7 +395,7 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
     type_uri: str,
     title: str,
     detail_template: str,
-    params: dict,
+    params: _ParamsMap,
     params_class_name: str | None,
     params_file_stem: str | None,
     description: str | None,
@@ -409,22 +452,21 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
         )
 
     # Parameterless: detail() returns the rendered detail_template (no params
-    # to substitute, so the template IS the rendered detail). Falls back to
-    # title only if detail_template is empty — which load_and_validate now
-    # forbids. This honors errors.yaml's intent: the YAML's detail_template is
-    # the authoritative consumer-visible string for parameterless errors too,
-    # not a silently-ignored field.
+    # to substitute, so the template IS the rendered detail). load_and_validate
+    # asserts the template is non-empty, so the previous ``or self.title``
+    # fallback was dead code that contradicted the validation invariant.
     detail_method = (
         "    def detail(self) -> str:\n"
         '        """Render the human-readable detail for this error."""\n'
-        "        return self.detail_template or self.title\n"
+        "        return self.detail_template\n"
     )
+    parameterless_docstring = description or f"Error: {code}."
     return (
         '"""Generated from errors.yaml. Do not edit."""\n\n'
         "from typing import ClassVar\n\n"
         "from app.exceptions.base import DomainError\n\n\n"
         f"class {error_class_name}(DomainError):\n"
-        f'    """Error: {code}."""\n\n'
+        f'    """{parameterless_docstring}"""\n\n'
         + classvars
         + "\n"
         + "    def __init__(self) -> None:\n"

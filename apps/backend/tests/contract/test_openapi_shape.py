@@ -23,12 +23,12 @@ def test_openapi_spec_is_valid() -> None:
 
     paths = spec["paths"]
 
-    # Health endpoint at root, outside /api/v1/
+    # Health endpoint at root, outside /v1/
     assert "/health" in paths
 
-    # The LIP feature router will add inference paths under /api/v1/
+    # The LIP feature router will add inference paths under /v1/
     # when LIP-E001-F002 lands during feature-dev. Pre-feature-dev,
-    # /api/v1/ has no operations and is not present in the spec.
+    # /v1/ has no operations and is not present in the spec.
 
 
 def test_health_endpoint_conforms_to_spec() -> None:

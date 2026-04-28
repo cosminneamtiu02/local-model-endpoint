@@ -6,7 +6,7 @@ from app.exceptions.base import DomainError
 
 
 class NotFoundError(DomainError):
-    """Error: NOT_FOUND."""
+    """Requested resource does not exist"""
 
     code: ClassVar[str] = "NOT_FOUND"
     http_status: ClassVar[int] = 404
@@ -19,4 +19,4 @@ class NotFoundError(DomainError):
 
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
-        return self.detail_template or self.title
+        return self.detail_template

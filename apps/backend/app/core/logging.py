@@ -69,9 +69,9 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     root_logger.setLevel(log_level.upper())
 
     # Silence noisy third-party loggers. uvicorn.access duplicates
-    # information that the request-id middleware (and a future
-    # request.completed line) already carries — and we don't want
-    # the unstructured access format polluting JSON output.
+    # information that the RequestIdMiddleware request_completed line
+    # already carries — and we don't want the unstructured access format
+    # polluting JSON output.
     # This is the one approved use of stdlib logging.getLogger; the
     # forbidden pattern is using stdlib loggers for application logs.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

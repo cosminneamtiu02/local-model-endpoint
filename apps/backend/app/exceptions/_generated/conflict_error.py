@@ -6,7 +6,7 @@ from app.exceptions.base import DomainError
 
 
 class ConflictError(DomainError):
-    """Error: CONFLICT."""
+    """Operation conflicts with current state"""
 
     code: ClassVar[str] = "CONFLICT"
     http_status: ClassVar[int] = 409
@@ -19,4 +19,4 @@ class ConflictError(DomainError):
 
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
-        return self.detail_template or self.title
+        return self.detail_template

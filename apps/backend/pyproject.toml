@@ -63,7 +63,6 @@ ignore = [
     "E501",    # generated code may have long lines
     "I001",    # generated imports may not be sorted
     "RUF022",  # generated __all__ may not be sorted
-    "S101",    # assert narrows self.params for pyright (invariant guaranteed by codegen)
 ]
 
 [tool.pytest.ini_options]
@@ -88,9 +87,20 @@ filterwarnings = [
     "ignore::DeprecationWarning:schemathesis",
     # anyio's memory streams emit ResourceWarnings on GC during pytest's
     # asyncio-teardown sweep; not a LIP bug. Filter so they don't get
-    # elevated to test failures by `error`.
-    "ignore::pytest.PytestUnraisableExceptionWarning",
+    # elevated to test failures by `error`. The unraisable-exception
+    # filter is scoped to the pytest module that emits it on
+    # asyncio-teardown so it does not silence "coroutine was never awaited"
+    # bugs across the rest of the suite.
+    "ignore::pytest.PytestUnraisableExceptionWarning:_pytest.unraisableexception",
     "ignore::ResourceWarning:anyio",
+]
+# Project-specific markers must be registered when --strict-markers is on
+# (set in addopts above). Without registration, a typo'd ``@pytest.mark.foo``
+# fails the run; that is the discipline we want, but it also means every
+# legitimate marker has to be declared here.
+markers = [
+    "requires_ollama: tests that require a live Ollama daemon at LIP_OLLAMA_HOST",
+    "slow: tests that take longer than ~1s and are excluded from quick local runs",
 ]
 # Forbid test classes — CLAUDE.md sacred rule "Never write a test class".
 python_classes = ["NoTestClassesAllowed"]

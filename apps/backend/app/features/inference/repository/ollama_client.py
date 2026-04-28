@@ -19,7 +19,18 @@ if TYPE_CHECKING:
     from app.features.inference.model.model_params import ModelParams
     from app.features.inference.model.ollama_chat_result import OllamaChatResult
 
-DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(connect=5.0, read=None, write=None, pool=None)
+# 600s read timeout is a defense-in-depth backstop until LIP-E004-F003 lands a
+# per-request ``asyncio.wait_for`` around the ``chat`` call. With ``read=None``
+# the only release path for a hung Ollama daemon is killing the process — a
+# self-inflicted DoS surface for a service guarded by a single semaphore slot.
+# 600s is generous enough not to interrupt legitimate long-running thinking-mode
+# inference under Gemma 4 while still bounding the worst case.
+DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(
+    connect=5.0,
+    read=600.0,
+    write=None,
+    pool=None,
+)
 
 # HTTP verbs the adapter actually uses against Ollama. Narrowed at the
 # `_request` boundary so a typo (`"PSOT"`) is a static error, not a 405
