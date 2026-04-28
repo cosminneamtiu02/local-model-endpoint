@@ -12,7 +12,7 @@ from fastapi import APIRouter, FastAPI
 
 from app.api.state import AppState
 from app.core.config import Settings
-from app.features.inference.repository.ollama_client import OllamaClient
+from app.features.inference.repository import OllamaClient
 
 
 def register_routers(application: FastAPI) -> None:

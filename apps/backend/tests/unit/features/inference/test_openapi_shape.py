@@ -64,10 +64,17 @@ def test_response_metadata_schema_declares_additional_properties_false() -> None
 
 
 def test_response_metadata_schema_marks_finish_reason_as_enum() -> None:
+    """`finish_reason` is a `FinishReason` PEP 695 alias shared with the
+    adapter; Pydantic emits a `$ref` into `$defs/FinishReason` (or, under
+    FastAPI's mount, `components/schemas/FinishReason`) which holds the
+    enum body. Resolve the ref before asserting the enum."""
     schema = ResponseMetadata.model_json_schema()
     finish_reason_schema = schema["properties"]["finish_reason"]
-    assert finish_reason_schema.get("enum") == ["stop", "length", "timeout"]
-    assert finish_reason_schema.get("type") == "string"
+    ref = finish_reason_schema.get("$ref", "")
+    finish_reason_name = ref.rsplit("/", 1)[-1]
+    finish_reason_def = schema["$defs"][finish_reason_name]
+    assert finish_reason_def.get("enum") == ["stop", "length", "timeout"]
+    assert finish_reason_def.get("type") == "string"
 
 
 def test_inference_request_schema_marks_messages_min_items() -> None:
