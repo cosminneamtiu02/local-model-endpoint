@@ -10,16 +10,23 @@ from app.api.errors import register_exception_handlers
 from app.api.health_router import router as health_router
 from app.api.middleware import configure_middleware
 from app.core.logging import configure_logging
+from app.features.inference.repository.ollama_client import OllamaClient
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan hook.
 
-    The LIP feature's startup warm-up dummy inference will be wired here
-    once LIP-E005-F001 lands during feature-dev. v1 lifespan is a no-op.
+    Constructs the OllamaClient at startup and stores it on app.state;
+    closes it at shutdown. The warm-up dummy inference (LIP-E005-F001)
+    will be layered on top of this client when that feature lands.
     """
-    yield
+    settings = get_settings()
+    app.state.ollama_client = OllamaClient(base_url=settings.ollama_host)
+    try:
+        yield
+    finally:
+        await app.state.ollama_client.close()
 
 
 def create_app() -> FastAPI:
