@@ -1,8 +1,8 @@
 """ResponseMetadata wire schema — timing, token, and routing fields."""
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.features.inference.model.finish_reason import FinishReason
 
 
 class ResponseMetadata(BaseModel):
@@ -21,5 +21,5 @@ class ResponseMetadata(BaseModel):
     request_id: str = Field(min_length=1)
     latency_ms: int = Field(ge=0)
     queue_wait_ms: int = Field(ge=0)
-    finish_reason: Literal["stop", "length", "timeout"]
+    finish_reason: FinishReason
     backend: str = Field(min_length=1)

@@ -6,7 +6,7 @@ app.state.context. Depends factories read fields off it without cast().
 
 from dataclasses import dataclass
 
-from app.features.inference.repository.ollama_client import OllamaClient
+from app.features.inference.repository import OllamaClient
 
 
 @dataclass(slots=True)
