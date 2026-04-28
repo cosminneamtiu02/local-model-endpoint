@@ -67,6 +67,21 @@ jobs:
         working-directory: .
         run: task check:lockfile
 
+      # Dependency CVE scan (advisory). pip-audit is pinned in dev deps and
+      # the ``check:audit`` task already exists locally; running it here
+      # surfaces CVEs on currently-pinned production deps in CI output
+      # without blocking the merge. Hard-gating would block legitimate work
+      # on CVEs that don't yet have upstream fixes; advisory keeps the
+      # signal visible in the workflow summary so the maintainer can decide
+      # whether to bump now or accept the risk. Real CVE detection still
+      # exits non-zero (pip-audit only swallows the editable-install
+      # warning, not actual advisories) so ``continue-on-error`` is the
+      # gate that lets the workflow keep going after a finding.
+      - name: Dependency CVE scan (advisory)
+        working-directory: .
+        continue-on-error: true
+        run: task check:audit
+
   error-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
