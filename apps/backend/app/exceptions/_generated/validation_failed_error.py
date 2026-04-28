@@ -1,6 +1,6 @@
 """Generated from errors.yaml. Do not edit."""
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, cast, override
 
 from app.exceptions._generated.validation_failed_params import ValidationFailedParams
 from app.exceptions.base import DomainError
@@ -18,9 +18,11 @@ class ValidationFailedError(DomainError):
     title: ClassVar[str] = "Validation Failed"
     detail_template: ClassVar[str] = "Validation failed for field '{field}': {reason}"
 
+    @override
     def __init__(self, *, field: str, reason: str) -> None:
         super().__init__(params=ValidationFailedParams(field=field, reason=reason))
 
+    @override
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
         params = cast("BaseModel", self.params)

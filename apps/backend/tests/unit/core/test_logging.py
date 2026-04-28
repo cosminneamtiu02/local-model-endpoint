@@ -9,6 +9,7 @@ the chain ships untested.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import pytest
 import structlog
@@ -16,15 +17,24 @@ from structlog.testing import capture_logs
 
 from app.core.logging import configure_logging
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
 
 @pytest.fixture(autouse=True)
-def _reset_structlog_config() -> None:
-    """Reset structlog defaults before each test so configure_logging is exercised fresh.
+def _reset_structlog_config() -> Generator[None]:
+    """Reset structlog defaults before AND after each test.
 
     structlog.configure(cache_logger_on_first_use=True) freezes the bound
     logger after first use; without a reset, a prior test's configuration
-    leaks into the next.
+    leaks into the next. Resetting both before and after closes a hidden
+    ordering coupling: without the post-yield reset, the LAST test in this
+    file leaves structlog with whatever processor chain configure_logging
+    last set, and subsequent test files inherit that state via the
+    session-scoped event loop.
     """
+    structlog.reset_defaults()
+    yield
     structlog.reset_defaults()
 
 

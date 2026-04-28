@@ -19,8 +19,11 @@ and [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 ```bash
 # Prerequisites: Python 3.13, uv, Task
 
-# Install Ollama once (task ollama:install assumes the binary is at
-# /opt/homebrew/bin/ollama and will fail if it isn't there yet).
+# Install Ollama once. The plist template hardcodes `/opt/homebrew/bin/ollama`
+# (the Apple Silicon Homebrew default). Install Ollama at that path before
+# running `task ollama:install`, or edit the plist per docs/ollama-launchd.md
+# before installing — `task ollama:install` itself will succeed but the
+# agent will fail to start when launchd tries to exec a missing binary.
 brew install ollama
 
 # Install the always-on Ollama launchd agent + pull the model

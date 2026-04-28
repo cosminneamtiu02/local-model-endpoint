@@ -1,8 +1,8 @@
 """InferenceRequest wire schema — public POST body for the inference endpoint."""
 
-from typing import Any, Self
+from typing import Final, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
@@ -10,7 +10,7 @@ from app.features.inference.model.model_params import ModelParams
 # Per-key cap for metadata values: bounds payload size symmetrically with
 # Message string-content limits and prevents `{"x": "<10MiB string>"}`-style
 # memory amplification on the LAN-trusted-but-not-infallible consumer path.
-_METADATA_VALUE_MAX_LENGTH = 4096
+_METADATA_VALUE_MAX_LENGTH: Final[int] = 4096
 
 
 class InferenceRequest(BaseModel):
@@ -28,7 +28,12 @@ class InferenceRequest(BaseModel):
     messages: list[Message] = Field(min_length=1, max_length=64)
     model: str = Field(min_length=1, max_length=128)
     params: ModelParams = Field(default_factory=ModelParams)
-    metadata: dict[str, Any] = Field(default_factory=dict, max_length=16)
+    # ``JsonValue`` is Pydantic's recursive JSON-primitive type
+    # (str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]).
+    # Tightens the wire contract from ``dict[str, Any]`` so a consumer cannot
+    # ship a non-JSON value (e.g. a datetime) that would deserialize fine on
+    # input and fail downstream at JSON encoding.
+    metadata: dict[str, JsonValue] = Field(default_factory=dict, max_length=16)
 
     @model_validator(mode="after")
     def _bound_metadata_values(self) -> Self:

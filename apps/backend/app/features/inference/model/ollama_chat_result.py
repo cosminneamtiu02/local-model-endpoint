@@ -1,8 +1,19 @@
 """OllamaChatResult value-object — adapter-side response shape."""
 
+from typing import Final
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.inference.model.finish_reason import FinishReason
+
+# Upper bound on the response content size held in memory. ``ModelParams.max_tokens``
+# has no project-level cap (consumer-supplied; ``gt=0`` only), so a misconfigured
+# ``max_tokens=10_000_000`` could otherwise let Ollama generate an unbounded blob
+# that lands in this frozen value-object. 1 MiB of text is far above any realistic
+# Gemma 4 E2B output (128K tokens ≈ ~512K chars) and below memory-pressure
+# territory on the 16 GB M4 host. Belt-and-suspenders alongside the sibling
+# string caps (``TextContent.text``, ``ImageContent.url``).
+_CONTENT_MAX_LENGTH: Final[int] = 1_048_576
 
 
 class OllamaChatResult(BaseModel):
@@ -18,7 +29,7 @@ class OllamaChatResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    content: str
+    content: str = Field(max_length=_CONTENT_MAX_LENGTH)
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
     finish_reason: FinishReason

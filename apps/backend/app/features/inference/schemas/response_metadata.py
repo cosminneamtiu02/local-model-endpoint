@@ -1,5 +1,7 @@
 """ResponseMetadata wire schema — timing, token, and routing fields."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.inference.model.finish_reason import FinishReason
@@ -22,4 +24,9 @@ class ResponseMetadata(BaseModel):
     latency_ms: int = Field(ge=0)
     queue_wait_ms: int = Field(ge=0)
     finish_reason: FinishReason
-    backend: str = Field(min_length=1)
+    # Closed string enum: the only valid backend in v1 is ``ollama``. Widening
+    # the type to ``Literal["ollama", "<new>"]`` when a second backend lands
+    # is exactly the "coordinated schema update" the class docstring promises;
+    # the closed Literal makes a typo (``"olama"``) fail at the wire boundary
+    # rather than shipping into consumer routing logic.
+    backend: Literal["ollama"]

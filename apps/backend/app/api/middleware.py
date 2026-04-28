@@ -144,7 +144,9 @@ class RequestIdMiddleware:
         # log-injection vectors that ConsoleRenderer would otherwise emit
         # raw.
         client_id = client_id_raw.decode("ascii", errors="replace")
-        if any(ord(c) < _C0_CONTROL_UPPER or ord(c) == _DEL_CHAR for c in client_id):
+        # Walrus memoizes ``ord(c)`` across the two-arm comparison so the per-
+        # char hot path on every request resolves with one ``ord()`` call.
+        if any((o := ord(c)) < _C0_CONTROL_UPPER or o == _DEL_CHAR for c in client_id):
             client_id = "<non-printable>"
         match_result = _UUID_PATTERN.match(client_id) if client_id else None
 
@@ -207,14 +209,19 @@ class RequestIdMiddleware:
             method=method,
             path=path,
         ):
+            request_id_header = (b"x-request-id", request_id.encode("latin-1"))
 
             async def send_with_request_id(message: Message) -> None:
                 nonlocal captured_status
                 if message["type"] == "http.response.start":
                     captured_status = int(message.get("status", 0))
-                    new_headers = list(message.get("headers", []))
-                    new_headers.append((b"x-request-id", request_id.encode("latin-1")))
-                    message = {**message, "headers": new_headers}
+                    # Unpack the existing headers iterable into a fresh list
+                    # with the request-id tuple appended; one allocation, no
+                    # imperative ``append`` step on the hot per-response path.
+                    message = {
+                        **message,
+                        "headers": [*message.get("headers", []), request_id_header],
+                    }
                 await send(message)
 
             unhandled_exc: BaseException | None = None

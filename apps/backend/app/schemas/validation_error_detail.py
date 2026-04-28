@@ -22,5 +22,11 @@ class ValidationErrorDetail(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    field: str = Field(max_length=FIELD_MAX_CHARS)
-    reason: str = Field(max_length=REASON_MAX_CHARS)
+    # ``min_length=1`` mirrors the sibling-string-field discipline across
+    # the wire schemas (ProblemDetails.title, ProblemDetails.detail,
+    # ResponseMetadata.model). The exception handler always populates
+    # these from non-empty Pydantic error data; the floor catches
+    # hand-constructed test fixtures or future helpers that could ship
+    # ``field=""`` and pass schema validation.
+    field: str = Field(min_length=1, max_length=FIELD_MAX_CHARS)
+    reason: str = Field(min_length=1, max_length=REASON_MAX_CHARS)

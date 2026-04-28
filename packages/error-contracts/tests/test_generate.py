@@ -102,7 +102,7 @@ def output_dir(tmp_path: Path) -> Path:
     return out
 
 
-def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Path):
+def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Path) -> None:
     """Codegen should produce one .py file per error class."""
     from scripts.generate import generate_python
 
@@ -166,7 +166,7 @@ def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Pat
             pytest.fail(f"Generated file {py_file.name} has syntax error: {e}")
 
 
-def test_codegen_rejects_duplicate_codes(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_duplicate_codes(tmp_path: Path, output_dir: Path) -> None:
     """Codegen should reject YAML with duplicate error codes."""
     # YAML spec merges duplicate keys silently, so we detect via custom loader
     path = tmp_path / "errors.yaml"
@@ -178,7 +178,7 @@ def test_codegen_rejects_duplicate_codes(tmp_path: Path, output_dir: Path):
         load_and_validate(path)
 
 
-def test_codegen_rejects_invalid_http_status(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_invalid_http_status(tmp_path: Path, output_dir: Path) -> None:
     """Codegen should reject error codes with non-error HTTP status."""
     path = tmp_path / "errors.yaml"
     path.write_text(INVALID_STATUS_YAML)
@@ -191,7 +191,7 @@ def test_codegen_rejects_invalid_http_status(tmp_path: Path, output_dir: Path):
         load_and_validate(path)
 
 
-def test_codegen_rejects_invalid_param_type(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_invalid_param_type(tmp_path: Path, output_dir: Path) -> None:
     """Codegen should reject params with unsupported types."""
     path = tmp_path / "errors.yaml"
     path.write_text(INVALID_PARAM_TYPE_YAML)
@@ -208,7 +208,9 @@ def test_codegen_rejects_invalid_param_type(tmp_path: Path, output_dir: Path):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_codegen_emits_title_and_type_uri_classvars(sample_errors_path: Path, output_dir: Path):
+def test_codegen_emits_title_and_type_uri_classvars(
+    sample_errors_path: Path, output_dir: Path
+) -> None:
     """Each generated error class declares title and type_uri as ClassVars."""
     from scripts.generate import generate_python
 
@@ -227,7 +229,7 @@ def test_codegen_emits_title_and_type_uri_classvars(sample_errors_path: Path, ou
 
 def test_codegen_emits_detail_method_with_template_substitution(
     sample_errors_path: Path, output_dir: Path
-):
+) -> None:
     """Codegen emits detail() that formats detail_template with params for parameterized errors."""
     from scripts.generate import generate_python
 
@@ -243,7 +245,7 @@ def test_codegen_emits_detail_method_with_template_substitution(
 
 def test_codegen_emits_detail_method_returning_detail_template_for_parameterless(
     sample_errors_path: Path, output_dir: Path
-):
+) -> None:
     """Parameterless errors' detail() returns detail_template directly.
 
     The previous template generated ``self.detail_template or self.title`` as
@@ -261,7 +263,9 @@ def test_codegen_emits_detail_method_returning_detail_template_for_parameterless
     assert "return self.detail_template or self.title" not in content
 
 
-def test_codegen_derives_kebab_type_uri_from_screaming_snake_code(tmp_path: Path, output_dir: Path):
+def test_codegen_derives_kebab_type_uri_from_screaming_snake_code(
+    tmp_path: Path, output_dir: Path
+) -> None:
     """type_uri = urn:lip:error:<code.lower().replace('_', '-')> — verify across codes."""
     yaml_text = """
 version: 1
@@ -302,7 +306,7 @@ errors:
     assert 'type_uri: ClassVar[str] = "urn:lip:error:model-capability-not-supported"' in mcns
 
 
-def test_codegen_rejects_missing_title(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_missing_title(tmp_path: Path, output_dir: Path) -> None:
     """Codegen requires title on every error (RFC 7807 standard field)."""
     yaml_text = """
 version: 1
@@ -322,7 +326,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_missing_detail_template(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_missing_detail_template(tmp_path: Path, output_dir: Path) -> None:
     """Codegen requires detail_template on every error."""
     yaml_text = """
 version: 1
@@ -344,7 +348,7 @@ errors:
 
 def test_codegen_emits_template_format_call_for_parameterized_errors(
     sample_errors_path: Path, output_dir: Path
-):
+) -> None:
     """Parameterized error's detail() body uses str.format(**params.model_dump()) via a cast."""
     from scripts.generate import generate_python
 
@@ -358,7 +362,7 @@ def test_codegen_emits_template_format_call_for_parameterized_errors(
 
 def test_codegen_emits_detail_template_for_parameterless_errors(
     sample_errors_path: Path, output_dir: Path
-):
+) -> None:
     """Parameterless error's detail() returns detail_template directly.
 
     load_and_validate now requires a non-empty ``detail_template`` for every
@@ -377,7 +381,7 @@ def test_codegen_emits_detail_template_for_parameterless_errors(
 
 def test_codegen_emits_extra_forbid_and_frozen_on_params_classes(
     sample_errors_path: Path, output_dir: Path
-):
+) -> None:
     """Generated *_params.py classes declare extra='forbid' and frozen=True.
 
     extra='forbid' fails loudly on consumer typos; frozen=True matches the
@@ -395,7 +399,7 @@ def test_codegen_emits_extra_forbid_and_frozen_on_params_classes(
     assert "from pydantic import BaseModel, ConfigDict" in content
 
 
-def test_codegen_rejects_reserved_param_names(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_reserved_param_names(tmp_path: Path, output_dir: Path) -> None:
     """errors.yaml params named after RFC 7807 / LIP envelope keys are rejected at codegen."""
     yaml_text = """
 version: 1
@@ -417,7 +421,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_positional_template_placeholders(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_positional_template_placeholders(tmp_path: Path, output_dir: Path) -> None:
     """detail_template with positional placeholders ({0}) is rejected at codegen."""
     yaml_text = """
 version: 1
@@ -439,7 +443,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_attribute_access_in_template(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_attribute_access_in_template(tmp_path: Path, output_dir: Path) -> None:
     """detail_template with attribute access ({x.attr}) is rejected at codegen."""
     yaml_text = """
 version: 1
@@ -461,7 +465,9 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_template_referencing_undeclared_param(tmp_path: Path, output_dir: Path):
+def test_codegen_rejects_template_referencing_undeclared_param(
+    tmp_path: Path, output_dir: Path
+) -> None:
     """detail_template referencing a placeholder absent from params is rejected at codegen."""
     yaml_text = """
 version: 1
@@ -485,7 +491,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_cleans_up_orphan_files(tmp_path: Path, output_dir: Path):
+def test_codegen_cleans_up_orphan_files(tmp_path: Path, output_dir: Path) -> None:
     """When a code is removed from errors.yaml, its generated files are deleted on regeneration."""
     from scripts.generate import generate_python
 
@@ -530,7 +536,9 @@ errors:
     )
 
 
-def test_codegen_handles_special_chars_in_title_and_template(tmp_path: Path, output_dir: Path):
+def test_codegen_handles_special_chars_in_title_and_template(
+    tmp_path: Path, output_dir: Path
+) -> None:
     """Newlines, tabs, quotes, and unicode in title/detail_template don't break codegen."""
     yaml_text = """
 version: 1
@@ -556,7 +564,7 @@ errors:
     assert "é" in src
 
 
-def test_str_format_raises_keyerror_when_template_placeholder_absent_from_params():
+def test_str_format_raises_keyerror_when_template_placeholder_absent_from_params() -> None:
     """The codegen's detail() body relies on str.format raising KeyError when a
     detail_template references a placeholder that the params model does not
     declare. This is the visibility mechanism for the developer error

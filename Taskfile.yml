@@ -129,29 +129,34 @@ tasks:
       - task: test:integration
       - task: test:contract
 
+  # ``--frozen`` keeps these test invocations aligned with CI (which runs
+  # ``uv sync --frozen --dev``) and the pre-push hook. Without ``--frozen``,
+  # ``uv run`` can silently re-resolve and upgrade transient deps, so the
+  # pre-push hook ends up stricter than the Taskfile — exactly inverted
+  # from the safety net we want.
   test:unit:
     desc: Run unit tests
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run pytest tests/unit/ -v
+      - uv run --frozen pytest tests/unit/ -v
 
   test:integration:
     desc: Run integration tests
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run pytest tests/integration/ -v
+      - uv run --frozen pytest tests/integration/ -v
 
   test:contract:
     desc: Run contract tests (Schemathesis)
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run pytest tests/contract/ -v
+      - uv run --frozen pytest tests/contract/ -v
 
   test:errors:
     desc: Run error-contracts package tests
     dir: packages/error-contracts
     cmds:
-      - uv run pytest tests/ -v
+      - uv run --frozen pytest tests/ -v
 
   # ── Linting & Formatting ─────────────────────────────────────
   lint:

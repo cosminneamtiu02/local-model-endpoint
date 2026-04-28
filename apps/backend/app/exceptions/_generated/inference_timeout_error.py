@@ -1,6 +1,6 @@
 """Generated from errors.yaml. Do not edit."""
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, cast, override
 
 from app.exceptions._generated.inference_timeout_params import InferenceTimeoutParams
 from app.exceptions.base import DomainError
@@ -18,9 +18,11 @@ class InferenceTimeoutError(DomainError):
     title: ClassVar[str] = "Inference Timeout"
     detail_template: ClassVar[str] = "Inference exceeded the {timeout_seconds}-second timeout."
 
+    @override
     def __init__(self, *, timeout_seconds: int) -> None:
         super().__init__(params=InferenceTimeoutParams(timeout_seconds=timeout_seconds))
 
+    @override
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
         params = cast("BaseModel", self.params)

@@ -1,23 +1,18 @@
-"""Top-level test fixtures."""
+"""Top-level test fixtures for the error-contracts package."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
-import structlog
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 # Match ``class Test<word>`` at column 0. Catches both plain
 # ``class TestFoo:`` and ``class TestFoo(unittest.TestCase):`` forms.
 _TEST_CLASS_PATTERN = re.compile(r"^class Test[A-Za-z_]", re.MULTILINE)
 
 
-def pytest_sessionstart(session: pytest.Session) -> None:  # noqa: ARG001 — name fixed by pytest hookspec
+def pytest_sessionstart(session: pytest.Session) -> None:
     """Mechanically enforce CLAUDE.md sacred rule: no test classes.
 
     ``pyproject.toml`` sets ``python_classes = ["NoTestClassesAllowed"]`` to
@@ -29,12 +24,8 @@ def pytest_sessionstart(session: pytest.Session) -> None:  # noqa: ARG001 — na
     ``^class Test...`` definition is found, converting the silent-uncollection
     footgun into a hard failure at session start.
 
-    Catches ``unittest.TestCase`` subclasses too via the same regex
-    (``class TestFoo(unittest.TestCase):`` matches at column 0). Pytest
-    discovers ``unittest.TestCase`` subclasses regardless of ``python_classes``
-    — so this scan is the only mechanism that fires before any collection
-    work, allowing the failure to be attributed to the file rather than to
-    a downstream collection error.
+    Mirrors the identical hook in ``apps/backend/tests/conftest.py`` so both
+    test trees enforce the same sacred rule mechanically.
     """
     test_root = Path(__file__).parent
     offenders: list[str] = []
@@ -54,28 +45,3 @@ def pytest_sessionstart(session: pytest.Session) -> None:  # noqa: ARG001 — na
             "(`def test_foo() -> None:`)."
         )
         pytest.exit(msg, returncode=2)
-
-
-@pytest.fixture(autouse=True)
-def _reset_settings_cache() -> Iterator[None]:
-    """Reset get_settings's lru_cache around every test."""
-    from app.api.deps import get_settings
-
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-
-@pytest.fixture(autouse=True)
-def _clear_structlog_contextvars() -> Iterator[None]:
-    """Clear structlog contextvars between tests.
-
-    structlog.reset_defaults() (used elsewhere) resets configuration only,
-    not the per-task contextvars dict. Without this clear, a test that binds
-    request_id / error_code via structlog.contextvars.bind_contextvars
-    leaves stale keys for the next test in the same worker. Promoted to
-    project-wide so non-logging tests inherit the isolation.
-    """
-    structlog.contextvars.clear_contextvars()
-    yield
-    structlog.contextvars.clear_contextvars()
