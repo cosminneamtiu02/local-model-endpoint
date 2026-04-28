@@ -13,15 +13,21 @@ errors:
   NOT_FOUND:
     http_status: 404
     description: Resource not found
+    title: Not Found
+    detail_template: The requested resource does not exist.
     params: {}
   EXAMPLE_NOT_FOUND:
     http_status: 404
     description: Widget not found
+    title: Widget Not Found
+    detail_template: "Widget {widget_id} does not exist."
     params:
       widget_id: string
   EXAMPLE_NAME_TOO_LONG:
     http_status: 422
     description: Name too long
+    title: Name Too Long
+    detail_template: "Field {name} length {actual_length} exceeds the maximum of {max_length}."
     params:
       name: string
       max_length: integer
@@ -29,7 +35,24 @@ errors:
   INTERNAL_ERROR:
     http_status: 500
     description: Sample internal error for codegen test
+    title: Internal Server Error
+    detail_template: An unexpected error occurred. The request_id can be used for log correlation.
     params: {}
+"""
+
+# Errors.yaml fragment used by test_codegen_detail_raises_keyerror_on_template_param_mismatch
+# to verify the detail() method reports a developer error when the template references
+# a placeholder that the params model does not declare.
+MISMATCHED_TEMPLATE_YAML = """
+version: 1
+errors:
+  TEMPLATE_MISMATCH:
+    http_status: 400
+    description: Template references unknown placeholder
+    title: Template Mismatch
+    detail_template: "Saw {present} but template wants {missing}."
+    params:
+      present: string
 """
 
 DUPLICATE_YAML = """
@@ -218,3 +241,212 @@ def test_codegen_rejects_invalid_param_type(tmp_path: Path, output_dir: Path):
         ValueError, match=r"Invalid param type 'list' for BAD_PARAMS\.items\."
     ):
         load_and_validate(path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RFC 7807 fields: title, detail_template, type_uri, detail()
+# Added by LIP-E004-F004.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_codegen_emits_title_and_type_uri_classvars(
+    sample_errors_path: Path, output_dir: Path
+):
+    """Each generated error class declares title and type_uri as ClassVars."""
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
+
+    # Parameterized error
+    content = (output_dir / "example_not_found_error.py").read_text()
+    assert 'title: ClassVar[str] = "Widget Not Found"' in content
+    assert 'type_uri: ClassVar[str] = "urn:lip:error:example-not-found"' in content
+
+    # Parameterless generic error — keeps the InternalError special case
+    internal_content = (output_dir / "internal_error.py").read_text()
+    assert 'title: ClassVar[str] = "Internal Server Error"' in internal_content
+    assert (
+        'type_uri: ClassVar[str] = "urn:lip:error:internal-error"' in internal_content
+    )
+
+
+def test_codegen_emits_detail_method_with_template_substitution(
+    sample_errors_path: Path, output_dir: Path
+):
+    """Codegen emits detail() that formats detail_template with params for parameterized errors."""
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
+
+    content = (output_dir / "example_not_found_error.py").read_text()
+    assert (
+        'detail_template: ClassVar[str] = "Widget {widget_id} does not exist."'
+        in content
+    )
+    assert "def detail(self) -> str:" in content
+    # Parameterized branch performs str.format(**params.model_dump())
+    assert "self.params.model_dump()" in content
+
+
+def test_codegen_emits_detail_method_falling_back_to_title(
+    sample_errors_path: Path, output_dir: Path
+):
+    """Parameterless errors' detail() returns title when params is None."""
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
+
+    content = (output_dir / "internal_error.py").read_text()
+    assert "def detail(self) -> str:" in content
+    # The parameterless body returns the title (no template substitution path)
+    assert "return self.title" in content
+
+
+def test_codegen_derives_kebab_type_uri_from_screaming_snake_code(
+    tmp_path: Path, output_dir: Path
+):
+    """type_uri = urn:lip:error:<code.lower().replace('_', '-')> — verify across codes."""
+    yaml_text = """
+version: 1
+errors:
+  QUEUE_FULL:
+    http_status: 503
+    description: Queue full
+    title: Queue Full
+    detail_template: "queue is full"
+    params: {}
+  ADAPTER_CONNECTION_FAILURE:
+    http_status: 502
+    description: Adapter failure
+    title: Adapter Failure
+    detail_template: "adapter failed"
+    params: {}
+  MODEL_CAPABILITY_NOT_SUPPORTED:
+    http_status: 422
+    description: Capability missing
+    title: Capability Missing
+    detail_template: "missing capability"
+    params: {}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import generate_python
+
+    generate_python(path, output_dir)
+
+    qf = (output_dir / "queue_full_error.py").read_text()
+    assert 'type_uri: ClassVar[str] = "urn:lip:error:queue-full"' in qf
+
+    acf = (output_dir / "adapter_connection_failure_error.py").read_text()
+    assert 'type_uri: ClassVar[str] = "urn:lip:error:adapter-connection-failure"' in acf
+
+    mcns = (output_dir / "model_capability_not_supported_error.py").read_text()
+    assert (
+        'type_uri: ClassVar[str] = "urn:lip:error:model-capability-not-supported"'
+        in mcns
+    )
+
+
+def test_codegen_rejects_missing_title(tmp_path: Path, output_dir: Path):
+    """Codegen requires title on every error (RFC 7807 standard field)."""
+    yaml_text = """
+version: 1
+errors:
+  NO_TITLE:
+    http_status: 400
+    description: Missing title field
+    detail_template: "x"
+    params: {}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=r"NO_TITLE.*missing required field 'title'"):
+        load_and_validate(path)
+
+
+def test_codegen_rejects_missing_detail_template(tmp_path: Path, output_dir: Path):
+    """Codegen requires detail_template on every error."""
+    yaml_text = """
+version: 1
+errors:
+  NO_TEMPLATE:
+    http_status: 400
+    description: Missing template
+    title: No Template
+    params: {}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(
+        ValueError, match=r"NO_TEMPLATE.*missing required field 'detail_template'"
+    ):
+        load_and_validate(path)
+
+
+def test_codegen_emits_template_format_call_for_parameterized_errors(
+    sample_errors_path: Path, output_dir: Path
+):
+    """Parameterized error's detail() body uses str.format(**params.model_dump())."""
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
+
+    content = (output_dir / "example_not_found_error.py").read_text()
+    # The generated body must invoke template substitution via the params dump.
+    assert "self.detail_template.format(**self.params.model_dump())" in content
+
+
+def test_codegen_emits_title_fallback_for_parameterless_errors(
+    sample_errors_path: Path, output_dir: Path
+):
+    """Parameterless error's detail() body returns self.title (no substitution path)."""
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
+
+    content = (output_dir / "internal_error.py").read_text()
+    # No template substitution branch — just the title fallback.
+    assert "return self.title" in content
+    assert "self.params.model_dump()" not in content
+
+
+def test_str_format_raises_keyerror_when_template_placeholder_absent_from_params():
+    """The codegen's detail() body relies on str.format raising KeyError when a
+    detail_template references a placeholder that the params model does not
+    declare. This is the visibility mechanism for the developer error
+    'errors.yaml template/params mismatch' — exercising the semantic here is
+    sufficient because the generated body is one statement: ``return
+    self.detail_template.format(**self.params.model_dump())``.
+    """
+    template = "Saw {present} but template wants {missing}."
+    params_dump = {"present": "x"}
+    with pytest.raises(KeyError, match="missing"):
+        template.format(**params_dump)
+
+
+def test_codegen_processes_mismatched_template_yaml_without_error(
+    tmp_path: Path, output_dir: Path
+):
+    """codegen does not pre-validate template/params alignment — that surfaces
+    at runtime via str.format. This documents the choice: errors.yaml is
+    permitted to have any template; the developer error appears the first
+    time detail() is called.
+    """
+    from scripts.generate import generate_python
+
+    path = tmp_path / "errors.yaml"
+    path.write_text(MISMATCHED_TEMPLATE_YAML)
+
+    # Should generate cleanly even though the template is mismatched.
+    generated = generate_python(path, output_dir)
+    assert any("template_mismatch_error.py" in str(f) for f in generated)
+    content = (output_dir / "template_mismatch_error.py").read_text()
+    # The body still emits the format call; the developer error surfaces at runtime.
+    assert "self.detail_template.format(**self.params.model_dump())" in content

@@ -1,7 +1,6 @@
 """Schema re-exports for convenient importing."""
 
-from app.schemas.error_body import ErrorBody
-from app.schemas.error_detail import ErrorDetail
-from app.schemas.error_response import ErrorResponse
+from app.schemas.problem_details import ProblemDetails
+from app.schemas.validation_error_detail import ValidationErrorDetail
 
-__all__ = ["ErrorBody", "ErrorDetail", "ErrorResponse"]
+__all__ = ["ProblemDetails", "ValidationErrorDetail"]

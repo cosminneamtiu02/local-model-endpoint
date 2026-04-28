@@ -85,6 +85,16 @@ def _detect_duplicate_keys(raw_text: str) -> None:
                 in_errors = False
 
 
+def _derive_type_uri(code: str) -> str:
+    """Derive the RFC 7807 type URN from a SCREAMING_SNAKE error code.
+
+    Why: type_uri is a *stable identifier* per RFC 7807 §3.1, derived
+    deterministically so consumers can pattern-match on it without coupling to
+    a hosted docs URL (which we explicitly out-of-scope per F004).
+    """
+    return f"urn:lip:error:{code.lower().replace('_', '-')}"
+
+
 def load_and_validate(errors_path: Path) -> dict:
     """Load errors.yaml and validate its contents."""
     raw_text = errors_path.read_text()
@@ -115,6 +125,16 @@ def load_and_validate(errors_path: Path) -> dict:
                 )
                 raise ValueError(msg)
 
+        # Validate RFC 7807 fields (LIP-E004-F004): both required, both strings.
+        for required in ("title", "detail_template"):
+            value = spec.get(required)
+            if not isinstance(value, str) or not value.strip():
+                msg = (
+                    f"Error {code} missing required field '{required}' "
+                    f"(must be a non-empty string)."
+                )
+                raise ValueError(msg)
+
     return data
 
 
@@ -134,6 +154,15 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
         error_file_stem = _class_to_snake(error_class_name)  # e.g. "internal_error"
         params = spec.get("params", {})
         http_status = spec["http_status"]
+        type_uri = _derive_type_uri(code)
+        title = spec["title"]
+        detail_template = spec["detail_template"]
+        # Escape backslashes and double-quotes so string literals in the generated
+        # Python source remain valid for arbitrary template content.
+        title_literal = title.replace("\\", "\\\\").replace('"', '\\"')
+        detail_template_literal = detail_template.replace("\\", "\\\\").replace(
+            '"', '\\"'
+        )
 
         # Generate params class if params exist
         if params:
@@ -179,6 +208,13 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 )
             else:
                 super_block = super_line + "\n"
+            # detail() body: parameterized branch — substitute template with params.
+            detail_method = (
+                "    def detail(self) -> str:\n"
+                '        """Render the human-readable detail for this error."""\n'
+                "        assert self.params is not None  # parameterized error\n"
+                "        return self.detail_template.format(**self.params.model_dump())\n"
+            )
             error_content = (
                 f'"""Generated from errors.yaml. Do not edit."""\n\n'
                 f"from typing import ClassVar\n\n"
@@ -187,10 +223,22 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 f"class {error_class_name}(DomainError):\n"
                 f'    """Error: {code}."""\n\n'
                 f'    code: ClassVar[str] = "{code}"\n'
-                f"    http_status: ClassVar[int] = {http_status}\n\n"
-                f"    def __init__(self, *, {init_signature}) -> None:\n" + super_block
+                f"    http_status: ClassVar[int] = {http_status}\n"
+                f'    type_uri: ClassVar[str] = "{type_uri}"\n'
+                f'    title: ClassVar[str] = "{title_literal}"\n'
+                f'    detail_template: ClassVar[str] = "{detail_template_literal}"\n\n'
+                f"    def __init__(self, *, {init_signature}) -> None:\n"
+                + super_block
+                + "\n"
+                + detail_method
             )
         else:
+            # Parameterless: detail() returns the title (template would have nothing to substitute).
+            detail_method = (
+                "    def detail(self) -> str:\n"
+                '        """Render the human-readable detail for this error."""\n'
+                "        return self.title\n"
+            )
             error_content = (
                 f'"""Generated from errors.yaml. Do not edit."""\n\n'
                 f"from typing import ClassVar\n\n"
@@ -198,9 +246,12 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 f"class {error_class_name}(DomainError):\n"
                 f'    """Error: {code}."""\n\n'
                 f'    code: ClassVar[str] = "{code}"\n'
-                f"    http_status: ClassVar[int] = {http_status}\n\n"
+                f"    http_status: ClassVar[int] = {http_status}\n"
+                f'    type_uri: ClassVar[str] = "{type_uri}"\n'
+                f'    title: ClassVar[str] = "{title_literal}"\n'
+                f'    detail_template: ClassVar[str] = "{detail_template_literal}"\n\n'
                 f"    def __init__(self) -> None:\n"
-                f"        super().__init__(params=None)\n"
+                f"        super().__init__(params=None)\n\n" + detail_method
             )
 
         error_file.write_text(error_content)

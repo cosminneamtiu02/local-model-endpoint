@@ -16,11 +16,20 @@ class DomainError(Exception):
     Each subclass has:
     - code: machine-readable error code (e.g. "NOT_FOUND")
     - http_status: HTTP status code to return
+    - type_uri: stable URN per RFC 7807 §3.1 (e.g. "urn:lip:error:not-found")
+    - title: short human-readable summary per RFC 7807 §3.1
+    - detail_template: per-instance human-readable explanation; substituted via
+      ``str.format(**params.model_dump())`` for parameterized errors. For
+      parameterless errors the value is unused — ``detail()`` returns ``title``.
     - params: typed parameter object (or None for parameterless errors)
+    - detail(): renders the per-instance detail string. Generated per subclass.
     """
 
     code: ClassVar[str]
     http_status: ClassVar[int]
+    type_uri: ClassVar[str]
+    title: ClassVar[str]
+    detail_template: ClassVar[str]
     params: BaseModel | None
 
     def __init__(self, *, params: BaseModel | None = None) -> None:
@@ -30,6 +39,18 @@ class DomainError(Exception):
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        if not hasattr(cls, "code") or not hasattr(cls, "http_status"):
-            msg = f"{cls.__name__} must declare ClassVar 'code' and 'http_status'"
+        required: tuple[str, ...] = ("code", "http_status", "type_uri", "title", "detail_template")
+        missing = [name for name in required if not hasattr(cls, name)]
+        if missing:
+            joined = ", ".join(missing)
+            msg = f"{cls.__name__} must declare ClassVar fields: {joined}"
             raise TypeError(msg)
+
+    def detail(self) -> str:
+        """Render the per-instance human-readable detail.
+
+        Subclasses generated from errors.yaml override this. The base's
+        implementation is the parameterless fallback, used by tests that
+        construct DomainError directly via .__new__ (rare).
+        """
+        return self.title
