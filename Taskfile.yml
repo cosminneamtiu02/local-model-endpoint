@@ -124,13 +124,7 @@ tasks:
     desc: Generate Python error classes from errors.yaml
     dir: packages/error-contracts
     cmds:
-      - uv run --frozen python -c "
-        from pathlib import Path;
-        from scripts.generate import generate_python;
-        p = Path('errors.yaml');
-        generate_python(p, Path('../../apps/backend/app/exceptions/_generated'));
-        print('Generated Python error classes')
-        "
+      - uv run --frozen python -c "from pathlib import Path; from scripts.generate import generate_python; generate_python(Path('errors.yaml'), Path('../../apps/backend/app/exceptions/_generated')); print('Generated Python error classes')"
 
   # ── Ollama launchd agent (one-time per machine; see docs/ollama-launchd.md) ──
   ollama:install:
