@@ -9,7 +9,7 @@ from app.features.inference.model.model_params import ModelParams
 
 
 class InferenceRequest(BaseModel):
-    """Request envelope accepted by `POST /api/v1/inference`.
+    """Request envelope accepted by the inference endpoint.
 
     `model` is a logical name the registry resolves to a concrete
     backend tag — never a backend-specific tag itself. `metadata` is a
@@ -21,6 +21,6 @@ class InferenceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     messages: list[Message] = Field(min_length=1)
-    model: str
+    model: str = Field(min_length=1)
     params: ModelParams = Field(default_factory=ModelParams)
     metadata: dict[str, Any] = Field(default_factory=dict)

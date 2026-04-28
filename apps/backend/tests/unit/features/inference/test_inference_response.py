@@ -52,3 +52,23 @@ def test_inference_response_requires_metadata() -> None:
 def test_inference_response_requires_content() -> None:
     with pytest.raises(ValidationError, match="content"):
         InferenceResponse.model_validate({"metadata": _valid_metadata().model_dump()})
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "model",
+        "prompt_tokens",
+        "completion_tokens",
+        "request_id",
+        "latency_ms",
+        "queue_wait_ms",
+        "finish_reason",
+        "backend",
+    ],
+)
+def test_inference_response_propagates_missing_metadata_field_errors(missing_field: str) -> None:
+    metadata = _valid_metadata().model_dump()
+    del metadata[missing_field]
+    with pytest.raises(ValidationError, match=missing_field):
+        InferenceResponse.model_validate({"content": "x", "metadata": metadata})

@@ -1,9 +1,10 @@
 """Unit tests for ImageContent (LIP-E001-F001).
 
 Per the F001 open question on multimodal serialization, ImageContent
-carries an internal union over `url` (public reference) and `data`
+carries an internal union over `url` (public reference) and `base64`
 (base64-encoded bytes). Exactly one must be set; the validator enforces
-that invariant at the schema boundary.
+that invariant at the schema boundary. The field name `base64` matches
+the wire vocabulary the adapter feature consumes.
 """
 
 import pytest
@@ -16,24 +17,34 @@ def test_image_content_accepts_url_only() -> None:
     part = ImageContent(url="https://example.com/cat.png")
     assert part.type == "image"
     assert part.url == "https://example.com/cat.png"
-    assert part.data is None
+    assert part.base64 is None
 
 
-def test_image_content_accepts_base64_data_only() -> None:
-    part = ImageContent(data="iVBORw0KGgo=")
+def test_image_content_accepts_base64_only() -> None:
+    part = ImageContent(base64="iVBORw0KGgo=")
     assert part.type == "image"
     assert part.url is None
-    assert part.data == "iVBORw0KGgo="
+    assert part.base64 == "iVBORw0KGgo="
 
 
-def test_image_content_rejects_both_url_and_data() -> None:
+def test_image_content_rejects_both_url_and_base64() -> None:
     with pytest.raises(ValidationError, match="exactly one"):
-        ImageContent(url="https://example.com/x.png", data="iVBORw0KGgo=")
+        ImageContent(url="https://example.com/x.png", base64="iVBORw0KGgo=")
 
 
-def test_image_content_rejects_neither_url_nor_data() -> None:
+def test_image_content_rejects_neither_url_nor_base64() -> None:
     with pytest.raises(ValidationError, match="exactly one"):
         ImageContent()
+
+
+def test_image_content_rejects_empty_url() -> None:
+    with pytest.raises(ValidationError):
+        ImageContent(url="")
+
+
+def test_image_content_rejects_empty_base64() -> None:
+    with pytest.raises(ValidationError):
+        ImageContent(base64="")
 
 
 def test_image_content_rejects_unknown_field() -> None:
@@ -43,9 +54,9 @@ def test_image_content_rejects_unknown_field() -> None:
         )
 
 
-def test_image_content_dump_excludes_unset_data_when_url_supplied() -> None:
+def test_image_content_dump_excludes_unset_base64_when_url_supplied() -> None:
     part = ImageContent(url="https://example.com/cat.png")
     dumped = part.model_dump()
     assert dumped["type"] == "image"
     assert dumped["url"] == "https://example.com/cat.png"
-    assert dumped["data"] is None
+    assert dumped["base64"] is None

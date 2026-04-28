@@ -30,3 +30,8 @@ def test_text_content_rejects_wrong_type_discriminator() -> None:
 def test_text_content_requires_text_field() -> None:
     with pytest.raises(ValidationError):
         TextContent.model_validate({"type": "text"})
+
+
+def test_text_content_rejects_empty_text() -> None:
+    with pytest.raises(ValidationError):
+        TextContent(text="")

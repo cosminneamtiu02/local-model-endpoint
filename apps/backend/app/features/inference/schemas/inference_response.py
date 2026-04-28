@@ -6,7 +6,7 @@ from app.features.inference.schemas.response_metadata import ResponseMetadata
 
 
 class InferenceResponse(BaseModel):
-    """Response envelope returned by `POST /api/v1/inference`.
+    """Response envelope returned by the inference endpoint.
 
     `content` is the assistant-generated text. Streaming is out of v1
     scope — every response is buffered in full before return.

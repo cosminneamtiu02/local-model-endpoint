@@ -1,10 +1,16 @@
 """Unit tests on the JSON Schema produced by the F001 envelopes (LIP-E001-F001).
 
 These exercise the Pydantic schema-emission path that FastAPI inlines into
-`components.schemas` once the inference route lands in F002. The full
-`/openapi.json` contract checks live in F002's contract suite; here we
-verify the per-model schema shape directly so the contract is locked
-ahead of router wiring.
+`components.schemas` once the inference route lands in a follow-up
+feature. The full `/openapi.json` contract checks live in that feature's
+contract suite; here we verify the per-model schema shape directly so
+the contract is locked ahead of router wiring.
+
+Note: bare `model_json_schema()` produces refs into `#/$defs/...`, while
+FastAPI rewrites them to `#/components/schemas/...` via its
+`ref_template`. This test file checks the schema *shape* (keys, types,
+constraints), not the ref-path strings — so the unit-level proxy is
+ref-template-agnostic and remains valid once FastAPI mounts the schemas.
 """
 
 from typing import Any, cast
@@ -61,6 +67,7 @@ def test_response_metadata_schema_marks_finish_reason_as_enum() -> None:
     schema = ResponseMetadata.model_json_schema()
     finish_reason_schema = schema["properties"]["finish_reason"]
     assert finish_reason_schema.get("enum") == ["stop", "length", "timeout"]
+    assert finish_reason_schema.get("type") == "string"
 
 
 def test_inference_request_schema_marks_messages_min_items() -> None:

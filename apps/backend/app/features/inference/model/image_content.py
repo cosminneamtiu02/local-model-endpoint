@@ -2,28 +2,26 @@
 
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ImageContent(BaseModel):
     """Image content part of a Message.
 
-    The F001 open question on multimodal serialization is resolved here
-    by carrying an internal union: either a public `url` reference or a
-    base64-encoded `data` blob. Exactly one must be set; the adapter
-    layer (E003-F002) translates whichever form is present into Ollama's
-    wire format.
+    Carries either a public `url` reference or a base64-encoded `base64`
+    blob. Exactly one must be set; the adapter layer translates whichever
+    form is present into Ollama's wire format.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["image"] = "image"
-    url: str | None = None
-    data: str | None = None
+    url: str | None = Field(default=None, min_length=1)
+    base64: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> Self:
-        if (self.url is None) == (self.data is None):
-            msg = "ImageContent requires exactly one of `url` or `data`"
+        if (self.url is None) == (self.base64 is None):
+            msg = "ImageContent requires exactly one of `url` or `base64`"
             raise ValueError(msg)
         return self

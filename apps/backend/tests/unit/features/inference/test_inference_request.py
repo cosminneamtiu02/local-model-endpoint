@@ -50,7 +50,12 @@ def test_inference_request_default_params_dump_excludes_unset() -> None:
         model="x",
     )
     dumped = req.model_dump(exclude_unset=True)
-    assert "params" not in dumped or dumped.get("params") in ({}, None)
+    assert "params" not in dumped
+
+
+def test_inference_request_rejects_empty_model_name() -> None:
+    with pytest.raises(ValidationError):
+        InferenceRequest(messages=[Message(role="user", content="hi")], model="")
 
 
 def test_inference_request_params_passes_through() -> None:

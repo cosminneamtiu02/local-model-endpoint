@@ -2,6 +2,10 @@
 
 `ContentPart` is the union Pydantic uses to route a `Message.content`
 list element to its concrete variant by inspecting the `type` field.
+
+Note: `ContentPart` is a type alias, not a runtime class. `isinstance`
+checks must target the concrete variants (`TextContent`, `ImageContent`,
+`AudioContent`), not this alias.
 """
 
 from typing import Annotated
@@ -12,7 +16,7 @@ from app.features.inference.model.audio_content import AudioContent
 from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.text_content import TextContent
 
-ContentPart = Annotated[
+type ContentPart = Annotated[
     TextContent | ImageContent | AudioContent,
     Field(discriminator="type"),
 ]

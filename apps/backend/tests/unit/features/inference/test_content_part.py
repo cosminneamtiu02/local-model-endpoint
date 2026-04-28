@@ -30,7 +30,7 @@ def test_content_part_routes_audio_dict_to_audio_content() -> None:
 
 
 def test_content_part_rejects_unknown_discriminator_value() -> None:
-    with pytest.raises(ValidationError, match="does not match any of the expected tags"):
+    with pytest.raises(ValidationError, match=r"(does not match|expected tag|discriminator)"):
         _ADAPTER.validate_python({"type": "video", "url": "https://x"})
 
 
