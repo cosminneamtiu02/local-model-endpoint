@@ -54,6 +54,9 @@ ignore = [
     "PLR2004", # magic values allowed in tests
     "PLC0415", # imports inside functions allowed in test fixtures
     "E501",    # long docstrings in tests
+    "SLF001",  # tests legitimately inspect single-underscore internals of the unit under test
+    "PT012",   # pytest.raises blocks may contain multiple statements when testing async context managers
+    "EM101",   # string-literal exception args are fine in throwaway test scaffolding
 ]
 "app/exceptions/_generated/**/*.py" = [
     "E501",    # generated code may have long lines
