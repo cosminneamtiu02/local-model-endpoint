@@ -19,13 +19,15 @@ how-tos; it answers "what's in the box" only.
 
 ### Typed Settings ([app/core/config.py](../apps/backend/app/core/config.py))
 Pydantic-settings based configuration. Six fields: `app_env`, `log_level`,
-`lip_ollama_host` (defaulting to `http://localhost:11434`; the `lip_` prefix
-disambiguates from Ollama's own `OLLAMA_HOST`), `bind_host` / `bind_port`
-(uvicorn binding, validated to reject `0.0.0.0` unless `allow_public_bind=true`),
-and `allow_external_ollama` (escape hatch for the SSRF-clamp validator that
-otherwise restricts the Ollama host to loopback / RFC1918 / link-local).
-LIP-specific settings (queue depth, per-request timeout, idle-shutdown
-interval) will be added during feature-dev.
+`ollama_host` (defaulting to `http://localhost:11434`), `bind_host` /
+`bind_port` (uvicorn binding, validated to reject `0.0.0.0` unless
+`allow_public_bind=true`), and `allow_external_ollama` (escape hatch for the
+SSRF-clamp validator that otherwise restricts the Ollama host to loopback /
+RFC1918 / link-local). Every field reads from a `LIP_`-prefixed env var
+(e.g. `LIP_OLLAMA_HOST`) — set via `env_prefix` on the SettingsConfigDict —
+so a single shell can run both the Ollama daemon (which reads `OLLAMA_HOST`)
+and LIP without crossed wires. LIP-specific settings (queue depth,
+per-request timeout, idle-shutdown interval) will be added during feature-dev.
 
 ### Structured Logging ([app/core/logging.py](../apps/backend/app/core/logging.py))
 Structlog pipeline with contextvar merging, ISO timestamps, and JSON output in production
@@ -141,13 +143,17 @@ Testcontainers. Covers:
   Exception envelope shapes through the registered handlers.
 - `features/inference/test_lifecycle.py` — startup/shutdown lifespan against
   Ollama via `httpx.MockTransport` (no network).
-- `test_app_factory.py` — `create_app` switches OpenAPI exposure on `APP_ENV`.
+- `test_app_factory.py` — `create_app` switches OpenAPI exposure on `LIP_APP_ENV`.
 
 ### Contract Tests ([apps/backend/tests/contract/](../apps/backend/tests/contract/))
-`test_schemathesis.py` is currently a sanity check that validates the generated
-OpenAPI spec shape. A full Schemathesis fuzz against every endpoint will be wired
-once the LIP feature router (LIP-E001-F002) lands and there are inference
-operations to fuzz.
+`test_openapi_shape.py` validates the generated OpenAPI spec shape (one canary
+test that runs before any fuzz attempts to load it).
+`test_problem_details_contract.py` covers the LIP-E004-F004 RFC 7807 wire shape
+(ProblemDetails as a published component, RFC 7807 fields + LIP extensions
+present, `application/problem+json` advertised on the `/health` default
+response). A full Schemathesis fuzz against every endpoint will be wired once
+the LIP feature router (LIP-E001-F002) lands and there are inference operations
+to fuzz.
 
 ---
 

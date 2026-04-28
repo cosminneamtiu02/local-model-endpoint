@@ -1,45 +1,13 @@
-"""Contract tests — validates OpenAPI spec compliance.
+"""Contract tests for the ProblemDetails wire shape (LIP-E004-F004).
 
-The spec-shape test below always runs as the canary for "did the
-OpenAPI even generate correctly." A full Schemathesis fuzz test will
-be added once the LIP feature router (LIP-E001-F002) lands and there
-are operations to fuzz against.
+The OpenAPI-spec smoke tests live in :mod:`tests.contract.test_openapi_shape`.
+A real Schemathesis fuzz suite will land alongside the LIP feature router
+(LIP-E001-F002) when there are operations to fuzz against.
 """
 
 from starlette.testclient import TestClient
 
 from app.main import app
-
-
-def test_openapi_spec_is_valid() -> None:
-    """The OpenAPI spec should be valid and contain the expected endpoints."""
-    client = TestClient(app, raise_server_exceptions=False)
-    response = client.get("/openapi.json")
-    assert response.status_code == 200
-
-    spec = response.json()
-    assert spec["openapi"].startswith("3.")
-    assert spec["info"]["title"] == "Local Inference Provider"
-
-    paths = spec["paths"]
-
-    # Health endpoint at root, outside /api/v1/
-    assert "/health" in paths
-
-    # The LIP feature router will add inference paths under /api/v1/
-    # when LIP-E001-F002 lands during feature-dev. Pre-feature-dev,
-    # /api/v1/ has no operations and is not present in the spec.
-
-
-def test_health_endpoint_conforms_to_spec() -> None:
-    """Health endpoint should return the expected shape."""
-    client = TestClient(app, raise_server_exceptions=False)
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-
-
-# ── LIP-E004-F004: ProblemDetails contract ────────────────────────────────
 
 
 def test_openapi_publishes_problem_details_component() -> None:
@@ -100,9 +68,14 @@ def test_health_route_declares_problem_details_default_response() -> None:
         f"shape), got responses keys: {sorted(responses.keys())}"
     )
     content = responses["default"].get("content", {})
-    # FastAPI/Pydantic emits the schema under application/json by default;
-    # the runtime Content-Type is overridden to application/problem+json
-    # by the handler. The contract here is "the schema is referenced".
+    # The ProblemDetails schema must be referenced under at least one
+    # media type. The route declares both ``application/json`` (FastAPI's
+    # default for ``model=...``) and ``application/problem+json`` (the
+    # runtime media type emitted by ``app/api/errors.py``).
     assert any("ProblemDetails" in str(media) for media in content.values()), (
         f"/health 'default' response must reference ProblemDetails, got {content}"
+    )
+    assert "application/problem+json" in content, (
+        "Expected the runtime media type 'application/problem+json' to be "
+        f"declared on /health's default response, got: {sorted(content.keys())}"
     )

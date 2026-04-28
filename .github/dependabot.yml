@@ -98,7 +98,12 @@ updates:
     labels:
       - "dependencies"
     groups:
-      github-official-actions:
+      # Group every action publisher we depend on so adjacent-line bumps
+      # in one workflow YAML don't cascade-conflict (see
+      # TEMPLATE_FRICTION.md "Dependabot rebase cascade").
+      github-actions-stack:
         patterns:
           - "actions/*"
+          - "astral-sh/*"
+          - "arduino/*"
         update-types: ["minor", "patch"]

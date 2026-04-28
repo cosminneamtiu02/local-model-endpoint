@@ -18,28 +18,13 @@ consumers MUST treat both as untrusted strings — escape on render, never
 interpolate into shells, queries, or HTML without sanitization.
 """
 
-from typing import TypedDict
-
 from pydantic import BaseModel, ConfigDict, Field
-
-from app.schemas.validation_error_detail import ValidationErrorDetail
-
-
-class ProblemExtras(TypedDict, total=False):
-    """Allowed extension keys layered on top of ProblemDetails.
-
-    Used by ``app.api.errors._build_body`` to type the ``extras`` parameter
-    instead of ``dict[str, Any]``. ``total=False`` because every key is
-    optional — only ``VALIDATION_FAILED`` populates ``validation_errors``.
-    """
-
-    validation_errors: list[ValidationErrorDetail]
 
 
 class ProblemDetails(BaseModel):
     """RFC 7807 problem-details response body."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", frozen=True)
 
     type: str = Field(
         description=(
@@ -54,4 +39,7 @@ class ProblemDetails(BaseModel):
     detail: str = Field(description="Per-instance human-readable explanation")
     instance: str = Field(description="The request URL path that produced this problem")
     code: str = Field(description="LIP error code (SCREAMING_SNAKE)")
-    request_id: str = Field(description="Request UUID from the X-Request-ID middleware")
+    request_id: str = Field(
+        description="Request UUID from the X-Request-ID middleware",
+        min_length=1,
+    )

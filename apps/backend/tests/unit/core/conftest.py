@@ -1,8 +1,8 @@
 """Hermetic-config fixture — strips Settings env vars before each unit test.
 
 Prevents CI runners or developer shells with stray env vars (e.g.
-LOG_LEVEL, BIND_PORT) from polluting Settings()-construction tests in
-this package. Each Settings field name is delenv'd via monkeypatch so
+LIP_LOG_LEVEL, LIP_BIND_PORT) from polluting Settings()-construction tests
+in this package. Each Settings field name is delenv'd via monkeypatch so
 the reset is automatically rolled back at end of test.
 """
 
@@ -12,8 +12,10 @@ from app.core.config import Settings
 
 # Derive the env-var name list from Settings.model_fields rather than
 # hardcoding it — adding a new Settings field auto-extends the strip
-# list with no per-test edit needed.
-_SETTINGS_ENV_VARS = tuple(name.upper() for name in Settings.model_fields)
+# list with no per-test edit needed. The ``LIP_`` prefix is added because
+# Settings.model_config sets ``env_prefix="LIP_"``.
+_ENV_PREFIX = "LIP_"
+_SETTINGS_ENV_VARS = tuple(_ENV_PREFIX + name.upper() for name in Settings.model_fields)
 
 
 @pytest.fixture(autouse=True)

@@ -1,4 +1,4 @@
-"""Health endpoint — mounted at root, outside /api/v1/.
+"""Health endpoint — mounted at root, outside /v1/.
 
 Liveness only in v1. Readiness will be added by LIP-E006-F001 when the
 warm-up signal from LIP-E005-F001 is wired during feature-dev.
@@ -17,19 +17,38 @@ as a named component in ``/openapi.json``, which is the F004 contract surface
 other features (LIP-E001-F002 etc.) build on.
 """
 
+from typing import Any
+
 from fastapi import APIRouter
 
-from app.schemas import ProblemDetails
+from app.schemas import HealthResponse, ProblemDetails
 
 router = APIRouter(tags=["health"])
 
-_PROBLEM_RESPONSE = {"model": ProblemDetails, "description": "Problem details (RFC 7807)"}
+# ``model=ProblemDetails`` registers the schema in components.schemas so
+# downstream codegen tools see a reusable type. ``application/problem+json``
+# is added to ``content`` so the spec advertises the *runtime* media type
+# (the handler in ``app/api/errors.py`` emits ``application/problem+json``,
+# not ``application/json``); FastAPI auto-fills the schema reference for
+# every media-type entry from the ``model``.
+_PROBLEM_RESPONSE: dict[str, Any] = {
+    "model": ProblemDetails,
+    "description": "Problem details (RFC 7807)",
+    "content": {"application/problem+json": {}},
+}
 
 
 @router.get(
     "/health",
+    operation_id="getHealth",
     responses={"default": _PROBLEM_RESPONSE},
 )
-async def health() -> dict[str, str]:
-    """Liveness probe. Returns 200 if the process is alive."""
-    return {"status": "ok"}
+async def health() -> HealthResponse:
+    """Liveness probe. Returns 200 if the process is alive.
+
+    The return type annotation is FastAPI's source of the response model
+    (FastAPI 0.100+ infers ``response_model`` from the annotation and the
+    explicit kwarg is now redundant — the FAST001 ruff rule enforces
+    this).
+    """
+    return HealthResponse()

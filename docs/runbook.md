@@ -46,13 +46,13 @@ the table below summarizes the production-relevant ones.
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `APP_ENV` | `development` | One of `development` / `test` / `production`. Production hides `/docs`, `/redoc`, `/openapi.json` and emits JSON logs. |
-| `LOG_LEVEL` | `info` | One of `debug` / `info` / `warning` / `error` / `critical`. |
-| `LIP_OLLAMA_HOST` | `http://localhost:11434` | The local Ollama daemon URL. The `lip_` prefix avoids colliding with Ollama's own `OLLAMA_HOST`. Validator rejects non-private hosts unless `ALLOW_EXTERNAL_OLLAMA=true`. |
-| `ALLOW_EXTERNAL_OLLAMA` | `false` | Escape hatch acknowledging that LIP will forward consumer prompts to a non-private host. |
-| `BIND_HOST` | `127.0.0.1` | Interface for `task dev` / `python -m app`. Validator rejects `0.0.0.0` / `::` unless `ALLOW_PUBLIC_BIND=true` because LIP has no auth. |
-| `BIND_PORT` | `8000` | Port (1024–65535). |
-| `ALLOW_PUBLIC_BIND` | `false` | Escape hatch for binding all interfaces. Required to acknowledge the no-auth posture before LAN-exposing. |
+| `LIP_APP_ENV` | `development` | One of `development` / `test` / `production`. Production hides `/docs`, `/redoc`, `/openapi.json` and emits JSON logs. |
+| `LIP_LOG_LEVEL` | `info` | One of `debug` / `info` / `warning` / `error` / `critical`. |
+| `LIP_OLLAMA_HOST` | `http://localhost:11434` | The local Ollama daemon URL. The `LIP_` prefix avoids colliding with Ollama's own `OLLAMA_HOST`. Validator rejects non-private hosts unless `LIP_ALLOW_EXTERNAL_OLLAMA=true`. |
+| `LIP_ALLOW_EXTERNAL_OLLAMA` | `false` | Escape hatch acknowledging that LIP will forward consumer prompts to a non-private host. |
+| `LIP_BIND_HOST` | `127.0.0.1` | Interface for `task dev` / `python -m app`. Validator rejects `0.0.0.0` / `::` unless `LIP_ALLOW_PUBLIC_BIND=true` because LIP has no auth. |
+| `LIP_BIND_PORT` | `8000` | Port (1024–65535). |
+| `LIP_ALLOW_PUBLIC_BIND` | `false` | Escape hatch for binding all interfaces. Required to acknowledge the no-auth posture before LAN-exposing. |
 
 ## Testing
 
@@ -124,8 +124,8 @@ the on-disk plist.
 - Verify Ollama is running: `curl http://localhost:11434/api/tags`
 - Verify the Gemma model is pulled: `ollama list | grep gemma`
 - Override the host if needed: `LIP_OLLAMA_HOST=http://127.0.0.1:11500 task dev` (the
-  Settings field is `lip_ollama_host`; setting plain `OLLAMA_HOST` would target
-  the daemon, not LIP).
+  Settings field is `ollama_host` and reads from the `LIP_`-prefixed env var;
+  setting plain `OLLAMA_HOST` would target the daemon, not LIP).
 
 ## Supply-chain audit
 

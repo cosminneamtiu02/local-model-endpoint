@@ -10,7 +10,7 @@ httpx request must be aborted so the semaphore slot frees.
 Two concerns layered on the ASGI scope:
 1. Validate / mint `X-Request-Id` and bind it via structlog
    contextvars so every log line in the request carries it.
-2. Emit a single `request.completed` log line per request with
+2. Emit a single `request_completed` log line per request with
    duration / status / method / path. This is the structlog-native
    replacement for uvicorn's access log (silenced in core/logging.py).
 
@@ -90,12 +90,15 @@ class RequestIdMiddleware:
             finally:
                 if path not in _ACCESS_LOG_SUPPRESSED_PATHS:
                     duration_ms = int((time.perf_counter() - start) * 1000)
+                    client = scope.get("client")
                     logger.info(
-                        "request.completed",
+                        "request_completed",
+                        request_id=request_id,
                         method=method,
                         path=path,
                         status_code=captured_status[0],
                         duration_ms=duration_ms,
+                        client_host=client[0] if client else None,
                     )
 
 

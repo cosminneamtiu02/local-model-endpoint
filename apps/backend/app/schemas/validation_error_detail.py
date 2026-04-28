@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 class ValidationErrorDetail(BaseModel):
     """A single validation error — one field that failed Pydantic validation."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     field: str
     reason: str

@@ -8,10 +8,10 @@ land — main.py stays unchanged feature after feature.
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import FastAPI
 
+from app.api.app_state import AppState
 from app.api.health_router import router as health_router
-from app.api.state import AppState
 from app.core.config import Settings
 from app.features.inference.repository import OllamaClient
 
@@ -19,13 +19,12 @@ from app.features.inference.repository import OllamaClient
 def register_routers(application: FastAPI) -> None:
     """Mount every router on the FastAPI app.
 
-    Health stays at root (unversioned, liveness/readiness conventions);
-    feature routers nest under the /v1 prefix.
+    Health stays at root (unversioned, liveness/readiness conventions).
+    Feature routers will nest under the ``/v1`` prefix when LIP-E001-F002
+    lands; the empty ``APIRouter(prefix="/v1")`` mount is intentionally NOT
+    pre-staged here per ADR-011 (no pre-feature scaffolding).
     """
     application.include_router(health_router)
-    v1 = APIRouter(prefix="/v1")
-    # Inference router included here when LIP-E001-F002 lands during feature-dev.
-    application.include_router(v1)
 
 
 @asynccontextmanager
@@ -38,5 +37,5 @@ async def lifespan_resources(settings: Settings) -> AsyncGenerator[AppState]:
     __aexit__ runs even if construction of a future sibling resource
     fails between client creation and the yield.
     """
-    async with OllamaClient(base_url=str(settings.lip_ollama_host)) as client:
+    async with OllamaClient(base_url=str(settings.ollama_host)) as client:
         yield AppState(ollama_client=client)

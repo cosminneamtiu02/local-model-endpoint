@@ -91,6 +91,16 @@ permissions:
   contents: write
   pull-requests: write
 
+# Two synchronize events in quick succession (e.g. Dependabot push followed
+# by an unrelated sync) would otherwise spawn two parallel sync runs that
+# both try to push lockfile commits — the second loses to the first via
+# "non-fast-forward" and the workflow's ``git push || exit 0`` swallows it
+# correct-by-luck. Cancelling the older run makes the design intent
+# legible and guarantees only one push is ever in flight per PR.
+concurrency:
+  group: dependabot-lockfile-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest

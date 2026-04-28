@@ -202,6 +202,16 @@ def _validate_detail_template(code: str, template: str, params: dict) -> None:
             f"params declares {sorted(declared)}."
         )
         raise ValueError(msg)
+    unused = declared - referenced
+    if unused:
+        # Symmetric guard: a declared-but-unused param is a typo (e.g. params
+        # `retry_after` while the template references `{retry_after_seconds}`).
+        # Failing loud here keeps params and template in lockstep.
+        msg = (
+            f"Error {code} declares params {sorted(unused)} but "
+            f"detail_template never references them."
+        )
+        raise ValueError(msg)
 
 
 def _validate_params(code: str, params: dict) -> None:
@@ -238,12 +248,27 @@ def _validate_params(code: str, params: dict) -> None:
             raise ValueError(msg)
 
 
+SUPPORTED_SCHEMA_VERSION = 1
+
+
 def load_and_validate(errors_path: Path) -> dict:
     """Load errors.yaml and validate its contents."""
     raw_text = errors_path.read_text()
     _detect_duplicate_keys(raw_text)
 
     data = yaml.safe_load(raw_text)
+    # The top-level ``version`` field is part of the error-contracts schema and
+    # must match SUPPORTED_SCHEMA_VERSION. A future bump means the generator
+    # interprets the YAML differently — we want a loud failure on rev mismatch
+    # rather than silent partial-regeneration of stale code.
+    declared_version = data.get("version") if isinstance(data, dict) else None
+    if declared_version != SUPPORTED_SCHEMA_VERSION:
+        msg = (
+            f"errors.yaml declares version {declared_version!r}; "
+            f"this generator only supports version {SUPPORTED_SCHEMA_VERSION}. "
+            "Bump SUPPORTED_SCHEMA_VERSION in lock-step with any schema change."
+        )
+        raise ValueError(msg)
     errors = data.get("errors", {})
 
     seen_class_names: set[str] = set()
@@ -309,12 +334,16 @@ def _render_params_module(
         docstring = f'"""Parameters for {code} error: {description}"""'
     else:
         docstring = f'"""Parameters for {code} error."""'
+    # ``frozen=True`` matches the project-wide value-object discipline:
+    # every hand-written wire schema and value-object is frozen so a typed
+    # error's params cannot be silently mutated between ``raise`` and the
+    # ``_handle_domain_error`` boundary that renders ``detail_template``.
     return (
         '"""Generated from errors.yaml. Do not edit."""\n\n'
         "from pydantic import BaseModel, ConfigDict\n\n\n"
         f"class {params_class_name}(BaseModel):\n"
         f"    {docstring}\n\n"
-        '    model_config = ConfigDict(extra="forbid")\n\n'
+        '    model_config = ConfigDict(extra="forbid", frozen=True)\n\n'
         f"{fields}\n"
     )
 
@@ -409,22 +438,21 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
         )
 
     # Parameterless: detail() returns the rendered detail_template (no params
-    # to substitute, so the template IS the rendered detail). Falls back to
-    # title only if detail_template is empty — which load_and_validate now
-    # forbids. This honors errors.yaml's intent: the YAML's detail_template is
-    # the authoritative consumer-visible string for parameterless errors too,
-    # not a silently-ignored field.
+    # to substitute, so the template IS the rendered detail). load_and_validate
+    # asserts the template is non-empty, so the previous ``or self.title``
+    # fallback was dead code that contradicted the validation invariant.
     detail_method = (
         "    def detail(self) -> str:\n"
         '        """Render the human-readable detail for this error."""\n'
-        "        return self.detail_template or self.title\n"
+        "        return self.detail_template\n"
     )
+    parameterless_docstring = description or f"Error: {code}."
     return (
         '"""Generated from errors.yaml. Do not edit."""\n\n'
         "from typing import ClassVar\n\n"
         "from app.exceptions.base import DomainError\n\n\n"
         f"class {error_class_name}(DomainError):\n"
-        f'    """Error: {code}."""\n\n'
+        f'    """{parameterless_docstring}"""\n\n'
         + classvars
         + "\n"
         + "    def __init__(self) -> None:\n"

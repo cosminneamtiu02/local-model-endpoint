@@ -88,8 +88,17 @@ tasks:
   check:audit:
     desc: Run pip-audit on backend deps (advisory; surfaces known CVEs)
     dir: "{{.BACKEND_DIR}}"
+    # pip-audit 2.10 rejects ``--disable-pip`` unless paired with ``-r``;
+    # we audit the resolved virtualenv directly (the env that ``uv sync``
+    # produced from the frozen lockfile), which is the truthful target —
+    # whatever's installed is what the running process loads.
+    # ``--skip-editable`` skips the local ``lip-backend`` editable install
+    # (pip-audit cannot resolve it against PyPI — it's the project itself).
+    # ``--strict`` is intentionally omitted: with it, pip-audit treats the
+    # editable-skip as a fatal warning and exits 1 even with zero CVEs.
+    # Real CVEs still cause a non-zero exit without ``--strict``.
     cmds:
-      - uv run --frozen pip-audit --strict --disable-pip
+      - uv run --frozen pip-audit --skip-editable
 
   check:coverage:
     desc: Run full test suite with coverage and enforce the fail_under gate
