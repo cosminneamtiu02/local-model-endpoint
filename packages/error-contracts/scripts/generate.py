@@ -95,6 +95,21 @@ def _derive_type_uri(code: str) -> str:
     return f"urn:lip:error:{code.lower().replace('_', '-')}"
 
 
+def _wrap_import_if_too_long(import_line: str, *, line_length: int = 100) -> str:
+    """Wrap a ``from X import Y`` line in parens when single-line form exceeds line_length.
+
+    Matches what ruff format would produce, so the generator output is
+    idempotent under ``ruff format``. Without this, long imports are emitted
+    on one line, ruff format wraps them, and the next codegen invocation
+    re-emits the unwrapped form — breaking ``task check:errors``' drift guard.
+    """
+    if len(import_line) <= line_length:
+        return import_line
+    # "from MODULE import NAME" → "from MODULE import (\n    NAME,\n)"
+    prefix, _, name = import_line.rpartition(" import ")
+    return f"{prefix} import (\n    {name},\n)"
+
+
 def load_and_validate(errors_path: Path) -> dict:
     """Load errors.yaml and validate its contents."""
     raw_text = errors_path.read_text()
@@ -145,7 +160,10 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     generated_files: list[Path] = []
 
-    init_imports: list[str] = []
+    # `init_entries` stores (name, formatted_import_line) pairs so the __init__.py
+    # __all__ derivation reads name directly and is robust to long imports that
+    # wrap into the parenthesized form.
+    init_entries: list[tuple[str, str]] = []
     registry_entries: list[str] = []
 
     for code, spec in errors.items():
@@ -163,6 +181,22 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
         detail_template_literal = detail_template.replace("\\", "\\\\").replace(
             '"', '\\"'
         )
+        # Wrap detail_template into parenthesized continuation when the single-line
+        # form would exceed ruff's line-length (100). This keeps the generated
+        # source idempotent under ruff format — without it, format wraps the
+        # literal and the next codegen invocation re-emits the unwrapped form,
+        # which would defeat task check:errors' drift guard.
+        single_line = (
+            f'    detail_template: ClassVar[str] = "{detail_template_literal}"'
+        )
+        if len(single_line) > 100:
+            detail_template_decl = (
+                "    detail_template: ClassVar[str] = (\n"
+                f'        "{detail_template_literal}"\n'
+                "    )"
+            )
+        else:
+            detail_template_decl = single_line
 
         # Generate params class if params exist
         if params:
@@ -181,13 +215,30 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 f"{fields}\n"
             )
             generated_files.append(params_file)
-            init_imports.append(
-                f"from app.exceptions._generated.{params_file_stem} import {params_class_name}"
+            init_entries.append(
+                (
+                    params_class_name,
+                    _wrap_import_if_too_long(
+                        f"from app.exceptions._generated.{params_file_stem} import {params_class_name}"
+                    ),
+                )
             )
 
         # Generate error class
         error_file = output_dir / f"{error_file_stem}.py"
         if params:
+            # Wrap params-class import when its single-line form would exceed
+            # ruff's line-length (100). Same idempotency reasoning as the
+            # detail_template wrap above.
+            params_import_line = f"from app.exceptions._generated.{params_file_stem} import {params_class_name}"
+            if len(params_import_line) > 100:
+                params_import_decl = (
+                    f"from app.exceptions._generated.{params_file_stem} import (\n"
+                    f"    {params_class_name},\n"
+                    f")"
+                )
+            else:
+                params_import_decl = params_import_line
             kw_args = []
             for name, ptype in params.items():
                 kw_args.append(f"{name}: {PARAM_TYPE_TO_PYTHON[ptype]}")
@@ -218,7 +269,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
             error_content = (
                 f'"""Generated from errors.yaml. Do not edit."""\n\n'
                 f"from typing import ClassVar\n\n"
-                f"from app.exceptions._generated.{params_file_stem} import {params_class_name}\n"
+                f"{params_import_decl}\n"
                 f"from app.exceptions.base import DomainError\n\n\n"
                 f"class {error_class_name}(DomainError):\n"
                 f'    """Error: {code}."""\n\n'
@@ -226,7 +277,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 f"    http_status: ClassVar[int] = {http_status}\n"
                 f'    type_uri: ClassVar[str] = "{type_uri}"\n'
                 f'    title: ClassVar[str] = "{title_literal}"\n'
-                f'    detail_template: ClassVar[str] = "{detail_template_literal}"\n\n'
+                f"{detail_template_decl}\n\n"
                 f"    def __init__(self, *, {init_signature}) -> None:\n"
                 + super_block
                 + "\n"
@@ -249,37 +300,41 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 f"    http_status: ClassVar[int] = {http_status}\n"
                 f'    type_uri: ClassVar[str] = "{type_uri}"\n'
                 f'    title: ClassVar[str] = "{title_literal}"\n'
-                f'    detail_template: ClassVar[str] = "{detail_template_literal}"\n\n'
+                f"{detail_template_decl}\n\n"
                 f"    def __init__(self) -> None:\n"
                 f"        super().__init__(params=None)\n\n" + detail_method
             )
 
         error_file.write_text(error_content)
         generated_files.append(error_file)
-        init_imports.append(
-            f"from app.exceptions._generated.{error_file_stem} import {error_class_name}"
+        init_entries.append(
+            (
+                error_class_name,
+                _wrap_import_if_too_long(
+                    f"from app.exceptions._generated.{error_file_stem} import {error_class_name}"
+                ),
+            )
         )
         registry_entries.append(f'    "{code}": {error_class_name},')
 
-    # Generate __init__.py (sorted imports for deterministic output)
-    sorted_imports = sorted(init_imports)
+    # Generate __init__.py (sorted imports for deterministic output, sorted by name)
+    sorted_entries = sorted(init_entries, key=lambda pair: pair[0])
     init_file = output_dir / "__init__.py"
     init_content = (
         '"""Generated error classes. Do not edit."""\n\n'
-        + "\n".join(sorted_imports)
+        + "\n".join(imp for _, imp in sorted_entries)
         + "\n\n__all__ = [\n"
-        + "\n".join(f'    "{imp.split()[-1]}",' for imp in sorted_imports)
+        + "\n".join(f'    "{name}",' for name, _ in sorted_entries)
         + "\n]\n"
     )
     init_file.write_text(init_content)
     generated_files.append(init_file)
 
-    # Generate _registry.py (sorted imports for deterministic output)
+    # Generate _registry.py (sorted, error classes only — exclude *Params)
     registry_file = output_dir / "_registry.py"
-    error_imports = sorted(
-        imp
-        for imp in init_imports
-        if "Error" in imp.split()[-1] and "Params" not in imp.split()[-1]
+    error_entries = sorted(
+        ((name, imp) for name, imp in init_entries if name.endswith("Error")),
+        key=lambda pair: pair[0],
     )
     registry_content = (
         '"""Generated error registry. Do not edit."""\n\n'
@@ -287,7 +342,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
         "from typing import TYPE_CHECKING\n\n"
         "if TYPE_CHECKING:\n"
         "    from app.exceptions.base import DomainError\n\n"
-        + "\n".join(error_imports)
+        + "\n".join(imp for _, imp in error_entries)
         + "\n\n"
         + "ERROR_CLASSES: dict[str, type[DomainError]] = {\n"
         + "\n".join(registry_entries)
