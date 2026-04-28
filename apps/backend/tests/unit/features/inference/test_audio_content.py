@@ -50,3 +50,13 @@ def test_audio_content_rejects_unknown_field() -> None:
         AudioContent.model_validate(
             {"type": "audio", "url": "https://x", "bogus": 1},
         )
+
+
+def test_audio_content_rejects_oversize_base64() -> None:
+    with pytest.raises(ValidationError):
+        AudioContent(base64="A" * 20_971_521)
+
+
+def test_audio_content_rejects_oversize_url() -> None:
+    with pytest.raises(ValidationError):
+        AudioContent(url="http://x/" + ("a" * 2050))

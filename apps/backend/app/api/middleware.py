@@ -88,7 +88,16 @@ class RequestIdMiddleware:
         path = str(scope.get("path", ""))
         start = time.perf_counter()
 
-        with structlog.contextvars.bound_contextvars(request_id=request_id):
+        # Bind request_id + method + path so every log line emitted within
+        # the request scope (handlers, services, repositories) carries the
+        # routing context. ``merge_contextvars`` injects them on emit;
+        # explicit kwargs at call sites would override the contextvar (and
+        # would be redundant for these three keys anyway).
+        with structlog.contextvars.bound_contextvars(
+            request_id=request_id,
+            method=method,
+            path=path,
+        ):
 
             async def send_with_request_id(message: Message) -> None:
                 if message["type"] == "http.response.start":
@@ -101,15 +110,16 @@ class RequestIdMiddleware:
             try:
                 await self.app(scope, receive, send_with_request_id)
             finally:
-                if path not in _ACCESS_LOG_SUPPRESSED_PATHS:
+                # Health-check pings are silenced unless degraded — a 4xx/5xx
+                # /health response is the case operators DO want to see.
+                status = captured_status[0]
+                suppress = path in _ACCESS_LOG_SUPPRESSED_PATHS and 200 <= status < 400  # noqa: PLR2004
+                if not suppress:
                     duration_ms = int((time.perf_counter() - start) * 1000)
                     client = scope.get("client")
                     logger.info(
                         "request_completed",
-                        request_id=request_id,
-                        method=method,
-                        path=path,
-                        status_code=captured_status[0],
+                        status_code=status,
                         duration_ms=duration_ms,
                         client_host=client[0] if client else None,
                     )
