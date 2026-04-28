@@ -43,7 +43,14 @@ class ProblemDetails(BaseModel):
     status: int = Field(description="HTTP status code", ge=400, le=599)
     detail: str = Field(description="Per-instance human-readable explanation")
     instance: str = Field(description="The request URL path that produced this problem")
-    code: str = Field(description="LIP error code (SCREAMING_SNAKE)")
+    code: str = Field(
+        description="LIP error code (SCREAMING_SNAKE)",
+        # Mirror the SCREAMING_SNAKE invariant the codegen validator
+        # already enforces on errors.yaml — defense-in-depth so a future
+        # contributor adding an HTTPException-status-to-code mapping with
+        # a kebab/camel value fails at the schema, not silently on the wire.
+        pattern=r"^[A-Z][A-Z0-9_]*$",
+    )
     request_id: str = Field(
         description="Request UUID from the X-Request-ID middleware",
         min_length=1,

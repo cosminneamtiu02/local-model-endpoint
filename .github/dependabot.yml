@@ -114,8 +114,11 @@ updates:
   - package-ecosystem: "pre-commit"
     directory: "/"
     target-branch: "main"
+    # Daily because the local hook `rev:` SHAs go stale fast — ruff-pre-commit
+    # ships point releases between weekly Dependabot runs, leaving the local
+    # hook fighting the manifest version.
     schedule:
-      interval: "weekly"
+      interval: "daily"
     open-pull-requests-limit: 5
     rebase-strategy: "auto"
     commit-message:

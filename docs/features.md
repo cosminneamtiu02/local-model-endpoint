@@ -2,12 +2,13 @@
 
 Every capability in the LIP scaffold, with a short description.
 
-The features documented below describe what exists *right now*. Three LIP feature
-nodes have already landed (LIP-E001-F001 inference envelopes, LIP-E003-F001 lifespan
-OllamaClient, LIP-E003-F002 envelope↔Ollama translation, LIP-E004-F004 RFC 7807
-problem+json, LIP-E005-F003 Ollama launchd agent — all marked `implemented` in
-[graphs/LIP/](../graphs/LIP/)); `service/` and `router/` arrive with LIP-E001-F002
-per ADR-011 lazy scaffolding.
+The features documented below describe what exists *right now*. Five LIP feature
+nodes have already landed in code: LIP-E001-F001 inference envelopes, LIP-E003-F001
+lifespan OllamaClient, LIP-E003-F002 envelope↔Ollama translation, LIP-E004-F004
+RFC 7807 problem+json, and LIP-E005-F003 Ollama launchd agent. Of those, three
+carry `status: implemented` in [graphs/LIP/](../graphs/LIP/) (E001-F001, E003-F001,
+E005-F003); the other two carry `status: verifiable`. `service/` and `router/`
+arrive with LIP-E001-F002 per ADR-011 lazy scaffolding.
 
 `★ Insight ─────────────────────────────────────`
 This file is a flat, discoverable index of what already exists — useful both for humans
@@ -102,7 +103,7 @@ validation problem+json; `HealthResponse` is the liveness payload.
 ## Backend — Architecture Enforcement
 
 ### Import-Linter Contracts ([apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini))
-Eleven contracts protect the layer boundaries:
+Thirteen contracts protect the layer boundaries:
 
 - `core-no-features`, `exceptions-no-features`, `schemas-no-features` — the three
   cross-cutting layers cannot reach into any feature.
@@ -111,13 +112,16 @@ Eleven contracts protect the layer boundaries:
 - `no-direct-generated-error-imports` — only `app.exceptions/__init__` may
   import from `app.exceptions._generated`; everything else uses the public
   re-exports per CLAUDE.md.
+- `api-errors-feature-agnostic` — the api-error layer cannot reach into any
+  feature, keeping the RFC 7807 envelope decoupled from inference specifics.
 - `features-are-independent` — features cannot import each other (no-op while
   only one feature exists; one-line edit when the second lands).
 - `inference-model-no-schemas`, `inference-repository-no-schemas`,
-  `inference-model-no-repository` — within the inference slice, lower layers
-  cannot reach into wire schemas, and `model/` is the bottom of the layering.
-  The full router → service → repository → model layering is added per-layer
-  as the feature router and service land.
+  `inference-model-no-repository`, `inference-schemas-no-repository` — within
+  the inference slice, lower layers cannot reach into wire schemas, and
+  `model/` is the bottom of the layering. The full router → service →
+  repository → model layering is added per-layer as the feature router and
+  service land.
 
 ---
 

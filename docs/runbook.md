@@ -32,7 +32,7 @@ task dev
 # Equivalent: uv run python -m app --reload (host/port from Settings)
 ```
 
-Service: http://127.0.0.1:8000 (defaults; override via env, see *Configuration* below)
+Service: http://127.0.0.1:8000 (defaults; override via `LIP_BIND_HOST` / `LIP_BIND_PORT` — see *Configuration* below)
 - `/health` — liveness probe
 - `/openapi.json` — auto-generated OpenAPI schema
 - `/docs` — Swagger UI (dev only)

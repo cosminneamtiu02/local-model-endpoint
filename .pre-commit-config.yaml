@@ -46,7 +46,7 @@ repos:
       # Pre-push: run unit tests before code leaves the machine.
       - id: pytest-unit
         name: Backend + error-contracts unit tests
-        entry: bash -c "cd apps/backend && uv run pytest tests/unit/ -q && cd ../../packages/error-contracts && uv run pytest tests/ -q"
+        entry: bash -c "set -euo pipefail; cd apps/backend && uv run pytest tests/unit/ -q && cd ../../packages/error-contracts && uv run pytest tests/ -q"
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -54,7 +54,7 @@ repos:
       # Pre-push: type check (slow; matches ADR-009 tier).
       - id: pyright
         name: Backend type check
-        entry: bash -c "cd apps/backend && uv run pyright app/"
+        entry: bash -c "set -euo pipefail; cd apps/backend && uv run pyright app/"
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -62,7 +62,7 @@ repos:
       # Pre-push: architecture check (slow; matches ADR-009 tier).
       - id: import-linter
         name: Backend architecture check
-        entry: bash -c "cd apps/backend && uv run lint-imports --config architecture/import-linter-contracts.ini"
+        entry: bash -c "set -euo pipefail; cd apps/backend && uv run lint-imports --config architecture/import-linter-contracts.ini"
         language: system
         pass_filenames: false
         stages: [pre-push]

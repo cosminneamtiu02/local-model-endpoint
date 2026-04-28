@@ -21,10 +21,8 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan hook.
 
     Constructs lifespan-managed resources via lifespan_resources() and
-    parks the resulting AppState on `application.state.context` so
-    feature dependencies can read them via Depends factories. The
-    warm-up dummy inference (LIP-E005-F001) layers on top of this when
-    that feature lands.
+    parks the resulting AppState on ``application.state.context`` so
+    feature dependencies can read them via Depends factories.
     """
     settings = get_settings()
     # Log host/port separately rather than the full URL so a future
@@ -41,20 +39,28 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         log_level=settings.log_level,
     )
     start_monotonic = time.monotonic()
-    async with lifespan_resources(settings) as state:
-        application.state.context = state
-        logger.info("lifespan_resources_ready", env=settings.app_env)
-        try:
-            yield
-        finally:
-            # uptime_ms keeps the time-unit consistent with the
-            # request_completed log line's duration_ms field.
-            logger.info(
-                "app_shutdown",
-                version=application.version,
-                env=settings.app_env,
-                uptime_ms=int((time.monotonic() - start_monotonic) * 1000),
-            )
+    try:
+        async with lifespan_resources(settings) as state:
+            application.state.context = state
+            logger.info("lifespan_resources_ready", env=settings.app_env)
+            try:
+                yield
+            finally:
+                # uptime_ms keeps the time-unit consistent with the
+                # request_completed log line's duration_ms field.
+                logger.info(
+                    "app_shutdown",
+                    version=application.version,
+                    env=settings.app_env,
+                    uptime_ms=int((time.monotonic() - start_monotonic) * 1000),
+                )
+    except Exception:
+        # A resource-construction failure (settings drift, OllamaClient
+        # connect-time issue, etc.) would otherwise propagate as an opaque
+        # uvicorn traceback. Log a structured ``app_startup_failed`` event
+        # so the operator gets a single-line cause + correlation surface.
+        logger.exception("app_startup_failed", env=settings.app_env)
+        raise
 
 
 def create_app() -> FastAPI:

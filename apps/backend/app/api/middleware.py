@@ -1,22 +1,16 @@
 """Request middleware — request ID propagation + per-request access log.
 
-Implemented as pure ASGI middleware (not BaseHTTPMiddleware) to avoid
-the documented cancellation and contextvar-fork issues with
-Starlette's BaseHTTPMiddleware (encode/starlette#1438, #1715). With
-LIP-E004-F003's per-request timeout, cancellation propagation is
-load-bearing: if a consumer disconnects mid-inference, the in-flight
-httpx request must be aborted so the semaphore slot frees.
+Implemented as pure ASGI middleware (not BaseHTTPMiddleware) to avoid the
+cancellation and contextvar-fork issues documented in encode/starlette
+#1438 and #1715 — cancellation must propagate cleanly so a disconnected
+consumer releases the in-flight semaphore slot.
 
 Two concerns layered on the ASGI scope:
-1. Validate / mint `X-Request-Id` and bind it via structlog
-   contextvars so every log line in the request carries it.
-2. Emit a single `request_completed` log line per request with
-   duration / status / method / path. This is the structlog-native
-   replacement for uvicorn's access log (silenced in core/logging.py).
-
-CORS, security headers, and auth were stripped during project-bootstrap
-because the service is local-network-only and v1's Project Boundary
-defers browser-protective surfaces to a future milestone.
+1. Validate / mint `X-Request-Id` and bind it via structlog contextvars
+   so every log line in the request carries it.
+2. Emit a single `request_completed` log line per request with duration
+   / status / method / path. This replaces uvicorn's access log
+   (silenced in core/logging.py).
 """
 
 import re
@@ -40,6 +34,11 @@ _UUID_PATTERN: Final[re.Pattern[str]] = re.compile(
 # skipped.
 _ACCESS_LOG_SUPPRESSED_PATHS: Final[frozenset[str]] = frozenset({"/health"})
 
+# C0 control characters and DEL — anything in this range injected into
+# X-Request-ID would forge log lines under non-JSON renderers.
+_C0_CONTROL_UPPER: Final[int] = 0x20
+_DEL_CHAR: Final[int] = 0x7F
+
 logger = structlog.get_logger(__name__)
 
 
@@ -54,6 +53,11 @@ class RequestIdMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Clear contextvars at the request boundary so any prior request's
+        # ad-hoc binds (error_code from exception handlers, fallback request_id)
+        # do not leak into this request's log lines.
+        structlog.contextvars.clear_contextvars()
+
         # Accept client-provided request ID only if it's a valid UUID;
         # otherwise generate a new one. Prevents log injection. Walk the
         # ASGI headers iterable directly — they are an iterable of
@@ -63,15 +67,19 @@ class RequestIdMiddleware:
             (v for k, v in scope.get("headers", []) if k == b"x-request-id"),
             b"",
         )
-        client_id = client_id_raw.decode("latin-1", errors="ignore")
+        # ASCII-only decode with replacement: any byte outside printable
+        # ASCII (CRLF, NUL, extended-latin) becomes �, neutralising
+        # log-injection vectors that ConsoleRenderer would otherwise emit
+        # raw.
+        client_id = client_id_raw.decode("ascii", errors="replace")
+        if any(ord(c) < _C0_CONTROL_UPPER or ord(c) == _DEL_CHAR for c in client_id):
+            client_id = "<non-printable>"
         match_result = _UUID_PATTERN.match(client_id) if client_id else None
 
         if client_id and match_result is None:
-            # A consumer sending a non-UUID X-Request-ID is a client-side
-            # configuration bug — recoverable but worth surfacing as a
-            # warning so it is visible in any "show me warnings" filter.
-            # Truncate the supplied value to bound the log-injection
-            # blast radius.
+            # Truncate before logging to bound log-injection blast radius
+            # (the ascii-replace + control-char check above is the primary
+            # defense; truncation is belt-and-suspenders).
             preview = client_id[:32]
             request_id = str(uuid.uuid4())
             logger.warning(
@@ -90,10 +98,6 @@ class RequestIdMiddleware:
         scope.setdefault("state", {})
         scope["state"]["request_id"] = request_id
 
-        # `nonlocal` is the canonical construct for binding an int from
-        # the inner closure — using a 1-element list to fake mutability
-        # is an idiomatic anti-pattern (PEP 3104 added nonlocal precisely
-        # to avoid that workaround).
         captured_status: int = 0
         method = str(scope.get("method", ""))
         path = str(scope.get("path", ""))

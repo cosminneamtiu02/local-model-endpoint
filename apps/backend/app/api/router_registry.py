@@ -20,9 +20,10 @@ def register_routers(application: FastAPI) -> None:
     """Mount every router on the FastAPI app.
 
     Health stays at root (unversioned, liveness/readiness conventions).
-    Feature routers will nest under the ``/v1`` prefix when LIP-E001-F002
-    lands; the empty ``APIRouter(prefix="/v1")`` mount is intentionally NOT
-    pre-staged here per ADR-011 (no pre-feature scaffolding).
+    Feature routers nest under ``/v1`` once any are added; mount them
+    here via ``application.include_router(feature_router, prefix="/v1")``
+    so the prefix is centrally owned (each feature router declares only
+    its sub-path, not the version segment).
     """
     application.include_router(health_router)
 

@@ -10,6 +10,7 @@ from app.exceptions import (
     InferenceTimeoutError,
     InternalError,
     ModelCapabilityNotSupportedError,
+    NotFoundError,
     QueueFullError,
     RateLimitedError,
     RegistryNotFoundError,
@@ -30,7 +31,7 @@ def test_rate_limited_constructs_with_typed_params() -> None:
     assert "RATE_LIMITED" in str(error)
 
 
-def test_queue_full_error() -> None:
+def test_queue_full_constructs_with_typed_params() -> None:
     err = QueueFullError(max_waiters=4, current_waiters=5)
     assert err.code == "QUEUE_FULL"
     assert err.http_status == 503
@@ -41,7 +42,7 @@ def test_queue_full_error() -> None:
     assert err.params.model_dump() == {"max_waiters": 4, "current_waiters": 5}
 
 
-def test_inference_timeout_error() -> None:
+def test_inference_timeout_carries_504_and_typed_params() -> None:
     err = InferenceTimeoutError(timeout_seconds=180)
     assert err.code == "INFERENCE_TIMEOUT"
     assert err.http_status == 504
@@ -49,7 +50,7 @@ def test_inference_timeout_error() -> None:
     assert err.detail() == "Inference exceeded the 180-second timeout."
 
 
-def test_adapter_connection_failure_error() -> None:
+def test_adapter_connection_failure_renders_backend_and_reason() -> None:
     err = AdapterConnectionFailureError(backend="ollama", reason="connection refused")
     assert err.code == "ADAPTER_CONNECTION_FAILURE"
     assert err.http_status == 502
@@ -58,7 +59,7 @@ def test_adapter_connection_failure_error() -> None:
     assert "connection refused" in err.detail()
 
 
-def test_registry_not_found_error() -> None:
+def test_registry_not_found_renders_model_in_detail() -> None:
     err = RegistryNotFoundError(model="phantom")
     assert err.code == "REGISTRY_NOT_FOUND"
     assert err.http_status == 404
@@ -66,7 +67,7 @@ def test_registry_not_found_error() -> None:
     assert "phantom" in err.detail()
 
 
-def test_model_capability_not_supported_error() -> None:
+def test_model_capability_not_supported_renders_model_and_capability() -> None:
     err = ModelCapabilityNotSupportedError(model="text-only", requested_capability="audio")
     assert err.code == "MODEL_CAPABILITY_NOT_SUPPORTED"
     assert err.http_status == 422
@@ -75,10 +76,10 @@ def test_model_capability_not_supported_error() -> None:
     assert "audio" in err.detail()
 
 
-def test_conflict_error() -> None:
-    """ConflictError closes the unit-coverage gap flagged by the round-3 sweep.
+def test_conflict_constructs_with_default_detail() -> None:
+    """ConflictError closes the unit-coverage gap flagged in earlier reviews.
 
-    The registry-shape test in test_registry.py only iterated the keys; without
+    The registry-shape test in test_registry.py only iterates the keys; without
     a per-class assertion of code/status/type_uri/title/detail, a YAML edit
     breaking ``CONFLICT`` would have shipped green.
     """
@@ -100,6 +101,22 @@ def test_internal_error_detail_returns_detail_template() -> None:
     assert err.detail() == (
         "An unexpected error occurred. Use the request_id to correlate with server logs."
     )
+    assert err.params is None
+
+
+def test_not_found_constructs_with_default_detail() -> None:
+    """NotFoundError per-class invariants — closes a unit-coverage gap.
+
+    The registry-shape test only iterates the keys; without a focused
+    assertion of code/status/type_uri/title/detail, a YAML edit breaking
+    NOT_FOUND would only surface via integration tests.
+    """
+    err = NotFoundError()
+    assert err.code == "NOT_FOUND"
+    assert err.http_status == 404
+    assert err.type_uri == "urn:lip:error:not-found"
+    assert err.title == "Resource Not Found"
+    assert err.detail() == "The requested resource does not exist."
     assert err.params is None
 
 

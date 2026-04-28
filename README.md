@@ -17,9 +17,13 @@ and [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 ## Quick Start
 
 ```bash
-# Prerequisites: Python 3.13, uv, Task, Ollama with gemma4:e2b pulled
+# Prerequisites: Python 3.13, uv, Task
 
-# Install + start the always-on Ollama agent (one-time per machine)
+# Install Ollama once (task ollama:install assumes the binary is at
+# /opt/homebrew/bin/ollama and will fail if it isn't there yet).
+brew install ollama
+
+# Install the always-on Ollama launchd agent + pull the model
 task ollama:install && ollama pull gemma4:e2b
 
 cd apps/backend

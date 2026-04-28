@@ -43,7 +43,7 @@ Both the variable and secret are unset on the template itself so the workflow is
 
 **Post-LIP-bootstrap (2026-04):** the pnpm path was removed entirely from `dependabot-lockfile-sync.yml`; only the uv code path ships in this repo.
 
-### 2026-04-12 — `github.actor` is the wrong field for Dependabot auto-merge workflows
+### 2026-04-12 — `github.actor` is the wrong field for Dependabot auto-merge workflows — ✅ FIXED at template level
 
 The template's initial auto-merge workflow pattern (which we shipped in the first iteration of [.github/workflows/dependabot-automerge.yml](.github/workflows/dependabot-automerge.yml)) used `github.actor == 'dependabot[bot]'` as the scope guard. `github.actor` reads the current event's triggerer, not the PR author. When a human clicks "Update branch" on a Dependabot PR, the resulting `synchronize` event's actor is the human, and the guard evaluates false. All five backend Dependabot PRs were stuck in this state for ~10 minutes until the guard was fixed.
 
@@ -51,7 +51,7 @@ The template's initial auto-merge workflow pattern (which we shipped in the firs
 
 **Why the trap is so common:** GitHub's own auto-merge docs recommended `github.actor` until late 2023. The wrong pattern propagated to hundreds of public workflow examples. Any future edit that "simplifies" the guard based on a search result will reintroduce the bug.
 
-### 2026-04-12 — Auto-merge without a ruleset silently merges red PRs
+### 2026-04-12 — Auto-merge without a ruleset silently merges red PRs — ✅ FIXED at template level
 
 The template's auto-merge workflow called `gh pr merge --auto --squash` directly, trusting that GitHub's merge queue would wait for required status checks before actually merging. This is true **if and only if a ruleset with required status checks exists**. With no ruleset, `--auto` has nothing to wait for and merges immediately, including PRs with failing CI.
 
@@ -61,7 +61,7 @@ Observed on PR #19 (the first grouped TanStack Dependabot PR after the grouping 
 
 **Root cause of the original assumption:** conflated `allow_auto_merge` (a repo setting controlling the UI button) with "the thing that gates --auto". They are not the same. `--auto` is gated by the *ruleset's* required status checks, not the repo setting.
 
-### 2026-04-12 — UI "Update branch" button causes Dependabot to disavow PRs
+### 2026-04-12 — UI "Update branch" button causes Dependabot to disavow PRs — ✅ WORKAROUND documented
 
 When a human clicks "Update branch" on a Dependabot PR, GitHub performs the rebase and attributes the resulting push to the human. Dependabot's safety policy then marks the PR as "edited by someone other than Dependabot" and refuses to run `@dependabot rebase` / `@dependabot recreate` commands on it thereafter.
 
@@ -71,7 +71,7 @@ Observed on all 5 backend Dependabot PRs during the auto-merge setup session. On
 
 **Template-level fix still needed:** GitHub's UI "Update branch" button should call this same server-side endpoint when clicked on a Dependabot PR, so disavowal doesn't happen. That's a GitHub product decision, not something we can fix at the template level. Document avoidance only.
 
-### 2026-04-12 — Adjacent manifest line edits produce rebase-conflict cascades
+### 2026-04-12 — Adjacent manifest line edits produce rebase-conflict cascades — ✅ FIXED at template level
 
 When multiple Dependabot PRs modify adjacent lines in the same manifest file (e.g. `pyproject.toml`'s dependency list), merging them sequentially produces 3-way merge conflicts on the later PRs. The conflicts are contextual, not semantic — each PR's one-line edit would apply cleanly if the surrounding context hadn't drifted. Observed on PR #16 (`asyncpg`) after PRs #12–#15 merged bumps to `testcontainers`, `sqlalchemy`, `alembic`, `schemathesis`.
 
