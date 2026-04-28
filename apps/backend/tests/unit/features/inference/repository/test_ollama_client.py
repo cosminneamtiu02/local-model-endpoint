@@ -135,3 +135,26 @@ def test_request_method_is_private_not_in_public_api_surface() -> None:
     assert hasattr(OllamaClient, "_request")
     # Public surface is: close + async context manager dunders only
     assert "close" in public_attrs
+
+
+async def test_request_propagates_connect_error_via_mock_transport() -> None:
+    """OllamaClient._request surfaces httpx.ConnectError to callers (deterministic).
+
+    Unit-level coverage of AC11 (connection failures bubble up uncaught).
+    Uses MockTransport so no real socket is opened — keeps the test
+    hermetic and respects the unit-suite no-network rule. The integration
+    counterpart in tests/integration/features/inference/test_lifecycle.py
+    exercises a real loopback failure as a belt-and-braces check.
+    """
+
+    def _raises_connect(_request: httpx.Request) -> httpx.Response:
+        msg = "simulated connect failure"
+        raise httpx.ConnectError(msg)
+
+    transport = httpx.MockTransport(_raises_connect)
+    client = OllamaClient(base_url="http://example.invalid", transport=transport)
+    try:
+        with pytest.raises(httpx.ConnectError, match="simulated connect failure"):
+            await client._request("GET", "/api/tags")
+    finally:
+        await client.close()

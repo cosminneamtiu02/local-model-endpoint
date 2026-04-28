@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -12,10 +12,11 @@ description = "Local Inference Provider — FastAPI service wrapping a local Oll
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.135.3",
+    "starlette>=0.48.0",
     "uvicorn[standard]>=0.44.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
-    "structlog>=25.1.0",
+    "structlog>=25.5.0",
     "httpx>=0.28.1",
 ]
 
@@ -24,11 +25,11 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
-    "httpx>=0.28.1",
-    "ruff>=0.11.0",
-    "import-linter>=2.11",
-    "pyright>=1.1.400",
-    "schemathesis>=3.39.0",
+    "ruff>=0.15.10",
+    "import-linter>=2.11.0",
+    "pyright>=1.1.408",
+    "schemathesis>=4.15.0",
+    "pip-audit>=2.7.0",
 ]
 
 [tool.ruff]

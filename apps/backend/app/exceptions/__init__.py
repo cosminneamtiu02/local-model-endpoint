@@ -12,9 +12,11 @@ from app.exceptions._generated import (
     ValidationFailedError,
     ValidationFailedParams,
 )
+from app.exceptions._generated._registry import ERROR_CLASSES
 from app.exceptions.base import DomainError
 
 __all__ = [
+    "ERROR_CLASSES",
     "ConflictError",
     "DomainError",
     "InternalError",

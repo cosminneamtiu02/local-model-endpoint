@@ -44,7 +44,7 @@ If the guard returns false, the job reports `conclusion: skipped` in the Actions
 
 **Why the guard reads `pull_request.user.login`, not `github.actor`.** `github.actor` is the entity that triggered the **current event**. When a human clicks "Update branch" on a Dependabot PR — which is a common action when the strict "branches up to date" rule kicks in — the resulting `synchronize` event's actor is the human, not the PR author. A guard that checks `github.actor == 'dependabot[bot]'` would skip in that case, even though the PR is still authored and managed by Dependabot. `pull_request.user.login` reads the PR author from the event payload and stays `dependabot[bot]` for the lifetime of the PR regardless of who fires individual events on it.
 
-This distinction is the subject of [ADR-010's guard-condition paragraph](decisions.md#adr-010-dependabot-auto-merge-exception-to-manual-squash-rule). GitHub's own Dependabot auto-merge docs used the wrong pattern (`github.actor`) for about a year before being corrected; the wrong pattern remains widespread in public workflow examples.
+This distinction is the subject of [ADR-010](decisions.md#adr-010-dependabot-auto-merge-exception-to-manual-squash-rule). GitHub's own Dependabot auto-merge docs used the wrong pattern (`github.actor`) for about a year before being corrected; the wrong pattern remains widespread in public workflow examples.
 
 ### 2. Ruleset — `main-protection`
 
@@ -64,7 +64,7 @@ Lives at Settings → Rules → Rulesets → `main-protection`. Active. Targets 
 
 The ruleset is load-bearing for the whole auto-merge system. Specifically, the **required status checks** list is what `gh pr merge --auto` waits for. With an empty or missing ruleset, `--auto` has nothing to wait for and merges immediately — including merging PRs with failing CI. This is not theoretical; it happened once (see the Incident Log below).
 
-**Why `integration_id: 15368` matters in the ruleset response.** When you create the ruleset and add the four check names, they appear in the API response either as free-text placeholders (no `integration_id`) or as bindings to a specific app (`integration_id: 15368` is GitHub Actions). Free-text placeholders only activate on the *next* matching workflow run and may silently fail to match if the context string drifts. Real bindings to GitHub Actions mean GitHub has already resolved each check name to a specific workflow and will gate on it immediately. Verify `integration_id: 15368` is present on all four checks after creating the ruleset — see the [verification commands](#verification-commands) section.
+**Why `integration_id: 15368` matters in the ruleset response.** When you create the ruleset and add the two check names, they appear in the API response either as free-text placeholders (no `integration_id`) or as bindings to a specific app (`integration_id: 15368` is GitHub Actions). Free-text placeholders only activate on the *next* matching workflow run and may silently fail to match if the context string drifts. Real bindings to GitHub Actions mean GitHub has already resolved each check name to a specific workflow and will gate on it immediately. Verify `integration_id: 15368` is present on all two checks after creating the ruleset — see the [verification commands](#verification-commands) section.
 
 ### 3. Variable — `DEPENDABOT_AUTOMERGE_ENABLED`
 
@@ -103,7 +103,7 @@ GitHub sets autoMergeRequest on the PR
   │
   ▼
 GitHub waits for ALL ruleset conditions to be green:
-  - 4 required status checks pass
+  - 2 required status checks pass
   - Branch up to date with main
   - All conversations resolved
   │
@@ -151,7 +151,7 @@ The incidents below are pre-bootstrap narrative from the full-stack template LIP
 
 **Resolution.** A follow-up PR (#18) with a lockfile fix race-landed ~50 seconds later and accidentally restored the invariant. Without that lucky race, main would have stayed red indefinitely.
 
-**Permanent fix.** The workflow now refuses to run unless the `DEPENDABOT_AUTOMERGE_ENABLED` variable is explicitly set to `"true"`. The variable is documented as "set only after the ruleset is verified." This moves the safety check from a silent runtime behavior (`allow_auto_merge`) to an explicit action the user takes once they've verified the ruleset exists. See [ADR-010's "Safety precondition" paragraph](decisions.md#adr-010-dependabot-auto-merge-exception-to-manual-squash-rule).
+**Permanent fix.** The workflow now refuses to run unless the `DEPENDABOT_AUTOMERGE_ENABLED` variable is explicitly set to `"true"`. The variable is documented as "set only after the ruleset is verified." This moves the safety check from a silent runtime behavior (`allow_auto_merge`) to an explicit action the user takes once they've verified the ruleset exists. See [ADR-010](decisions.md#adr-010-dependabot-auto-merge-exception-to-manual-squash-rule).
 
 ### Incident 2: PRs #12–#16 — stuck after human "Update branch" clicks
 
@@ -161,19 +161,19 @@ The incidents below are pre-bootstrap narrative from the full-stack template LIP
 
 **Resolution.** Hotfix PR #21 changed the guard to `github.event.pull_request.user.login == 'dependabot[bot]'`, which reads the PR author from the event payload. That field stays `dependabot[bot]` for the lifetime of the PR regardless of who triggers any given event on it.
 
-**Permanent fix.** The fixed guard is now in the workflow file with an inline comment explaining why, plus the [ADR-010 guard-condition paragraph](decisions.md#adr-010-dependabot-auto-merge-exception-to-manual-squash-rule). The pattern must not be reintroduced on future edits.
+**Permanent fix.** The fixed guard is now in the workflow file with an inline comment explaining why, plus [ADR-010](decisions.md#adr-010-dependabot-auto-merge-exception-to-manual-squash-rule). The pattern must not be reintroduced on future edits.
 
 **Why this trap is common.** GitHub's own Dependabot auto-merge documentation recommended `github.actor` for about a year before being updated in 2023. The wrong pattern propagated to hundreds of public workflow examples. Any project adopting this pattern from a search result or AI completion should verify which field the guard reads.
 
 ### Incident 3: PR #16 — rebase conflict cascade on sibling pyproject.toml bumps
 
-**Symptom.** After PRs #12, #13, #14, #15 each merged bumps to adjacent lines in [apps/backend/pyproject.toml](../apps/backend/pyproject.toml) (`testcontainers`, `sqlalchemy`, `alembic`, `schemathesis`), PR #16 (`asyncpg`) could not be auto-rebased. `PUT /update-branch` returned `422 merge conflict between base and head`.
+**Symptom.** After PRs #12, #13, #14, #15 each merged bumps to adjacent lines in [apps/backend/pyproject.toml](../apps/backend/pyproject.toml) (`testcontainers`, `sqlalchemy`, `alembic`, `schemathesis`) (historical example; current deps differ — LIP no longer has any of those packages), PR #16 (`asyncpg`) could not be auto-rebased. `PUT /update-branch` returned `422 merge conflict between base and head`.
 
 **Cause.** Each of the four merged PRs modified a distinct line in the same file, but the lines were close enough together that git's 3-way merge could not cleanly reapply PR #16's change on top of the cumulative post-merge state. The conflict was contextual, not semantic — the `asyncpg` bump itself was a trivial one-line edit.
 
 **Resolution.** PR #16 was closed with an explanatory comment. A manual replacement PR (#22) was opened with the same one-line `asyncpg` bump against current main. CI passed, human squash-merged.
 
-**Permanent fix.** The [.github/dependabot.yml](../.github/dependabot.yml) `sqlalchemy-stack` group now batches `sqlalchemy`, `alembic`, `asyncpg` into a single atomic PR. Future bumps of any of the three will move as a unit and cannot cascade-conflict with siblings. The same grouping strategy is applied to every other interlocking ecosystem in the manifest.
+**Permanent fix.** The [.github/dependabot.yml](../.github/dependabot.yml) `sqlalchemy-stack` group historically batched `sqlalchemy`, `alembic`, `asyncpg` into a single atomic PR (historical example; that group no longer exists in this repo since LIP dropped those deps). Future bumps of grouped packages move as a unit and cannot cascade-conflict with siblings. The same grouping strategy is applied to every other interlocking ecosystem in the manifest.
 
 **Takeaway.** When Dependabot opens many sibling PRs touching the same manifest file, the fifth one is almost always doomed. The fix is never "try to merge it manually"; the fix is always "group the ecosystem in dependabot.yml so there are no siblings." Incident 3 is the strongest argument for aggressive grouping in this repo's dependabot.yml.
 
@@ -190,10 +190,10 @@ Run these after any change to the auto-merge system to confirm the paired contra
 gh api repos/<owner>/<repo>/rulesets --jq '.[] | select(.name=="main-protection") | {name, enforcement, id}'
 # Expect: {"name":"main-protection","enforcement":"active","id":<number>}
 
-# 2. Ruleset has all 4 required status checks bound to GitHub Actions
+# 2. Ruleset has all 2 required status checks bound to GitHub Actions
 gh api repos/<owner>/<repo>/rulesets/<id> \
   --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks'
-# Expect: 4 entries, each with "context" and "integration_id": 15368
+# Expect: 2 entries, each with "context" and "integration_id": 15368
 
 # 3. Variable is set
 gh variable list --repo <owner>/<repo>
@@ -338,11 +338,59 @@ Effective on the next `pull_request` event. The workflow continues to run on eve
 ## Related reading
 
 - [ADR-010: Dependabot Auto-Merge Exception to Manual-Squash Rule](decisions.md#adr-010-dependabot-auto-merge-exception-to-manual-squash-rule) — the design decision and its rationale
-- Phase 3 (historical setup checklist) — merge method settings the auto-merge workflow depends on (squash-only, branch auto-delete, `allow_auto_merge`)
-- Phase 4 (historical setup checklist) — the `main-protection` ruleset setup with required status checks bound to GitHub Actions
-- Phase 5 (historical setup checklist) — workflow permissions and the `DEPENDABOT_AUTOMERGE_ENABLED` variable, set only after Phase 4 ruleset verification
-- Phase 5b (historical setup checklist) — `DEPENDABOT_LOCKFILE_SYNC_ENABLED` variable plus the fine-grained PAT secret for the lockfile sync workflow
+- [Setup](#setup) — the bootstrap commands a fresh-clone needs to wire up the ruleset, repo settings, variable, and PAT secret
 - [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml) — the auto-merge workflow with inline comments
 - [.github/workflows/dependabot-lockfile-sync.yml](../.github/workflows/dependabot-lockfile-sync.yml) — the lockfile sync workflow with inline comments
 - [.github/dependabot.yml](../.github/dependabot.yml) — grouping configuration with rationale comments
 - [CLAUDE.md](../CLAUDE.md) — Dependabot handling rules in the discipline contract
+
+---
+
+## Setup
+
+A fresh clone of this repo needs the following one-time bootstrap before
+auto-merge and lockfile-sync are armed. Do these in order — the variable in
+step 4 is only safe to flip on after the ruleset in step 1 is verified
+(see Incident 1 above).
+
+1. **Create the `main-protection` ruleset.** Settings → Rules → Rulesets →
+   New ruleset → branch ruleset, target the default branch, enforcement
+   `active`, empty bypass list. Required rules: restrict deletions, require
+   linear history, require a pull request before merging (0 approvals,
+   dismiss stale approvals on push, require conversation resolution,
+   squash-only), require status checks to pass with `strict: true` and
+   required contexts `backend-checks` and `error-contracts` (plus CodeQL if
+   the repo has a CodeQL workflow), block force pushes. Verify the contexts
+   bind to GitHub Actions (`integration_id: 15368`) using the
+   [verification commands](#verification-commands) above.
+
+2. **Repo merge settings.** Settings → General → Pull Requests:
+   - **Uncheck** "Allow merge commits"
+   - **Uncheck** "Allow rebase merging"
+   - Leave "Allow squash merging" checked
+   - **Check** "Always suggest updating pull request branches"
+   - **Check** "Allow auto-merge"
+   - **Check** "Automatically delete head branches"
+
+3. **Workflow permissions.** Settings → Actions → General → Workflow
+   permissions:
+   - **Check** "Allow GitHub Actions to create and approve pull requests"
+   - The default `GITHUB_TOKEN` permissions ("Read repository contents and
+     packages permissions") are sufficient for `dependabot-automerge.yml`;
+     the lockfile-sync workflow uses the PAT below, not `GITHUB_TOKEN`.
+
+4. **Arm auto-merge.** Only after step 1 is verified:
+   ```bash
+   gh variable set DEPENDABOT_AUTOMERGE_ENABLED --body "true"
+   ```
+
+5. **Arm lockfile sync** (optional but recommended). Create a fine-grained
+   PAT scoped to this single repo with `Contents: Read and write` and
+   `Pull requests: Read and write`. Save it as a repo secret:
+   ```bash
+   gh secret set DEPENDABOT_LOCKFILE_SYNC_PAT --body "<paste PAT>"
+   gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED --body "true"
+   ```
+
+After step 5, Dependabot PRs that touch a `pyproject.toml` are
+auto-corrected and auto-merged end-to-end with zero human intervention.

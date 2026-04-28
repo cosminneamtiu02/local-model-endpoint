@@ -2,6 +2,10 @@
 
 Decisions that shape this project. Each entry is final unless explicitly superseded.
 
+> **Note on numbering.** ADRs 002, 006, 007, 008 were retired during the
+> 2026-04-27 LIP bootstrap (template → LIP). See git history for the
+> original full-stack-template decisions.
+
 ## ADR-001: Vertical Slices over Layered-by-Role
 
 **Status:** Accepted
@@ -42,12 +46,13 @@ Every Python class lives in its own file. No exceptions except generated code in
 
 **Rationale:** Grep-ability. AI-friendly. Prevents file bloat. Forces explicit imports.
 
-## ADR-005: Health at Root, Business at /api/v1/
+## ADR-005: Health at Root, Business at /v1/
 
 **Status:** Accepted
 **Date:** 2026-04-07
 
-`/health` lives at the root, outside `/api/v1/`. Inference endpoints live under `/api/v1/`.
+`/health` lives at the root, outside `/v1/`. Inference endpoints live under `/v1/`.
+(Inference endpoints land via LIP-E001-F002.)
 
 **Rationale:** Load balancers and orchestrators hardcode health paths. Versioning health
 endpoints forces infrastructure config changes on API version bumps.
@@ -57,8 +62,9 @@ endpoints forces infrastructure config changes on API version bumps.
 **Status:** Accepted
 **Date:** 2026-04-07
 
-Pre-commit: ruff, trailing-whitespace, check-yaml/json (~5-10s).
-Pre-push: pytest unit (~5-15s).
+Pre-commit: ruff (lint + format), trailing-whitespace, end-of-file-fixer,
+check-yaml/json, large-file guard, detect-secrets, Taskfile syntax check (~5-10s).
+Pre-push: pyright, import-linter, unit tests.
 CI: all three test levels (unit, integration, contract) + type checker + import-linter
 + error-contracts regen check.
 
@@ -107,3 +113,30 @@ each adds latency without adding safety — the safety already lives in the rule
 Automating the click lets the project absorb weekly dependency updates without
 accumulating a backlog of green-but-unclicked PRs, which is the failure mode that breaks
 the "always green" invariant in practice.
+
+## ADR-011: Per-Layer Scaffolding Deferred Until Feature Lands
+
+**Status:** Accepted
+**Date:** 2026-04-28
+
+Feature subdirectories `service/` and `router/` (and any other layer not yet
+backed by code) are not pre-scaffolded under `app/features/<feature>/`. They
+appear only when a PR introduces them with the corresponding code, tests, and
+import-linter contracts.
+
+**Rationale:** Empty packages add noise without adding value. Import-linter
+contracts that source from non-existent modules are no-ops, so the layer
+contracts in `architecture/import-linter-contracts.ini` only assert on layers
+that actually exist. The `task errors:generate` pattern already proves the
+project tolerates partial scaffolds — error classes are codegen'd into
+`_generated/` lazily as `errors.yaml` grows; the same lazy-fill discipline
+applies to feature layers.
+
+**Implication.** Reviewers should not expect to see `service/` or `router/`
+directories before LIP-E001-F002 / LIP-E003-F002 lands them. The absence is
+deliberate, not an oversight.
+
+**Rejected:** Pre-scaffolding all four layers per feature with empty
+`__init__.py` files. Adds dead surface area, makes "what exists" harder to
+read at a glance, and tempts contributors to add stubs that drift from the
+spec.

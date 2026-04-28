@@ -12,6 +12,8 @@
 #   pydantic-settings's range pinned against pydantic's minor.
 # - pytest: pytest + plugins ship aligned releases; mismatched plugins
 #   cause first-CI-run failures after a pytest bump.
+# - dev-tools: ruff + pyright + import-linter + schemathesis frequently
+#   bump together; grouping prevents cascading manifest conflicts.
 #
 # See docs/automerge.md for the wider auto-merge architecture this
 # pairs with, and docs/decisions.md ADR-010 for the manual-Squash-button
@@ -21,9 +23,15 @@ version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/apps/backend"
+    target-branch: "main"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
     groups:
       pydantic:
         patterns:
@@ -38,12 +46,24 @@ updates:
           - "fastapi"
           - "starlette"
           - "uvicorn*"
+      dev-tools:
+        patterns:
+          - "ruff"
+          - "pyright"
+          - "import-linter"
+          - "schemathesis"
 
   - package-ecosystem: "pip"
     directory: "/packages/error-contracts"
+    target-branch: "main"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
     groups:
       pytest:
         patterns:
@@ -52,9 +72,15 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "main"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
     groups:
       github-official-actions:
         patterns:

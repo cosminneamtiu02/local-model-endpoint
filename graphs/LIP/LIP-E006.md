@@ -31,3 +31,8 @@ None. All three Epic-level questions raised at requirements-elicitation time wer
 - **State-inspection endpoint structure** — resolved by F002: single consolidated `GET /state` returning all live operational state in one structured-JSON response. Single round-trip is operator-friendly; ≤4-consumer load doesn't benefit from selective fetching; one OpenAPI entry instead of three.
 - **`/health` path convention** — resolved by F001: single `GET /health` endpoint with HTTP-status-as-readiness-signal (200 = ready; 503 = not-ready; connection-refused = down). Kubelet's separate `/health/live` and `/health/ready` paths are over-engineered for a personal local-network single-machine service. The single-endpoint design conveys all three observable states cleanly via HTTP status alone.
 - **Ollama model-loaded probe latency** — resolved by F002: probed on every `/state` request (no TTL cache). Ollama's `/api/ps` is sub-100 ms locally; ≤4 consumers + occasional operator curls produce nowhere near enough load to warrant caching. The Ollama probe is best-effort — failure produces `ollama_reachable: false` + empty `ollama_loaded_models`, never a 5xx.
+
+## Features
+
+- [LIP-E006-F001](LIP-E006-F001.md) — /health endpoint with liveness and readiness semantics (verifiable, p160)
+- [LIP-E006-F002](LIP-E006-F002.md) — State-inspection endpoints for queue depth, model-loaded status, last-request timestamp (verifiable, p170)

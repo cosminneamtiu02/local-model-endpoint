@@ -31,3 +31,8 @@ None. All three Epic-level questions raised at requirements-elicitation time wer
 - **Endpoint path and HTTP verb** — resolved by F002: `POST /v1/inference`. Path uses the project's domain language ("inference", per Project Boundary) rather than OpenAI's "chat", and the versioned `/v1` prefix establishes URL-level forward compatibility for future contract changes. The project does not require OpenAI compatibility — backed-into-project-vocabulary path is preferred.
 - **`Message` value-object shape** — resolved by F001: `role: Literal["user", "assistant", "system"]` and `content: str | list[ContentPart]` where `ContentPart` is a discriminated union over `TextContent | ImageContent | AudioContent` keyed by a `type` discriminator. Multipart support exists from day one because the v1 registry entry (Gemma 4 E2B) declares all three capability flags.
 - **Response metadata beyond model output** — resolved by F001: yes, an 8-field `metadata` block carrying `model` (logical name), `prompt_tokens`, `completion_tokens`, `request_id`, `latency_ms`, `queue_wait_ms`, `finish_reason`, and `backend`. F002 composes these from a mix of the orchestrator's wall-clock measurements, the request-id middleware, and the adapter's `OllamaChatResult`.
+
+## Features
+
+- [LIP-E001-F001](LIP-E001-F001.md) — Inference request/response envelope Pydantic schemas (implemented, p10)
+- [LIP-E001-F002](LIP-E001-F002.md) — Inference endpoint with happy-path orchestration (verifiable, p90)

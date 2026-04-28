@@ -8,14 +8,22 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend-checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: apps/backend
     steps:
       - uses: actions/checkout@v6
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -24,59 +32,58 @@ jobs:
           cache-dependency-glob: apps/backend/uv.lock
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.13.3
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
 
-      - name: Lint (ruff)
-        run: uv run ruff check app/ tests/
+      - name: Lint
+        working-directory: .
+        run: task check:lint
 
-      - name: Format check (ruff)
-        run: uv run ruff format --check app/ tests/
+      - name: Format check
+        working-directory: .
+        run: task check:format
 
-      - name: Type check (pyright)
-        run: uv run pyright app/
+      - name: Type check
+        working-directory: .
+        run: task check:types
 
-      - name: Architecture check (import-linter)
-        run: uv run lint-imports --config architecture/import-linter-contracts.ini
+      - name: Architecture check
+        working-directory: .
+        run: task check:arch
 
-      - name: Unit + Integration tests with coverage
-        run: uv run pytest tests/unit/ tests/integration/ -v --cov=app --cov-fail-under=80
-
-      - name: Contract tests
-        run: uv run pytest tests/contract/ -v
+      - name: Tests (unit + integration + contract)
+        working-directory: .
+        run: task check:test
 
   error-contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: packages/error-contracts
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install Task
+        uses: arduino/setup-task@v2
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: packages/error-contracts/uv.lock
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.13.3
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
+
+      - name: Verify error contracts (codegen + diff)
+        working-directory: .
+        run: task check:errors
 
       - name: Codegen + validator tests
         run: uv run pytest tests/ -v
-
-      - name: Regenerate Python error contracts
-        run: |
-          uv run python -c "
-          from pathlib import Path
-          from scripts.generate import generate_python
-          p = Path('errors.yaml')
-          generate_python(p, Path('../../apps/backend/app/exceptions/_generated'))
-          print('Generated Python error classes')
-          "
-
-      - name: Verify generated files are up to date
-        working-directory: .
-        run: git diff --exit-code apps/backend/app/exceptions/_generated/

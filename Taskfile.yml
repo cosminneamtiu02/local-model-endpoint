@@ -13,19 +13,27 @@ tasks:
 
   # ── Check (run before declaring work done) ───────────────────
   check:
-    desc: Run ALL checks — lint, types, arch, tests, error contracts, plist
+    desc: Run ALL checks — lint, format, types, arch, tests, error contracts, plist, lockfile
     cmds:
       - task: check:lint
+      - task: check:format
       - task: check:types
       - task: check:arch
       - task: check:test
       - task: check:errors
       - task: check:plist
+      - task: check:lockfile
 
   check:lint:
     desc: Run linter
     cmds:
       - task: lint
+
+  check:format:
+    desc: Verify formatting
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - uv run ruff format --check app/ tests/
 
   check:types:
     desc: Run type checker
@@ -65,6 +73,12 @@ tasks:
     platforms: [darwin]
     cmds:
       - plutil -lint infra/launchd/com.lip.ollama.plist
+
+  check:lockfile:
+    desc: Verify lockfiles are in sync with pyproject.toml
+    cmds:
+      - cd apps/backend && uv lock --check
+      - cd packages/error-contracts && uv lock --check
 
   # ── Testing ──────────────────────────────────────────────────
   test:
@@ -110,13 +124,7 @@ tasks:
     desc: Generate Python error classes from errors.yaml
     dir: packages/error-contracts
     cmds:
-      - uv run python -c "
-        from pathlib import Path;
-        from scripts.generate import generate_python;
-        p = Path('errors.yaml');
-        generate_python(p, Path('../../apps/backend/app/exceptions/_generated'));
-        print('Generated Python error classes')
-        "
+      - uv run --frozen python -c "from pathlib import Path; from scripts.generate import generate_python; generate_python(Path('errors.yaml'), Path('../../apps/backend/app/exceptions/_generated')); print('Generated Python error classes')"
 
   # ── Ollama launchd agent (one-time per machine; see docs/ollama-launchd.md) ──
   ollama:install:

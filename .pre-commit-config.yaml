@@ -1,4 +1,11 @@
 repos:
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package.lock.json
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -19,10 +26,34 @@ repos:
 
   - repo: local
     hooks:
-      # Pre-push: run unit tests before code leaves the machine
+      # Pre-commit: validate Taskfile syntax (check-yaml excludes Taskfile.yml).
+      - id: taskfile-syntax
+        name: Validate Taskfile syntax
+        entry: bash -c "task --list-all > /dev/null"
+        language: system
+        pass_filenames: false
+        files: ^Taskfile\.yml$
+
+      # Pre-push: run unit tests before code leaves the machine.
       - id: pytest-unit
-        name: Backend unit tests
-        entry: bash -c "cd apps/backend && uv run pytest tests/unit/ -q"
+        name: Backend + error-contracts unit tests
+        entry: bash -c "cd apps/backend && uv run pytest tests/unit/ -q && cd ../../packages/error-contracts && uv run pytest tests/ -q"
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Pre-push: type check (slow; matches ADR-009 tier).
+      - id: pyright
+        name: Backend type check
+        entry: bash -c "cd apps/backend && uv run pyright app/"
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Pre-push: architecture check (slow; matches ADR-009 tier).
+      - id: import-linter
+        name: Backend architecture check
+        entry: bash -c "cd apps/backend && uv run lint-imports --config architecture/import-linter-contracts.ini"
         language: system
         pass_filenames: false
         stages: [pre-push]

@@ -53,6 +53,7 @@ name: Dependabot auto-merge
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   # contents: write is intentionally omitted -- auto-merge does not push
@@ -63,6 +64,7 @@ permissions:
 jobs:
   automerge:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Check the PR author, not github.actor. github.actor is whoever
     # triggered the current event -- if a human clicks "Update branch"
     # in the UI, github.actor becomes that human, and this job would
@@ -70,7 +72,7 @@ jobs:
     # pull_request.user.login reads the PR author from the event
     # payload, which stays `dependabot[bot]` for the PR's lifetime
     # regardless of who triggers individual events on it.
-    if: github.event.pull_request.user.login == 'dependabot[bot]' && vars.DEPENDABOT_AUTOMERGE_ENABLED == 'true'
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.draft == false && vars.DEPENDABOT_AUTOMERGE_ENABLED == 'true'
     steps:
       - name: Enable auto-merge
         run: gh pr merge --auto --squash "$PR_URL"

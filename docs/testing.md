@@ -36,6 +36,17 @@ router lands and there is end-to-end behavior worth covering against the real ba
   LIP feature router (LIP-E001-F002) lands and there are inference operations to fuzz.
 - **Location:** `tests/contract/test_schemathesis.py`.
 
+## Lifecycle and lifespan integration
+
+The canonical pattern for testing FastAPI lifespan code (startup warm-up,
+shutdown timer, etc.) against Ollama without hitting the network is
+`httpx.MockTransport` injected into the integration `conftest.py`'s ASGI client.
+See [tests/integration/features/inference/test_lifecycle.py](../apps/backend/tests/integration/features/inference/test_lifecycle.py)
+for the working example. The mock transport intercepts all outbound httpx
+calls within the lifespan window, so the test asserts on the orchestration
+shape (request order, payload, error mapping) without any real Ollama
+process running.
+
 ## Type-Driven Discipline
 
 - Pyright strict. Enforced in CI. Type error = build failure.

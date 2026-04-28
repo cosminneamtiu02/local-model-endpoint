@@ -13,9 +13,12 @@ brew install ollama
 ollama pull gemma4:e2b
 ```
 
-The Ollama daemon is configured to run as a `launchd` service (the plist will be added
-by LIP-E005-F003 during feature-dev) with `KEEP_ALIVE=300s`, `NUM_PARALLEL=1`,
-`MAX_LOADED_MODELS=1`, `FLASH_ATTENTION=1`, `KV_CACHE_TYPE=q8_0`.
+The Ollama daemon is configured to run as a `launchd` service via the plist at
+`infra/launchd/com.lip.ollama.plist` (added by PR #9 / LIP-E005-F003) with
+`KEEP_ALIVE=300s`, `NUM_PARALLEL=1`, `MAX_LOADED_MODELS=1`, `FLASH_ATTENTION=1`,
+`KV_CACHE_TYPE=q8_0`. Run `task ollama:install` to install it; see
+[docs/ollama-launchd.md](ollama-launchd.md) for env-var rationale and
+customization.
 
 ## Local Development
 
@@ -69,6 +72,24 @@ task format
 
 - Liveness: `GET /health` -> `{"status": "ok"}`
 - Readiness: will be added by LIP-E006-F001 when the warm-up signal lands during feature-dev.
+
+## Ollama agent
+
+Operator commands for the user-scope `launchd` agent that keeps the Ollama
+daemon running (see [docs/ollama-launchd.md](ollama-launchd.md) for env-var
+rationale and customization):
+
+| Command | Description |
+|---|---|
+| `task ollama:install` | Copy the plist to `~/Library/LaunchAgents/` and bootstrap the agent into the GUI session domain |
+| `task ollama:uninstall` | Bootout the agent and remove the installed plist |
+| `task ollama:status` | Print the launchctl state (use to verify the env vars made it through) |
+| `task check:plist` | Validate the plist with `plutil -lint` (macOS only; also wired into `task check`) |
+
+`task ollama:install` is **not** idempotent — to apply plist edits, run
+`task ollama:uninstall && task ollama:install`. `launchctl kickstart -k`
+restarts the running daemon under the in-memory plist; it does not re-read
+the on-disk plist.
 
 ## Troubleshooting
 

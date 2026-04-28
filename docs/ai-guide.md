@@ -25,7 +25,7 @@ codegen script produces one Python exception class per error code in
 [app/api/errors.py](../apps/backend/app/api/errors.py) maps all `DomainError` subclasses
 to a consistent JSON response shape: `{error: {code, params, details, request_id}}`.
 
-**Health endpoint** is at root level (outside `/api/v1/`):
+**Health endpoint** is at root level (outside `/v1/`):
 [app/api/health_router.py](../apps/backend/app/api/health_router.py) provides `/health`
 for liveness. Readiness will be added by LIP-E006-F001 when the warm-up signal from
 LIP-E005-F001 is wired.
