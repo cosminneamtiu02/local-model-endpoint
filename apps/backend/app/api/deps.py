@@ -6,6 +6,7 @@ from fastapi import Request
 
 from app.api.app_state import AppState
 from app.core.config import Settings
+from app.exceptions import InternalError
 from app.features.inference.repository import OllamaClient
 
 
@@ -18,8 +19,16 @@ def get_settings() -> Settings:
 
 
 def get_app_state(request: Request) -> AppState:
-    """Return the lifespan-managed AppState attached at startup."""
-    state: AppState = request.app.state.context
+    """Return the lifespan-managed AppState attached at startup.
+
+    A typed isinstance guard catches the misconfigured-app case (lifespan
+    didn't run, or ``app.state.context`` was never set) and raises a typed
+    InternalError so the response stays RFC 7807 problem+json instead of
+    surfacing as a bare AttributeError 500.
+    """
+    state: object = getattr(request.app.state, "context", None)
+    if not isinstance(state, AppState):
+        raise InternalError
     return state
 
 

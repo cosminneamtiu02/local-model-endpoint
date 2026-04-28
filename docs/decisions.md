@@ -147,7 +147,7 @@ spec.
 **Date:** 2026-04-28
 
 Lifespan-managed resources are stored in a typed `AppState` dataclass at
-`app/api/state.py`, attached to the FastAPI app as `app.state.context`,
+`app/api/app_state.py`, attached to the FastAPI app as `app.state.context`,
 and read by `Depends` factories via `request.app.state.context.<field>`.
 
 **Rationale.** Starlette's `app.state` accessor is `Any`-typed; reaching

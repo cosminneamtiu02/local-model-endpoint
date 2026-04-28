@@ -104,23 +104,34 @@ def _detect_duplicate_keys(raw_text: str) -> None:
     lines = raw_text.split("\n")
     in_errors = False
     seen_codes: set[str] = set()
-    indent_pattern = re.compile(r"^  (\w+)\s*:\s*(?:#.*)?$")
+    # Match any single-level indented `KEY:` line (any indent depth, any
+    # whitespace style). We also remember the indent depth of the first
+    # error key so a deeper-indented sibling block is skipped, but a
+    # 4-space-indented `errors:` body is still detected.
+    error_key_pattern = re.compile(r"^(\s+)(\w+)\s*:\s*(?:#.*)?$")
+    error_indent: int | None = None
 
     for line in lines:
         stripped = line.rstrip()
         if stripped == "errors:":
             in_errors = True
+            error_indent = None
             continue
         if in_errors:
-            m = indent_pattern.match(stripped)
+            m = error_key_pattern.match(stripped)
             if m:
-                code = m.group(1)
-                if code in seen_codes:
-                    msg = f"Duplicate error code: {code}"
-                    raise ValueError(msg)
-                seen_codes.add(code)
+                indent = len(m.group(1))
+                if error_indent is None:
+                    error_indent = indent
+                if indent == error_indent:
+                    code = m.group(2)
+                    if code in seen_codes:
+                        msg = f"Duplicate error code: {code}"
+                        raise ValueError(msg)
+                    seen_codes.add(code)
             elif stripped and not stripped.startswith(" ") and not stripped.startswith("#"):
                 in_errors = False
+                error_indent = None
 
 
 def _derive_type_uri(code: str) -> str:
@@ -262,7 +273,7 @@ SUPPORTED_SCHEMA_VERSION = 1
 
 def load_and_validate(errors_path: Path) -> _ErrorsFile:
     """Load errors.yaml and validate its contents."""
-    raw_text = errors_path.read_text()
+    raw_text = errors_path.read_text(encoding="utf-8")
     _detect_duplicate_keys(raw_text)
 
     raw_data = yaml.safe_load(raw_text)
@@ -306,8 +317,11 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
         params = spec.get("params", {})
         _validate_params(code, params)
 
-        # Validate RFC 7807 fields (LIP-E004-F004): both required, both strings.
-        for required in ("title", "detail_template"):
+        # Validate required fields: title, detail_template, and description
+        # (description ships as the generated class docstring; an under-specified
+        # entry produced a generic fallback that drifted from the source-of-truth
+        # YAML, so we enforce it).
+        for required in ("title", "detail_template", "description"):
             value = spec.get(required)
             if not isinstance(value, str) or not value.strip():
                 msg = (
@@ -512,7 +526,8 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                     params_class_name=params_class_name,
                     params=params,
                     description=spec.get("description"),
-                )
+                ),
+                encoding="utf-8",
             )
             generated_files.append(params_file)
             init_entries.append(
@@ -538,7 +553,8 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 params_class_name=params_class_name,
                 params_file_stem=params_file_stem,
                 description=spec.get("description"),
-            )
+            ),
+            encoding="utf-8",
         )
         generated_files.append(error_file)
         init_entries.append(
@@ -561,7 +577,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
         + "\n".join(f'    "{name}",' for name, _ in sorted_entries)
         + "\n]\n"
     )
-    init_file.write_text(init_content)
+    init_file.write_text(init_content, encoding="utf-8")
     generated_files.append(init_file)
 
     # Generate _registry.py (sorted, error classes only).
@@ -580,14 +596,23 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
         + "\n".join(f'    "{code}": {name},' for code, name in sorted_registry_entries)
         + "\n}\n"
     )
-    registry_file.write_text(registry_content)
+    registry_file.write_text(registry_content, encoding="utf-8")
     generated_files.append(registry_file)
 
-    # Clean up orphan files: any *.py in output_dir that we didn't just write.
-    # Preserves __init__.py / _registry.py (they ARE in generated_files now).
+    # Clean up orphan files: any *.py in output_dir that we didn't just write
+    # AND that carries our generator sentinel marker. The sentinel guard
+    # prevents an accidental wrong-output_dir invocation from wiping
+    # unrelated Python files; every emitter above starts the file with a
+    # ``Generated`` docstring on line 1, which serves as the sentinel.
     keep = {f.name for f in generated_files}
     for stale in output_dir.glob("*.py"):
-        if stale.name not in keep:
+        if stale.name in keep:
+            continue
+        try:
+            head = stale.read_text(encoding="utf-8").splitlines()[:3]
+        except (OSError, UnicodeDecodeError):
+            continue
+        if any("Generated" in line for line in head):
             stale.unlink()
 
     return generated_files
@@ -631,7 +656,7 @@ def generate_typescript(errors_path: Path, output_path: Path) -> Path:
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(content)
+    output_path.write_text(content, encoding="utf-8")
     return output_path
 
 
@@ -651,7 +676,7 @@ def generate_required_keys(errors_path: Path, output_path: Path) -> Path:
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(result, indent=2) + "\n")
+    output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return output_path
 
 

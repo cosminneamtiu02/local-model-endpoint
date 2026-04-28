@@ -6,15 +6,6 @@ from typing import Literal, Self
 from pydantic import AnyHttpUrl, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Hostnames LIP considers safe targets for the Ollama base URL without
-# explicit operator opt-in. The clamp accepts: ``localhost``, any address
-# that ``ipaddress`` classifies as loopback / private / link-local (covers
-# RFC1918 IPv4, IPv6 loopback ``::1``, IPv6 link-local ``fe80::/10``, and
-# IPv6 ULA ``fc00::/7``), and ``*.local`` mDNS names. Anything else
-# requires ``allow_external_ollama=True`` so a typo cannot silently turn
-# LIP into an external-host forwarding proxy.
-_PUBLIC_BIND_ADDRS: frozenset[str] = frozenset({"0.0.0.0", "::"})  # noqa: S104 - reject-list
-
 
 def _is_private_host(host: str) -> bool:
     """Return True if ``host`` is loopback / RFC1918 / link-local / ULA / mDNS."""
@@ -25,6 +16,11 @@ def _is_private_host(host: str) -> bool:
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
+        return False
+    # 0.0.0.0 / :: are unspecified — nonsensical as outbound targets and
+    # the same all-interfaces values the bind-side clamp reject-lists, so
+    # they must NOT be considered "private" upstream targets.
+    if ip.is_unspecified:
         return False
     return ip.is_loopback or ip.is_private or ip.is_link_local
 
@@ -93,14 +89,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_safety_invariants(self) -> Self:
-        # Bind-host clamp: reject all-interfaces values, and reject any
-        # non-IP / non-loopback string unless the operator opted into
-        # public binding. ``ipaddress.ip_address`` rejects non-IP strings
-        # with ValueError; we treat anything we can't recognize as
-        # private as "needs allow_public_bind".
-        if self.bind_host in _PUBLIC_BIND_ADDRS and not self.allow_public_bind:
+        # Bind-host clamp: anything we can't recognize as private requires
+        # ``allow_public_bind``. This catches the all-interfaces values
+        # (0.0.0.0, ::) AND a public address typo (8.8.8.8, garbage strings,
+        # etc.) — the original membership check on a 2-element set let
+        # everything outside the loopback/RFC1918 families slip past the
+        # validator unless it was literally one of two strings.
+        if not _is_private_host(self.bind_host) and not self.allow_public_bind:
             msg = (
-                f"bind_host={self.bind_host!r} binds to all interfaces; "
+                f"bind_host={self.bind_host!r} is not loopback / private LAN / link-local; "
                 "set LIP_ALLOW_PUBLIC_BIND=true explicitly to acknowledge "
                 "LIP has no auth before LAN-exposing it"
             )

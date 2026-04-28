@@ -68,29 +68,27 @@ def translate_message(msg: Message) -> dict[str, Any]:
                 text_parts.append(part.text)
             case ImageContent():
                 if part.base64 is None:
-                    # URL-only ImageContent isn't supported by F002 —
-                    # Ollama's /api/chat `images` array expects raw base64
-                    # strings, not URLs. The orchestrator/capability layer
-                    # should reject or pre-encode URL-only images before
-                    # they reach this seam.
-                    error_message = (
-                        "URL-only ImageContent is [UNRESOLVED] in LIP-E003-F002; "
-                        "supply base64 (Ollama /api/chat images expects base64)."
-                    )
+                    # Ollama /api/chat images expects raw base64; URLs must be
+                    # pre-encoded by an upstream layer.
+                    error_message = "URL-only ImageContent is not supported; supply base64."
                     raise NotImplementedError(error_message)
                 images.append(part.base64)
             case AudioContent():
-                # Spec leaves the Ollama wire shape [UNRESOLVED] until
-                # live-Ollama verification with Gemma 4. Fail loud rather
-                # than silently dropping the audio payload.
+                # Audio wire format is unverified against a live daemon; fail
+                # loud rather than silently dropping the audio payload.
                 error_message = (
-                    "AudioContent translation is [UNRESOLVED] in LIP-E003-F002; "
-                    "Gemma 4 audio wire format pending live-daemon verification."
+                    "audio translation is not supported pending live-daemon verification."
                 )
                 raise NotImplementedError(error_message)
 
     ollama_msg: dict[str, Any] = {"role": msg.role, "content": "\n\n".join(text_parts)}
     if images:
+        # Ollama /api/chat documents `images` only on user/assistant turns.
+        if msg.role == "system":
+            error_message = (
+                "system-role messages with images are not supported by Ollama /api/chat."
+            )
+            raise NotImplementedError(error_message)
         ollama_msg["images"] = images
     return ollama_msg
 
@@ -129,8 +127,14 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
         raise KeyError(error_message)
     raw_finish = response_json.get("done_reason", "stop")
     finish_reason: FinishReason = _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop")
+    # Some Ollama responses (tool-call-only frames) omit content or emit null;
+    # OllamaChatResult.content is `str`, so coerce here at the wire boundary
+    # rather than letting Pydantic raise a ValidationError outside the failure-
+    # mapping seam.
+    raw_content = response_json["message"]["content"]
+    content = raw_content if isinstance(raw_content, str) else ""
     return OllamaChatResult(
-        content=response_json["message"]["content"],
+        content=content,
         prompt_tokens=response_json.get("prompt_eval_count", 0),
         completion_tokens=response_json.get("eval_count", 0),
         finish_reason=finish_reason,

@@ -31,8 +31,8 @@ unified RFC 7807 `application/problem+json` ProblemDetails envelope (LIP-E004-F0
 for liveness. Readiness will be added by LIP-E006-F001 when the warm-up signal from
 LIP-E005-F001 is wired.
 
-**Architecture enforcement** is mechanical: import-linter has eleven contracts (eight
-cross-cutting layer rules plus three inference-feature-internal rules) — see
+**Architecture enforcement** is mechanical: import-linter has thirteen contracts (nine
+cross-cutting layer rules plus four inference-feature-internal rules) — see
 [apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini)
 for the full list. Each cross-cutting layer (`app.core`, `app.exceptions`, `app.schemas`)
 cannot import features and cannot import each other; the inference feature's `model/`,
@@ -40,10 +40,12 @@ cannot import features and cannot import each other; the inference feature's `mo
 
 ## What's NOT Built — feature-dev work
 
-Three LIP feature nodes have already landed (LIP-E001-F001 inference envelopes,
+Five LIP feature nodes have already landed in code: LIP-E001-F001 inference envelopes,
 LIP-E003-F001 lifespan-managed OllamaClient, LIP-E003-F002 envelope↔Ollama translation,
-LIP-E004-F004 problem+json, LIP-E005-F003 launchd plist). `service/` and `router/`
-arrive with LIP-E001-F002. The project's seven epics (see [graphs/LIP/](../graphs/LIP/))
+LIP-E004-F004 problem+json, and LIP-E005-F003 launchd plist. Of those, three carry
+`status: implemented` in graphs/LIP/ (E001-F001, E003-F001, E005-F003); the other two
+carry `status: verifiable`. `service/` and `router/` arrive with LIP-E001-F002. The
+project's seven epics (see [graphs/LIP/](../graphs/LIP/))
 describe what feature-dev will build next:
 
 - **LIP-E001 — Inference Contract & Happy Path:** envelope schemas, inference endpoint,
@@ -64,7 +66,8 @@ describe what feature-dev will build next:
 ## How Things Bind Together
 
 **Service -> Ollama:** FastAPI service uses an `httpx.AsyncClient` with the host
-configured via `OLLAMA_HOST` (defaulting to `http://localhost:11434`). The Ollama daemon
+configured via `LIP_OLLAMA_HOST` (defaulting to `http://localhost:11434`). The `LIP_`
+prefix avoids colliding with Ollama daemon's own `OLLAMA_HOST`. The Ollama daemon
 runs as a `launchd`-managed always-on service with `KEEP_ALIVE=300s` so the model
 unloads from RAM shortly after idle.
 

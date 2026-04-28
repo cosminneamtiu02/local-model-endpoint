@@ -51,10 +51,12 @@ infra/
 ```
 
 The inference feature is partially scaffolded: `model/`, `repository/`, and wire
-`schemas/` are landed (LIP-E001-F001, LIP-E003-F001, LIP-E003-F002 implemented per
-[graphs/LIP/](../graphs/LIP/)). `service/` and `router/` arrive with LIP-E001-F002
-per ADR-011 lazy scaffolding. The directory structure above describes where each
-remaining layer will live.
+`schemas/` are landed (LIP-E001-F001, LIP-E003-F001, LIP-E003-F002 in
+[graphs/LIP/](../graphs/LIP/)), plus the cross-cutting LIP-E004-F004 RFC 7807
+problem+json layer (in `app/api/errors.py` + `app/schemas/`) and LIP-E005-F003
+launchd agent (in `infra/launchd/`). `service/` and `router/` arrive with
+LIP-E001-F002 per ADR-011 lazy scaffolding. The directory structure above
+describes where each remaining layer will live.
 
 ### Layer Flow (within a feature)
 

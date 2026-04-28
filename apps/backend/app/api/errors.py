@@ -53,10 +53,11 @@ from __future__ import annotations
 
 import uuid
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
@@ -132,39 +133,66 @@ def _build_problem_payload(
     downstream.
     """
     spread: dict[str, Any] = exc.params.model_dump(mode="json") if exc.params else {}
-    # Widen TypedDict to dict[str, Any] for the spread — ProblemDetails
-    # accepts the extension fields via Pydantic's ``extra='allow'`` at
-    # runtime, but pyright cannot prove the TypedDict keys map to specific
-    # ProblemDetails kwargs. The TypedDict on the parameter remains the
-    # static-typing contract for callers.
-    extras_widened: dict[str, Any] = dict(extras) if extras else {}
-    return ProblemDetails(
-        type=exc.type_uri,
-        title=exc.title,
-        status=exc.http_status,
-        detail=detail_override if detail_override is not None else exc.detail(),
-        instance=request.url.path,
-        code=exc.code,
-        request_id=request_id,
-        **spread,
-        **extras_widened,
-    )
+    # ProblemDetails uses ``extra='allow'`` at runtime for typed extension
+    # fields; pyright cannot prove the TypedDict keys map to ProblemDetails
+    # kwargs, so we widen via ``cast`` (keeping the TypedDict as the
+    # caller-side contract).
+    extras_widened: dict[str, Any] = cast("dict[str, Any]", extras) if extras else {}
+    # Defense-in-depth: an extras key colliding with a typed spread key would
+    # silently win on the ``**`` merge; raise loud so the bug surfaces at the
+    # handler edge rather than as a confusing wire shape.
+    collisions = set(spread).intersection(extras_widened)
+    if collisions:
+        error_message = (
+            f"ProblemDetails extras keys collide with typed params: {sorted(collisions)!r}"
+        )
+        raise RuntimeError(error_message)
+    try:
+        return ProblemDetails(
+            type=exc.type_uri,
+            title=exc.title,
+            status=exc.http_status,
+            detail=detail_override if detail_override is not None else exc.detail(),
+            instance=request.url.path,
+            code=exc.code,
+            request_id=request_id,
+            **spread,
+            **extras_widened,
+        )
+    except ValidationError as ve:
+        # An exception handler that itself raises bypasses our RFC 7807
+        # envelope and ships a bare-text 500. Log-and-fall-back so the
+        # consumer always gets problem+json, even on a malformed DomainError
+        # (e.g. a future YAML entry with an invalid type_uri).
+        logger.exception(
+            "problem_details_construction_failed",
+            exc_type=type(ve).__name__,
+            error_count=len(ve.errors()),
+            original_code=exc.code,
+        )
+        return ProblemDetails(
+            type="urn:lip:error:internal-error",
+            title="Internal Server Error",
+            status=500,
+            detail="An unexpected error occurred while building the error response.",
+            instance=request.url.path,
+            code=InternalError.code,
+            request_id=request_id,
+        )
 
 
 def _problem_response(problem: ProblemDetails) -> Response:
     """Serialize a :class:`ProblemDetails` into the canonical RFC 7807 response.
 
     Single-pass serialization via ``model_dump_json()`` (Pydantic's
-    C-accelerated path) avoids the ``model_dump() -> JSONResponse`` two-step,
-    and honors any future custom ``@field_serializer`` we add to ``ProblemDetails``
-    (which the dict route would silently bypass).
+    C-accelerated path) avoids the ``model_dump() -> JSONResponse`` two-step.
 
     ``X-Request-ID`` is intentionally NOT set on typed-handler responses —
     :class:`RequestIdMiddleware` is a pure ASGI middleware that injects the
     header on every response that flows through the user middleware stack.
-    The catch-all 500 path is the one exception (Starlette's
-    ``ServerErrorMiddleware`` runs OUTSIDE the user stack), so
-    :func:`_handle_unhandled_exception` injects the header explicitly there.
+    Setting it here would produce a duplicated header on the response.
+    The catch-all 500 path injects it explicitly because Starlette's
+    ``ServerErrorMiddleware`` runs OUTSIDE the user stack.
     """
     return Response(
         content=problem.model_dump_json(),
@@ -189,12 +217,14 @@ async def _handle_domain_error(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, DomainError)  # noqa: S101 — narrows for static checkers
     request_id = _resolve_request_id(request)
     structlog.contextvars.bind_contextvars(error_code=exc.code)
-    logger.info(
+    # Branch level on status: 5xx is operator-actionable, 4xx is client-side
+    # information; both share the same event name so filters still find them.
+    is_server_error = exc.http_status >= HTTPStatus.INTERNAL_SERVER_ERROR
+    log_method = logger.error if is_server_error else logger.warning
+    log_method(
         "domain_error_raised",
         code=exc.code,
         status=exc.http_status,
-        method=request.method,
-        path=request.url.path,
     )
     problem = _build_problem_payload(exc, request, request_id)
     return _problem_response(problem)
@@ -229,15 +259,13 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     ]
 
     if not validation_errors:
-        # An empty errors list out of pydantic violates pydantic's own
-        # invariants for RequestValidationError. Surface it loudly so
-        # the operator can correlate via request_id rather than chasing
-        # an opaque "unknown" detail.
+        # Pydantic emitting an empty errors list for a RequestValidationError
+        # violates its own invariants — surface it loudly with a bounded
+        # triage payload so the operator can reproduce the upstream bug.
         logger.warning(
             "validation_error_with_no_details",
-            request_id=request_id,
-            method=request.method,
-            path=request.url.path,
+            raw_error_count=len(raw_errors),
+            raw_error_types=[type(e).__name__ for e in raw_errors][:5],
         )
 
     first_field = validation_errors[0]["field"] if validation_errors else "unknown"
@@ -315,11 +343,8 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # without any log line — operators couldn't grep them by request_id.
         logger.warning(
             "http_exception_5xx",
-            request_id=request_id,
             status_code=status_code,
             detail=detail_text,
-            method=request.method,
-            path=request.url.path,
         )
 
     if status_code == HTTPStatus.NOT_FOUND:
@@ -363,19 +388,14 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     """
     request_id = _resolve_request_id(request)
     structlog.contextvars.bind_contextvars(error_code=InternalError.code)
-    # ``exc_message`` is truncated to 200 chars so the structured log
-    # layer captures enough actionable signal for triage without
-    # unboundedly serializing input-value snippets that can leak PII via
-    # log aggregation. The message is not echoed into the response body —
-    # only ``InternalError``'s rendered detail ships to the consumer,
-    # preserving the no-PII / no-stack-trace-leak contract on the wire.
+    # ``exc_message`` is truncated to 200 chars so triage gets actionable
+    # signal without unboundedly serializing input-value snippets. The
+    # message never ships to the consumer — only ``InternalError``'s
+    # rendered detail does — preserving the wire contract.
     logger.exception(
         "unhandled_exception",
-        request_id=request_id,
         exc_type=type(exc).__name__,
         exc_message=str(exc)[:200],
-        method=request.method,
-        path=request.url.path,
     )
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)
