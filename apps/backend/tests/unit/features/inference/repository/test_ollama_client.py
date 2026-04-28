@@ -39,6 +39,10 @@ async def test_constructor_uses_default_timeout_when_none_supplied() -> None:
     client = OllamaClient(base_url="http://localhost:11434")
     try:
         assert client._client.timeout == DEFAULT_TIMEOUT
+        # also verify the spec scenario directly so this test does
+        # not depend on test_default_timeout_* having run first
+        assert client._client.timeout.connect == 5.0
+        assert client._client.timeout.read is None
     finally:
         await client.close()
 
@@ -74,7 +78,8 @@ async def test_async_context_manager_closes_on_exception_in_body() -> None:
 async def test_close_is_idempotent() -> None:
     client = OllamaClient(base_url="http://localhost:11434")
     await client.close()
-    await client.close()
+    await client.close()  # second call must not raise
+    assert client._client.is_closed is True
 
 
 async def test_request_get_forwards_to_httpx_with_no_body() -> None:

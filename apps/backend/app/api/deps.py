@@ -23,4 +23,5 @@ def get_ollama_client(request: Request) -> OllamaClient:
     one app instance. cast() is required because Starlette's State is
     typed as Any.
     """
+    # ruff TC006 prefers the quoted form to avoid runtime type resolution
     return cast("OllamaClient", request.app.state.ollama_client)

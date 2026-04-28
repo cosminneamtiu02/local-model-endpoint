@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Final, Self
 
 import httpx
 
-if TYPE_CHECKING:
-    from types import TracebackType
-
-DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=None, write=None, pool=None)
+DEFAULT_TIMEOUT: Final = httpx.Timeout(connect=5.0, read=None, write=None, pool=None)
 
 
 class OllamaClient:
@@ -29,6 +26,11 @@ class OllamaClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        # transport kwarg is a test seam: integration tests inject
+        # httpx.MockTransport to verify _request plumbing without a
+        # live Ollama. Production call sites pass no transport, so
+        # httpx uses its default AsyncHTTPTransport with the configured
+        # connection-pool limits.
         self._client = httpx.AsyncClient(
             base_url=base_url,
             timeout=timeout,
@@ -41,13 +43,7 @@ class OllamaClient:
     async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        del exc_type, exc_val, exc_tb
+    async def __aexit__(self, *_: object) -> None:
         await self.close()
 
     async def _request(

@@ -6,21 +6,21 @@ Covers LIP-E003-F001 integration scenarios:
 - Lifespan-managed singleton: exactly one OllamaClient is constructed
   at app startup and exactly one close() at shutdown.
 - app.state.ollama_client identity survives across multiple requests.
+- AC8: shutdown calls close() from finally even when the app body raises.
+- AC11: connection failures raise httpx.ConnectError uncaught from _request.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import httpx
+import pytest
 from fastapi import Depends
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_ollama_client
 from app.features.inference.repository.ollama_client import OllamaClient
-
-if TYPE_CHECKING:
-    import pytest
 
 
 async def test_mock_transport_allows_full_request_round_trip() -> None:
@@ -93,3 +93,48 @@ def test_app_state_client_survives_across_requests() -> None:
     assert r1.status_code == 200
     assert r2.status_code == 200
     assert r1.json()["id"] == r2.json()["id"]
+
+
+async def test_lifespan_close_runs_even_when_yield_body_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC8: lifespan finally: must close the client even if the app body raises.
+
+    Drives the lifespan context manager directly so we can inject an
+    exception at the yield point (the "app body" in the spec's wording).
+    The TestClient route-handler path can't reproduce this — FastAPI
+    catches request-handler exceptions before they reach the lifespan
+    generator; we need to raise into the async-with body itself.
+    """
+    from app.features.inference.repository import ollama_client as oc_mod
+    from app.main import create_app, lifespan
+
+    close_count = 0
+    original_close = oc_mod.OllamaClient.close
+
+    async def counting_close(self: OllamaClient) -> None:
+        nonlocal close_count
+        close_count += 1
+        await original_close(self)
+
+    monkeypatch.setattr(oc_mod.OllamaClient, "close", counting_close)
+
+    app = create_app()
+    boom = "simulated app-body failure"
+    with pytest.raises(RuntimeError, match=boom):
+        async with lifespan(app):
+            raise RuntimeError(boom)
+
+    assert close_count == 1
+
+
+async def test_request_propagates_httpx_connect_error_uncaught() -> None:
+    """AC11: connection failures raise httpx.ConnectError; F001 doesn't catch.
+
+    Mapping httpx exceptions to typed DomainError is LIP-E003-F003's job.
+    """
+    # 127.0.0.1 with an unbound port is the canonical "guaranteed refused"
+    # endpoint — it short-circuits without leaving the loopback stack.
+    async with OllamaClient(base_url="http://127.0.0.1:1") as client:
+        with pytest.raises(httpx.ConnectError):
+            await client._request("GET", "/api/tags")

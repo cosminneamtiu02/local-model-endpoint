@@ -20,7 +20,14 @@ def test_ollama_host_defaults_to_localhost(monkeypatch: pytest.MonkeyPatch) -> N
 def test_ollama_host_env_var_overrides_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """OLLAMA_HOST env var is reflected in Settings.ollama_host."""
+    """OLLAMA_HOST env var is reflected in Settings.ollama_host.
+
+    pydantic-settings matches env vars case-insensitively by default,
+    which is what makes the conventional UPPERCASE env var name map to
+    the lowercase `ollama_host` field. Do not set `_case_sensitive=True`
+    here — that would require the env var to be literally `ollama_host`,
+    breaking the standard convention.
+    """
     monkeypatch.setenv("OLLAMA_HOST", "http://192.168.1.50:11434")
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     assert settings.ollama_host == "http://192.168.1.50:11434"
