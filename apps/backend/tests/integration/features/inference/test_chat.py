@@ -232,12 +232,16 @@ async def test_chat_propagates_http_status_error_for_every_non_2xx(
 
     transport = httpx.MockTransport(handler)
     async with OllamaClient(base_url="http://ollama.test", transport=transport) as client:
-        with pytest.raises(httpx.HTTPStatusError):
+        # Capture the exception so the assertion binds to the parametrized
+        # status_code — without this, every iteration would pass even if
+        # OllamaClient regressed to always raising 500-status HTTPStatusError.
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
             await client.chat(
                 model_tag="gemma4:e2b",
                 messages=[Message(role="user", content="hi")],
                 params=ModelParams(),
             )
+    assert exc_info.value.response.status_code == status_code
 
 
 async def test_chat_propagates_read_timeout_uncaught() -> None:

@@ -141,7 +141,10 @@ is end-to-end behavior worth covering against a running Ollama):
 1. **Unit** -- no network. Fast (<10s).
 2. **Integration** -- httpx.AsyncClient via ASGITransport against the FastAPI app
    in-process. No DB. No Testcontainers.
-3. **Contract** -- Schemathesis fuzzes the OpenAPI spec.
+3. **Contract** -- OpenAPI spec-shape canary plus the RFC 7807 wire-shape
+   contract. The full Schemathesis fuzz across every endpoint lands with
+   the inference router (LIP-E001-F002), which is when there are
+   operations to fuzz.
 
 Type checker (Pyright strict) is a build failure, not a warning.
 

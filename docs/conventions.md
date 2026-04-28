@@ -8,7 +8,7 @@ enforcement version. This document provides rationale.
 | Context | Convention | Example |
 |---|---|---|
 | Python files | `snake_case.py` | `inference_service.py` |
-| Python classes | `PascalCase` + role suffix | `InferenceService`, `OllamaRepository` |
+| Python classes | `PascalCase` + role suffix | `InferenceService`, `OllamaClient` |
 | Python functions | `snake_case` verbs | `resolve_tag`, `merge_params` |
 | Feature folders | `snake_case` | `features/inference/` (hyphens are not valid in Python package names) |
 

@@ -47,7 +47,7 @@ injected into every error body. This is the only middleware in v1.
 `GET /health` is a pure liveness probe returning `{"status":"ok"}`. Readiness gating on
 the warm-up signal will be added by LIP-E006-F001.
 
-### Ollama Launchd Agent ([infra/launchd/com.lip.ollama.plist](../infra/launchd/com.lip.ollama.plist))
+### Ollama Launchd Agent ([infra/launchd/com.lip.ollama.plist.tmpl](../infra/launchd/com.lip.ollama.plist.tmpl))
 User-scope `launchd` agent that keeps the Ollama daemon running with LIP's calibrated
 env vars (`OLLAMA_KEEP_ALIVE=300s`, `OLLAMA_NUM_PARALLEL=1`,
 `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`).
@@ -109,8 +109,9 @@ Ten contracts protect the layer boundaries (six cross-cutting + four inference-i
 - `no-direct-generated-error-imports` — only `app.exceptions/__init__` may
   import from `app.exceptions._generated`; everything else uses the public
   re-exports per CLAUDE.md.
-- `api-errors-feature-agnostic` — the api-error layer cannot reach into any
-  feature, keeping the RFC 7807 envelope decoupled from inference specifics.
+- `api-exception-handlers-feature-agnostic` — the api-exception-handlers
+  layer cannot reach into any feature, keeping the RFC 7807 envelope
+  decoupled from inference specifics.
 - `features-are-independent` — features cannot import each other (no-op while
   only one feature exists; one-line edit when the second lands).
 - `inference-model-no-schemas`, `inference-repository-no-schemas`,
@@ -143,8 +144,8 @@ Run in well under 10 seconds. Cover:
   `repository/test_ollama_translation.py` for the typed httpx client wrapper
   and envelope↔Ollama translation.
 - **`tests/unit/launchd/`** — `test_ollama_plist.py` parses
-  `infra/launchd/com.lip.ollama.plist` with `plistlib` and asserts the five
-  Ollama env vars + binary path + log paths.
+  `infra/launchd/com.lip.ollama.plist.tmpl` with `plistlib` and asserts the
+  five Ollama env vars + binary path + log paths.
 
 ### Integration Tests ([apps/backend/tests/integration/](../apps/backend/tests/integration/))
 httpx.AsyncClient via ASGITransport against the FastAPI app in-process. No DB, no
@@ -180,8 +181,10 @@ contract) and `error-contracts` (Python codegen + tests + diff verification). Bo
 hard gates on the `main-protection` ruleset.
 
 ### Dependabot ([.github/dependabot.yml](../.github/dependabot.yml))
-Three ecosystems: `pip` for `apps/backend`, `pip` for `packages/error-contracts`, and
-`github-actions`. Groups batch interlocking package updates atomically.
+Four update blocks: `pip` for `apps/backend`, `pip` for `packages/error-contracts`,
+`github-actions`, and `pre-commit` (so `rev:` SHAs in `.pre-commit-config.yaml`
+get bumped on the same Dependabot cadence). Groups batch interlocking package
+updates atomically.
 
 ### Auto-merge & Lockfile-sync workflows
 [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml)
@@ -201,8 +204,12 @@ generation/check, plus on-demand `check:audit` (pip-audit) and `check:coverage`
 (90% gate).
 
 ### Pre-commit Hooks ([.pre-commit-config.yaml](../.pre-commit-config.yaml))
-Pre-commit: whitespace/EOF/yaml/json/large-file checks + ruff fix + ruff format.
-Pre-push: pytest unit.
+Pre-commit: detect-secrets, trailing-whitespace, end-of-file-fixer,
+check-yaml/json, check-added-large-files, ruff (`--fix`) + ruff-format,
+and a Taskfile-syntax local hook.
+Pre-push: pytest unit (backend + error-contracts) + pyright + import-linter
+(slow checks per ADR-009 tier; pre-commit/-push installed together via
+`default_install_hook_types`).
 
 ### Editor & VCS Config
 LF line endings, 4-space Python, generated files marked `linguist-generated`, pinned
