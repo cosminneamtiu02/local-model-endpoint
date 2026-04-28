@@ -12,7 +12,7 @@ class TextContent(BaseModel):
     `content: list[ContentPart]` field to this variant.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: Literal["text"] = "text"
     text: str = Field(min_length=1)

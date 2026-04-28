@@ -18,9 +18,14 @@ how-tos; it answers "what's in the box" only.
 ## Backend — Core Infrastructure
 
 ### Typed Settings ([app/core/config.py](../apps/backend/app/core/config.py))
-Pydantic-settings based configuration. Three fields: `app_env`, `log_level`, and
-`ollama_host` (defaulting to `http://localhost:11434`). LIP-specific settings (queue
-depth, per-request timeout, idle-shutdown interval) will be added during feature-dev.
+Pydantic-settings based configuration. Six fields: `app_env`, `log_level`,
+`lip_ollama_host` (defaulting to `http://localhost:11434`; the `lip_` prefix
+disambiguates from Ollama's own `OLLAMA_HOST`), `bind_host` / `bind_port`
+(uvicorn binding, validated to reject `0.0.0.0` unless `allow_public_bind=true`),
+and `allow_external_ollama` (escape hatch for the SSRF-clamp validator that
+otherwise restricts the Ollama host to loopback / RFC1918 / link-local).
+LIP-specific settings (queue depth, per-request timeout, idle-shutdown
+interval) will be added during feature-dev.
 
 ### Structured Logging ([app/core/logging.py](../apps/backend/app/core/logging.py))
 Structlog pipeline with contextvar merging, ISO timestamps, and JSON output in production
@@ -92,11 +97,19 @@ error bodies are constructed by the exception handlers directly.
 ## Backend — Architecture Enforcement
 
 ### Import-Linter Contracts ([apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini))
-Three forbidden contracts that work even before the LIP feature is scaffolded:
-`app.core` cannot import from `app.features`, `app.exceptions` cannot import from
-`app.features`, `app.schemas` cannot import from `app.features`. Feature-internal
-layering (router -> service -> repository -> model) and feature-isolation contracts are
-added during feature-dev.
+Seven contracts protect the layer boundaries:
+
+- `core-no-features`, `exceptions-no-features`, `schemas-no-features` — the three
+  cross-cutting layers cannot reach into any feature.
+- `core-is-leaf` — `app.core` cannot import any other app layer; logging/config
+  stays at the bottom of the dependency graph.
+- `no-direct-generated-error-imports` — only `app.exceptions/__init__` may
+  import from `app.exceptions._generated`; everything else uses the public
+  re-exports per CLAUDE.md.
+- `inference-model-no-schemas`, `inference-repository-no-schemas` — within the
+  inference slice, the data and Ollama-client layers cannot reach into wire
+  schemas. The full router → service → repository → model layering is added
+  per-layer as the feature router and service land.
 
 ---
 
@@ -106,8 +119,9 @@ added during feature-dev.
 Run in well under 10 seconds. Cover:
 
 - **`tests/unit/core/`** — `test_config.py`: pydantic-settings parsing.
-- **`tests/unit/exceptions/`** — `test_domain_errors.py` (DomainError construction)
-  and `test_error_handler.py` (exception-handler serialization shape).
+- **`tests/unit/exceptions/`** — `test_base.py` (DomainError ergonomics),
+  `test_domain_errors.py` (per-code construction), `test_registry.py`
+  (`ERROR_CLASSES` lookup invariants).
 - **`tests/unit/features/inference/`** — value-object and schema unit tests:
   `test_message.py`, `test_model_params.py`, `test_content_part.py`,
   `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
@@ -122,9 +136,12 @@ Run in well under 10 seconds. Cover:
 httpx.AsyncClient via ASGITransport against the FastAPI app in-process. No DB, no
 Testcontainers. Covers:
 
-- `test_health.py` — `/health` liveness and request-ID middleware echo.
+- `api/test_health.py` — `/health` liveness and request-ID middleware echo.
+- `api/test_error_handler.py` — DomainError + RequestValidationError + generic-
+  Exception envelope shapes through the registered handlers.
 - `features/inference/test_lifecycle.py` — startup/shutdown lifespan against
   Ollama via `httpx.MockTransport` (no network).
+- `test_app_factory.py` — `create_app` switches OpenAPI exposure on `APP_ENV`.
 
 ### Contract Tests ([apps/backend/tests/contract/](../apps/backend/tests/contract/))
 `test_schemathesis.py` is currently a sanity check that validates the generated

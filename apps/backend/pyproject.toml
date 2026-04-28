@@ -12,7 +12,7 @@ description = "Local Inference Provider — FastAPI service wrapping a local Oll
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.135.3",
-    "starlette>=0.48.0",
+    "starlette>=1.0.0",
     "uvicorn[standard]>=0.44.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
@@ -25,11 +25,11 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.10",
+    "ruff>=0.15.12",
     "import-linter>=2.11.0",
-    "pyright>=1.1.408",
+    "pyright>=1.1.409",
     "schemathesis>=4.15.0",
-    "pip-audit>=2.7.0",
+    "pip-audit>=2.10.0",
 ]
 
 [tool.ruff]
@@ -72,12 +72,49 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
+# --strict-markers/-config fails the run on unknown markers or unknown
+# pytest config keys (catches typos that would otherwise no-op).
+# filterwarnings turns first-party DeprecationWarnings into errors so
+# upstream deprecations land as failed CI rather than silent log noise.
+addopts = [
+    "-q",
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:hypothesis",
+    "ignore::DeprecationWarning:schemathesis",
+    # anyio's memory streams emit ResourceWarnings on GC during pytest's
+    # asyncio-teardown sweep; not a LIP bug. Filter so they don't get
+    # elevated to test failures by `error`.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::ResourceWarning:anyio",
+]
+# Forbid test classes — CLAUDE.md sacred rule "Never write a test class".
+python_classes = ["NoTestClassesAllowed"]
 
 [tool.coverage.run]
 source = ["app"]
+branch = true
+omit = [
+    "app/exceptions/_generated/**",
+    "**/__init__.py",
+]
 
 [tool.coverage.report]
-fail_under = 80
+# Baseline measured at 95% on 2026-04-28 (LIP-E003-F001 landed). Set 5pt
+# below to leave room for transient regressions during feature-dev
+# without flapping the gate. Bump back up after each feature lands and
+# stabilizes its coverage.
+fail_under = 90
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
 
 [tool.pyright]
 pythonVersion = "3.13"

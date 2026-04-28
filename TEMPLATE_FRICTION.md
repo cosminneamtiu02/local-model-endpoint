@@ -5,14 +5,15 @@
 > template→LIP bootstrap notes. Keep entries grounded in actual events and
 > include the resolution.
 
-This file tracks friction points discovered when using this template on real projects.
-It is empty at template creation time and maintained on project #1 onward.
+This file tracks friction points observed both during the template-to-LIP bootstrap
+and post-bootstrap operations. New entries land here whenever an incident or sharp
+edge is worth remembering.
 
 The purpose is to identify patterns that are:
 - Too rigid for real-world use
 - Missing from the template
 - Incorrectly abstracted
-- Over-engineered for  the actual use case
+- Over-engineered for the actual use case
 
 Template v2 will be extracted from real project usage, informed by this log.
 

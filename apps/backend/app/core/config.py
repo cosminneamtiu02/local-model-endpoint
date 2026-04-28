@@ -1,9 +1,29 @@
 """Application configuration via pydantic-settings."""
 
-from typing import Literal
+import re
+from typing import Literal, Self
 
-from pydantic import AnyHttpUrl, Field, ValidationInfo, field_validator
+from pydantic import AnyHttpUrl, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Hostnames / IPs that LIP considers safe targets for the Ollama base URL
+# without explicit operator opt-in. Loopback + private RFC1918 + link-local
+# cover every realistic LAN deployment of an Ollama daemon. Anything else
+# requires `allow_external_ollama=True` so a typo cannot silently turn
+# LIP into an external-host forwarding proxy.
+_PRIVATE_HOST_PATTERN = re.compile(
+    r"""^(
+        localhost
+        | 127\.\d{1,3}\.\d{1,3}\.\d{1,3}
+        | ::1
+        | 10\.\d{1,3}\.\d{1,3}\.\d{1,3}
+        | 192\.168\.\d{1,3}\.\d{1,3}
+        | 172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}
+        | 169\.254\.\d{1,3}\.\d{1,3}
+        | [a-z0-9-]+\.local
+    )$""",
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 class Settings(BaseSettings):
@@ -33,13 +53,18 @@ class Settings(BaseSettings):
     # `lip_` prefix disambiguates this from Ollama daemon's own
     # OLLAMA_HOST env var so a single shell can run both without crossed
     # wires. AnyHttpUrl validates scheme + host; httpx accepts the
-    # str() form.
+    # str() form. The model-level validator further clamps the host to
+    # localhost / RFC1918 / link-local unless allow_external_ollama is set.
     lip_ollama_host: AnyHttpUrl = AnyHttpUrl("http://localhost:11434")
 
+    # Escape hatch for pointing Ollama at a non-private host (cloud
+    # endpoint, gateway, etc.). Default is False so a typo in the env
+    # var cannot silently turn LIP into a forwarding proxy.
+    allow_external_ollama: bool = False
+
     # Escape hatch for binding to a public interface (0.0.0.0 / ::).
-    # Declared *before* bind_host so the bind_host validator can read it
-    # via ValidationInfo.data. Default is False; the bind_host validator
-    # rejects all-interfaces values unless this is explicitly True.
+    # Default is False; the model validator rejects all-interfaces
+    # values unless this is explicitly True.
     allow_public_bind: bool = False
 
     # Interface to bind uvicorn to. Default is loopback only; binding to
@@ -48,14 +73,24 @@ class Settings(BaseSettings):
     bind_host: str = Field(default="127.0.0.1")
     bind_port: int = Field(default=8000, ge=1024, le=65535)
 
-    @field_validator("bind_host")
-    @classmethod
-    def _reject_public_bind_unless_allowed(cls, value: str, info: ValidationInfo) -> str:
+    @model_validator(mode="after")
+    def _check_safety_invariants(self) -> Self:
+        # Bind-host clamp.
         public_addrs = {"0.0.0.0", "::"}  # noqa: S104 - reject-list, not bind target
-        if value in public_addrs and not info.data.get("allow_public_bind", False):
+        if self.bind_host in public_addrs and not self.allow_public_bind:
             msg = (
-                f"bind_host={value!r} binds to all interfaces; set ALLOW_PUBLIC_BIND=true "
-                "explicitly to acknowledge LIP has no auth before LAN-exposing it"
+                f"bind_host={self.bind_host!r} binds to all interfaces; "
+                "set ALLOW_PUBLIC_BIND=true explicitly to acknowledge "
+                "LIP has no auth before LAN-exposing it"
             )
             raise ValueError(msg)
-        return value
+        # SSRF clamp: don't let a typo turn LIP into a forwarding proxy.
+        host = self.lip_ollama_host.host or ""
+        if not _PRIVATE_HOST_PATTERN.match(host) and not self.allow_external_ollama:
+            msg = (
+                f"lip_ollama_host host={host!r} is not localhost / private LAN / link-local; "
+                "set ALLOW_EXTERNAL_OLLAMA=true explicitly to acknowledge that LIP will "
+                "forward consumer prompts to a non-private host"
+            )
+            raise ValueError(msg)
+        return self

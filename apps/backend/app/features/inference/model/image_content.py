@@ -13,7 +13,7 @@ class ImageContent(BaseModel):
     form is present into Ollama's wire format.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: Literal["image"] = "image"
     url: str | None = Field(default=None, min_length=1)

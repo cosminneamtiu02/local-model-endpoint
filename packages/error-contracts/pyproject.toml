@@ -1,7 +1,7 @@
 [project]
 name = "error-contracts"
 version = "0.1.0"
-description = "Error code definitions, codegen, and translation validation"
+description = "Error code definitions and Python codegen for the LIP error system"
 requires-python = ">=3.13"
 dependencies = [
     "pyyaml>=6.0.3",
@@ -11,12 +11,21 @@ dependencies = [
 dev = [
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.10",
-    "pyright>=1.1.408",
+    "ruff>=0.15.12",
+    "pyright>=1.1.409",
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 pythonpath = ["."]
+addopts = [
+    "-q",
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+filterwarnings = ["error"]
+python_classes = ["NoTestClassesAllowed"]
 
 [tool.pyright]
 pythonVersion = "3.13"

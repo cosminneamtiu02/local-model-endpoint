@@ -8,14 +8,12 @@ the reset is automatically rolled back at end of test.
 
 import pytest
 
-_SETTINGS_ENV_VARS = (
-    "APP_ENV",
-    "LOG_LEVEL",
-    "LIP_OLLAMA_HOST",
-    "BIND_HOST",
-    "BIND_PORT",
-    "ALLOW_PUBLIC_BIND",
-)
+from app.core.config import Settings
+
+# Derive the env-var name list from Settings.model_fields rather than
+# hardcoding it — adding a new Settings field auto-extends the strip
+# list with no per-test edit needed.
+_SETTINGS_ENV_VARS = tuple(name.upper() for name in Settings.model_fields)
 
 
 @pytest.fixture(autouse=True)

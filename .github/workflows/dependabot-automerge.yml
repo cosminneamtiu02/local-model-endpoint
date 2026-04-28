@@ -55,6 +55,13 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
 
+# A new push (synchronize) supersedes the pending merge-intent attempt
+# from the previous event. cancel-in-progress drops the older queued run
+# instead of letting them stack while we wait for required checks.
+concurrency:
+  group: dependabot-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   # contents: write is intentionally omitted -- auto-merge does not push
   # code; it only queues a merge intent that GitHub's merge engine

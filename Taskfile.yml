@@ -6,10 +6,10 @@ vars:
 tasks:
   # ── Development ──────────────────────────────────────────────
   dev:
-    desc: Start backend with hot reload
+    desc: Start backend with hot reload (host/port read from Settings)
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+      - uv run python -m app --reload
 
   # ── Check (run before declaring work done) ───────────────────
   check:
@@ -74,7 +74,7 @@ tasks:
       - cd apps/backend && uv run ruff format --check app/exceptions/_generated/
 
   check:plist:
-    desc: Validate launchd plist schema with plutil -lint (macOS only).
+    desc: Validate launchd plist schema with plutil -lint (macOS only)
     platforms: [darwin]
     cmds:
       - plutil -lint infra/launchd/com.lip.ollama.plist
@@ -84,6 +84,18 @@ tasks:
     cmds:
       - cd apps/backend && uv lock --check
       - cd packages/error-contracts && uv lock --check
+
+  check:audit:
+    desc: Run pip-audit on backend deps (advisory; surfaces known CVEs)
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - uv run --frozen pip-audit --strict --disable-pip
+
+  check:coverage:
+    desc: Run full test suite with coverage and enforce the fail_under gate
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - uv run --frozen pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=90
 
   # ── Testing ──────────────────────────────────────────────────
   test:
@@ -129,11 +141,11 @@ tasks:
     desc: Generate Python error classes from errors.yaml
     dir: packages/error-contracts
     cmds:
-      - uv run --frozen python -c "from pathlib import Path; from scripts.generate import generate_python; generate_python(Path('errors.yaml'), Path('../../apps/backend/app/exceptions/_generated')); print('Generated Python error classes')"
+      - uv run --frozen python -m scripts.generate
 
   # ── Ollama launchd agent (one-time per machine; see docs/ollama-launchd.md) ──
   ollama:install:
-    desc: Install the Ollama launchd agent (copies plist + bootstraps under gui/$UID).
+    desc: Install the Ollama launchd agent (copies plist + bootstraps under gui/$UID)
     cmds:
       - mkdir -p ~/Library/Logs/ollama
       - mkdir -p ~/Library/LaunchAgents
@@ -141,7 +153,7 @@ tasks:
       - launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lip.ollama.plist
 
   ollama:uninstall:
-    desc: Remove the Ollama launchd agent (boots out + deletes the installed plist).
+    desc: Remove the Ollama launchd agent (boots out + deletes the installed plist)
     cmds:
       # `bootout` exits non-zero when the agent isn't loaded; tolerate that so
       # the task is idempotent and AC-10 ("exits 0") holds on a clean machine.
@@ -149,6 +161,6 @@ tasks:
       - rm -f ~/Library/LaunchAgents/com.lip.ollama.plist
 
   ollama:status:
-    desc: Report the launchctl state of the Ollama agent in the gui/$UID domain.
+    desc: Report the launchctl state of the Ollama agent in the gui/$UID domain
     cmds:
       - launchctl print gui/$(id -u)/com.lip.ollama

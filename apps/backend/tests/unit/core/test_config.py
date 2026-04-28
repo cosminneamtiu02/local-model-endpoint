@@ -28,7 +28,10 @@ def test_lip_ollama_host_env_var_overrides_default(
     the lowercase `lip_ollama_host` field. Do not set
     `_case_sensitive=True` here — that would require the env var to be
     literally `lip_ollama_host`, breaking the standard convention.
+
+    The override host must be in the SSRF-clamp allowlist (loopback /
+    RFC1918 / link-local) — `127.0.0.1` is the simplest legal value.
     """
-    monkeypatch.setenv("LIP_OLLAMA_HOST", "http://test:11434")
+    monkeypatch.setenv("LIP_OLLAMA_HOST", "http://127.0.0.1:11500")
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
-    assert str(settings.lip_ollama_host) == "http://test:11434/"
+    assert str(settings.lip_ollama_host) == "http://127.0.0.1:11500/"

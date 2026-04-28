@@ -29,14 +29,30 @@ uv sync --dev
 
 # Start the service with hot reload
 task dev
-# Equivalent: uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+# Equivalent: uv run python -m app --reload (host/port from Settings)
 ```
 
-Service: http://127.0.0.1:8000
+Service: http://127.0.0.1:8000 (defaults; override via env, see *Configuration* below)
 - `/health` — liveness probe
 - `/openapi.json` — auto-generated OpenAPI schema
 - `/docs` — Swagger UI (dev only)
 - `/redoc` — ReDoc (dev only)
+
+## Configuration
+
+All runtime configuration is through `pydantic-settings`. The full canonical list
+of env vars lives in [`apps/backend/.env.example`](../apps/backend/.env.example);
+the table below summarizes the production-relevant ones.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `APP_ENV` | `development` | One of `development` / `test` / `production`. Production hides `/docs`, `/redoc`, `/openapi.json` and emits JSON logs. |
+| `LOG_LEVEL` | `info` | One of `debug` / `info` / `warning` / `error` / `critical`. |
+| `LIP_OLLAMA_HOST` | `http://localhost:11434` | The local Ollama daemon URL. The `lip_` prefix avoids colliding with Ollama's own `OLLAMA_HOST`. Validator rejects non-private hosts unless `ALLOW_EXTERNAL_OLLAMA=true`. |
+| `ALLOW_EXTERNAL_OLLAMA` | `false` | Escape hatch acknowledging that LIP will forward consumer prompts to a non-private host. |
+| `BIND_HOST` | `127.0.0.1` | Interface for `task dev` / `python -m app`. Validator rejects `0.0.0.0` / `::` unless `ALLOW_PUBLIC_BIND=true` because LIP has no auth. |
+| `BIND_PORT` | `8000` | Port (1024–65535). |
+| `ALLOW_PUBLIC_BIND` | `false` | Escape hatch for binding all interfaces. Required to acknowledge the no-auth posture before LAN-exposing. |
 
 ## Testing
 
@@ -107,4 +123,16 @@ the on-disk plist.
 
 - Verify Ollama is running: `curl http://localhost:11434/api/tags`
 - Verify the Gemma model is pulled: `ollama list | grep gemma`
-- Override the host if needed: `OLLAMA_HOST=http://localhost:11500 uv run uvicorn ...`
+- Override the host if needed: `LIP_OLLAMA_HOST=http://127.0.0.1:11500 task dev` (the
+  Settings field is `lip_ollama_host`; setting plain `OLLAMA_HOST` would target
+  the daemon, not LIP).
+
+## Supply-chain audit
+
+```bash
+task check:audit  # runs pip-audit on the locked deps; surfaces known CVEs
+```
+
+Not wired into `task check` because pip-audit hits PyPI and a transient
+advisory bump should not block a local commit. Run on demand and as part of
+release prep.

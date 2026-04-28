@@ -12,7 +12,7 @@ class AudioContent(BaseModel):
     or a base64-encoded `base64` blob. Exactly one must be set.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: Literal["audio"] = "audio"
     url: str | None = Field(default=None, min_length=1)

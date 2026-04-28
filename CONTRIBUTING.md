@@ -1,10 +1,13 @@
 # Contributing
 
+> Read [CLAUDE.md](CLAUDE.md) first — it is the discipline contract. Every rule is mandatory.
+
 ## Getting Started
 
-1. Clone the repository
-2. Install prerequisites: Python 3.13, uv (https://docs.astral.sh/uv/), Task (https://taskfile.dev/)
-3. Run `task dev` to start the backend with hot reload
+1. Clone the repository.
+2. Install prerequisites: Python 3.13, uv (https://docs.astral.sh/uv/), Task (https://taskfile.dev/).
+3. Install dependencies: `cd apps/backend && uv sync --dev` (then `cd ../../packages/error-contracts && uv sync --dev` for the codegen workspace).
+4. Run `task dev` to start the backend with hot reload.
 
 ## Development Setup
 
