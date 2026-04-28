@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class QueueFullError(DomainError):
-    """Error: QUEUE_FULL."""
+    """Inference queue at capacity, request rejected (LIP-E004-F002)"""
 
     code: ClassVar[str] = "QUEUE_FULL"
     http_status: ClassVar[int] = 503

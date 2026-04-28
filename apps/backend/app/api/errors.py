@@ -137,7 +137,7 @@ def _build_problem_payload(
 
 def _problem_response(
     problem: ProblemDetails,
-    request_id: str,
+    request_id: str,  # noqa: ARG001 — kept for handler-side parity; header injected by RequestIdMiddleware
 ) -> Response:
     """Serialize a :class:`ProblemDetails` into the canonical RFC 7807 response.
 
@@ -145,16 +145,17 @@ def _problem_response(
     C-accelerated path) avoids the ``model_dump() -> JSONResponse`` two-step,
     and honors any future custom ``@field_serializer`` we add to ``ProblemDetails``
     (which the dict route would silently bypass).
+
+    ``X-Request-ID`` is intentionally NOT set here — :class:`RequestIdMiddleware`
+    is a pure ASGI middleware that injects the header on every response,
+    including the catch-all 500 path. Setting it here would duplicate the
+    header (httpx joins multi-value headers with commas).
     """
-    headers = {
-        "Content-Language": _CONTENT_LANGUAGE,
-        "X-Request-ID": request_id,
-    }
     return Response(
         content=problem.model_dump_json(),
         status_code=problem.status,
         media_type=PROBLEM_JSON_MEDIA_TYPE,
-        headers=headers,
+        headers={"Content-Language": _CONTENT_LANGUAGE},
     )
 
 
@@ -293,6 +294,16 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     (no PII / stack-trace leak). Operators correlate via ``request_id``.
     Method + path are added to the log event so a misbehaving endpoint is
     identifiable from a single log line without reconstructing the request.
+
+    ``X-Request-ID`` is set on the response *here* (not via :class:`RequestIdMiddleware`)
+    because Starlette routes ``@app.exception_handler(Exception)`` to
+    :class:`ServerErrorMiddleware`, which sits OUTSIDE the user middleware
+    stack (always outermost). The RequestIdMiddleware's ``send`` wrapper
+    therefore never sees this response, so the header would be missing
+    without an explicit injection. Typed handlers (``DomainError``,
+    ``RequestValidationError``, ``StarletteHTTPException``) run inside
+    :class:`ExceptionMiddleware`, whose responses do flow back through
+    RequestIdMiddleware, so they get the header automatically.
     """
     request_id = _resolve_request_id(request)
     logger.exception(
@@ -304,7 +315,9 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     )
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)
-    return _problem_response(problem, request_id)
+    response = _problem_response(problem, request_id)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 def register_exception_handlers(app: FastAPI) -> None:

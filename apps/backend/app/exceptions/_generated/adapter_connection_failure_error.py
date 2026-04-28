@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class AdapterConnectionFailureError(DomainError):
-    """Error: ADAPTER_CONNECTION_FAILURE."""
+    """Adapter (e.g. Ollama) connection or response failure (LIP-E003-F003)"""
 
     code: ClassVar[str] = "ADAPTER_CONNECTION_FAILURE"
     http_status: ClassVar[int] = 502

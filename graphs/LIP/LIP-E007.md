@@ -30,3 +30,8 @@ None. Both Epic-level questions raised at requirements-elicitation time were res
 
 - **OpenAPI exposure** — resolved by F001: both `/docs` (Swagger UI) and `/redoc` (Redoc UI) are exposed (FastAPI defaults retained). No production-disabling logic in v1 (no production/dev distinction; single deployment trusts local-network callers). README documents both URLs alongside `/openapi.json` (machine-readable contract source).
 - **README location** — resolved by F001: project root `README.md` (replaces the post-bootstrap generic README). Project-root location is the canonical landing page for the repo; consumers cloning land here. Feature-scoped README would split discoverability since LIP has effectively one consumer-facing surface (the inference endpoint).
+
+## Features
+
+- [LIP-E007-F001](LIP-E007-F001.md) — README documenting the conceptual model (verifiable, p180)
+- [LIP-E007-F002](LIP-E007-F002.md) — Working httpx-based example consumer integration snippet (verifiable, p190)

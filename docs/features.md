@@ -36,6 +36,17 @@ injected into every error body. This is the only middleware in v1.
 `GET /health` is a pure liveness probe returning `{"status":"ok"}`. Readiness gating on
 the warm-up signal will be added by LIP-E006-F001.
 
+### Ollama launchd agent ([infra/launchd/com.lip.ollama.plist](../infra/launchd/com.lip.ollama.plist))
+User-scope `launchd` agent that keeps the Ollama daemon running with LIP's calibrated
+env vars (`OLLAMA_KEEP_ALIVE=300s`, `OLLAMA_NUM_PARALLEL=1`,
+`OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`).
+Operator commands: `task ollama:install`, `task ollama:uninstall`, `task ollama:status`,
+and `task check:plist` (validates with `plutil -lint`; also wired into `task check`).
+Tests: [tests/unit/launchd/test_ollama_plist.py](../apps/backend/tests/unit/launchd/test_ollama_plist.py)
+parses the plist with `plistlib` and asserts the env vars, binary path, and log paths.
+See [docs/ollama-launchd.md](ollama-launchd.md) for env-var rationale and
+customization for non-Homebrew installs.
+
 ---
 
 ## Backend — Error System
@@ -58,6 +69,9 @@ Three handlers serialize `DomainError`, `RequestValidationError`, and unhandled
 `Exception` into the same `{error: {code, params, details, request_id}}` envelope. This
 guarantees every error the client sees is shape-identical regardless of where it
 originated.
+
+> **Forward-looking note:** LIP-E004-F004 will replace this envelope with
+> `application/problem+json` (RFC 7807) when feature-dev for that feature lands.
 
 ### Error Contracts Package ([packages/error-contracts/](../packages/error-contracts/))
 Single source of truth: `errors.yaml` drives a Python codegen step (classes + registry).
@@ -89,17 +103,34 @@ added during feature-dev.
 ## Backend — Tests
 
 ### Unit Tests ([apps/backend/tests/unit/](../apps/backend/tests/unit/))
-Cover DomainError construction and exception-handler serialization. Run in well under
-10 seconds.
+Run in well under 10 seconds. Cover:
+
+- **`tests/unit/core/`** — `test_config.py`: pydantic-settings parsing.
+- **`tests/unit/exceptions/`** — `test_domain_errors.py` (DomainError construction)
+  and `test_error_handler.py` (exception-handler serialization shape).
+- **`tests/unit/features/inference/`** — value-object and schema unit tests:
+  `test_message.py`, `test_model_params.py`, `test_content_part.py`,
+  `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
+  `test_inference_request.py`, `test_inference_response.py`,
+  `test_response_metadata.py`, `test_openapi_shape.py`, plus
+  `repository/test_ollama_client.py` for the typed httpx client wrapper.
+- **`tests/unit/launchd/`** — `test_ollama_plist.py` parses
+  `infra/launchd/com.lip.ollama.plist` with `plistlib` and asserts the five
+  Ollama env vars + binary path + log paths.
 
 ### Integration Tests ([apps/backend/tests/integration/](../apps/backend/tests/integration/))
 httpx.AsyncClient via ASGITransport against the FastAPI app in-process. No DB, no
-Testcontainers. Currently covers `/health` and request-ID middleware behavior.
+Testcontainers. Covers:
+
+- `test_health.py` — `/health` liveness and request-ID middleware echo.
+- `features/inference/test_lifecycle.py` — startup/shutdown lifespan against
+  Ollama via `httpx.MockTransport` (no network).
 
 ### Contract Tests ([apps/backend/tests/contract/](../apps/backend/tests/contract/))
-Validates the generated OpenAPI spec shape. A full Schemathesis fuzz against every
-endpoint will be wired once the LIP feature router (LIP-E001-F002) lands and there
-are inference operations to fuzz.
+`test_schemathesis.py` is currently a sanity check that validates the generated
+OpenAPI spec shape. A full Schemathesis fuzz against every endpoint will be wired
+once the LIP feature router (LIP-E001-F002) lands and there are inference
+operations to fuzz.
 
 ---
 

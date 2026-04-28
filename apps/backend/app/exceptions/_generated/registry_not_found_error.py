@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class RegistryNotFoundError(DomainError):
-    """Error: REGISTRY_NOT_FOUND."""
+    """Logical model name not present in the model registry (LIP-E002-F001)"""
 
     code: ClassVar[str] = "REGISTRY_NOT_FOUND"
     http_status: ClassVar[int] = 404

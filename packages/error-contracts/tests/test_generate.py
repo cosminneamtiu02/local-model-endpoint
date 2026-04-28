@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 SAMPLE_YAML = """
 version: 1
 errors:
@@ -182,15 +181,11 @@ def test_codegen_produces_valid_typescript(sample_errors_path: Path, output_dir:
     assert "ErrorParamsByCode" in content
 
 
-def test_codegen_produces_valid_required_keys(
-    sample_errors_path: Path, output_dir: Path
-):
+def test_codegen_produces_valid_required_keys(sample_errors_path: Path, output_dir: Path):
     """Codegen should produce a valid required-keys.json."""
     from scripts.generate import generate_required_keys
 
-    json_path = generate_required_keys(
-        sample_errors_path, output_dir / "required-keys.json"
-    )
+    json_path = generate_required_keys(sample_errors_path, output_dir / "required-keys.json")
 
     data = json.loads(json_path.read_text())
     assert data["version"] == 1
@@ -237,9 +232,7 @@ def test_codegen_rejects_invalid_param_type(tmp_path: Path, output_dir: Path):
 
     from scripts.generate import load_and_validate
 
-    with pytest.raises(
-        ValueError, match=r"Invalid param type 'list' for BAD_PARAMS\.items\."
-    ):
+    with pytest.raises(ValueError, match=r"Invalid param type 'list' for BAD_PARAMS\.items\."):
         load_and_validate(path)
 
 
@@ -249,9 +242,7 @@ def test_codegen_rejects_invalid_param_type(tmp_path: Path, output_dir: Path):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_codegen_emits_title_and_type_uri_classvars(
-    sample_errors_path: Path, output_dir: Path
-):
+def test_codegen_emits_title_and_type_uri_classvars(sample_errors_path: Path, output_dir: Path):
     """Each generated error class declares title and type_uri as ClassVars."""
     from scripts.generate import generate_python
 
@@ -265,9 +256,7 @@ def test_codegen_emits_title_and_type_uri_classvars(
     # Parameterless generic error — keeps the InternalError special case
     internal_content = (output_dir / "internal_error.py").read_text()
     assert 'title: ClassVar[str] = "Internal Server Error"' in internal_content
-    assert (
-        'type_uri: ClassVar[str] = "urn:lip:error:internal-error"' in internal_content
-    )
+    assert 'type_uri: ClassVar[str] = "urn:lip:error:internal-error"' in internal_content
 
 
 def test_codegen_emits_detail_method_with_template_substitution(
@@ -279,10 +268,7 @@ def test_codegen_emits_detail_method_with_template_substitution(
     generate_python(sample_errors_path, output_dir)
 
     content = (output_dir / "example_not_found_error.py").read_text()
-    assert (
-        'detail_template: ClassVar[str] = "Widget {widget_id} does not exist."'
-        in content
-    )
+    assert 'detail_template: ClassVar[str] = "Widget {widget_id} does not exist."' in content
     assert "def detail(self) -> str:" in content
     # Parameterized branch type-narrows via cast (survives `python -O`) then formats.
     assert 'cast("BaseModel", self.params)' in content
@@ -305,9 +291,7 @@ def test_codegen_emits_detail_method_returning_detail_template_for_parameterless
     assert "return self.detail_template or self.title" in content
 
 
-def test_codegen_derives_kebab_type_uri_from_screaming_snake_code(
-    tmp_path: Path, output_dir: Path
-):
+def test_codegen_derives_kebab_type_uri_from_screaming_snake_code(tmp_path: Path, output_dir: Path):
     """type_uri = urn:lip:error:<code.lower().replace('_', '-')> — verify across codes."""
     yaml_text = """
 version: 1
@@ -345,10 +329,7 @@ errors:
     assert 'type_uri: ClassVar[str] = "urn:lip:error:adapter-connection-failure"' in acf
 
     mcns = (output_dir / "model_capability_not_supported_error.py").read_text()
-    assert (
-        'type_uri: ClassVar[str] = "urn:lip:error:model-capability-not-supported"'
-        in mcns
-    )
+    assert 'type_uri: ClassVar[str] = "urn:lip:error:model-capability-not-supported"' in mcns
 
 
 def test_codegen_rejects_missing_title(tmp_path: Path, output_dir: Path):
@@ -387,9 +368,7 @@ errors:
 
     from scripts.generate import load_and_validate
 
-    with pytest.raises(
-        ValueError, match=r"NO_TEMPLATE.*missing required field 'detail_template'"
-    ):
+    with pytest.raises(ValueError, match=r"NO_TEMPLATE.*missing required field 'detail_template'"):
         load_and_validate(path)
 
 
@@ -421,9 +400,7 @@ def test_codegen_emits_detail_template_for_parameterless_errors(
     assert "params.model_dump()" not in content
 
 
-def test_codegen_emits_extra_forbid_on_params_classes(
-    sample_errors_path: Path, output_dir: Path
-):
+def test_codegen_emits_extra_forbid_on_params_classes(sample_errors_path: Path, output_dir: Path):
     """Generated *_params.py classes declare extra='forbid' to fail loudly on typos."""
     from scripts.generate import generate_python
 
@@ -456,9 +433,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_positional_template_placeholders(
-    tmp_path: Path, output_dir: Path
-):
+def test_codegen_rejects_positional_template_placeholders(tmp_path: Path, output_dir: Path):
     """detail_template with positional placeholders ({0}) is rejected at codegen."""
     yaml_text = """
 version: 1
@@ -502,9 +477,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_template_referencing_undeclared_param(
-    tmp_path: Path, output_dir: Path
-):
+def test_codegen_rejects_template_referencing_undeclared_param(tmp_path: Path, output_dir: Path):
     """detail_template referencing a placeholder absent from params is rejected at codegen."""
     yaml_text = """
 version: 1
@@ -573,9 +546,7 @@ errors:
     )
 
 
-def test_codegen_handles_special_chars_in_title_and_template(
-    tmp_path: Path, output_dir: Path
-):
+def test_codegen_handles_special_chars_in_title_and_template(tmp_path: Path, output_dir: Path):
     """Newlines, tabs, quotes, and unicode in title/detail_template don't break codegen."""
     yaml_text = """
 version: 1

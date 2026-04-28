@@ -1,5 +1,6 @@
 ---
 type: project
+id: LIP
 slug: LIP
 title: Local Inference Provider
 status: verifiable
@@ -72,3 +73,26 @@ A single solo developer who builds, operates, and consumes this service via one 
 ## Scale & scope expectations
 
 Single-machine deployment to one specific 16 GB M4 Mac Mini base. Local-network reachability only. Up to four consumer backend projects calling serially over HTTP, all owned by the same developer (one consumer today, three more anticipated within twelve months). One LLM model resident at a time (Gemma 4 E2B in v1). On-demand lifecycle: the FastAPI service is woken by an explicit consumer call and self-shuts after 10 minutes of no inference traffic; the Ollama daemon stays resident as a `launchd`-managed service with `OLLAMA_KEEP_ALIVE=300s`. v1 throughput is bounded by `asyncio.Semaphore(1)` — strictly serial inference at the service layer.
+
+## Epics
+
+- [LIP-E001](LIP-E001.md) — Inference Contract & Happy Path (verifiable, p10)
+- [LIP-E002](LIP-E002.md) — Model Registry (verifiable, p20)
+- [LIP-E003](LIP-E003.md) — Ollama Backend Adapter (verifiable, p30)
+- [LIP-E004](LIP-E004.md) — Backpressure, Timeouts & Error Responses (verifiable, p40)
+- [LIP-E005](LIP-E005.md) — Lifecycle Management (verifiable, p50)
+- [LIP-E006](LIP-E006.md) — Operational Visibility (verifiable, p60)
+- [LIP-E007](LIP-E007.md) — Documentation & Contract Discoverability (verifiable, p70)
+
+## Goal coverage
+
+| Goal | Description | Implementing features |
+|---|---|---|
+| G1 | Consumer projects decoupled from the inference backend | LIP-E001-F001, LIP-E001-F002, LIP-E002-F001, LIP-E003-F001, LIP-E003-F002, LIP-E003-F003 |
+| G2 | Per-model knowledge encapsulated in the service registry | LIP-E002-F001, LIP-E002-F002, LIP-E002-F003 |
+| G3 | Single observable point for all inference traffic | LIP-E001-F002, LIP-E004-F004 |
+| G4 | Architecture absorbs future per-project controls without breaking the contract | LIP-E001-F001, LIP-E001-F002 |
+| G5 | Reliable serial inference on the 16 GB M4 Mini under known load | LIP-E004-F001, LIP-E004-F002, LIP-E004-F003, LIP-E005-F003 |
+| G6 | On-demand lifecycle driven by consumers, not the OS | LIP-E005-F001, LIP-E005-F002, LIP-E005-F003 |
+| G7 | Live operational state exposed via HTTP | LIP-E006-F001, LIP-E006-F002 |
+| G8 | Consumers integrate without reading the service's source | LIP-E001-F001, LIP-E007-F001, LIP-E007-F002 |

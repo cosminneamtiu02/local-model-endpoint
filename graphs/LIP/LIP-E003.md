@@ -30,3 +30,9 @@ None. Both Epic-level questions raised at requirements-elicitation time were res
 
 - **Single `chat()` method vs multiple endpoint-family methods** — resolved by F002: a single high-level `async def chat(*, model_tag, messages, params) -> OllamaChatResult` against `/api/chat`. Embeddings and pure `/api/generate` are out of v1 scope (v1 ships only Gemma 4 E2B chat workloads).
 - **Connection-pool sizing and `httpx` transport-layer timeout** — resolved by F001: `httpx.Timeout(connect=5.0, read=None, write=None, pool=None)` (5s to dial Ollama, no read deadline since LIP-E004-F003's `asyncio.wait_for` owns the per-request budget). Connection pool uses `httpx`'s defaults (20 keepalive / 100 max) — adequate for v1's 1-concurrent-call serialized workload (LIP-E004-F001).
+
+## Features
+
+- [LIP-E003-F001](LIP-E003-F001.md) — Configurable Ollama host via pydantic-settings plus httpx async client (implemented, p60)
+- [LIP-E003-F002](LIP-E003-F002.md) — Service-envelope-to-Ollama-API request/response translation (verifiable, p70)
+- [LIP-E003-F003](LIP-E003-F003.md) — Ollama-specific failure mapping into DomainError instances (verifiable, p80)

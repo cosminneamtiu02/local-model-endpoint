@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class RateLimitedParams(BaseModel):
-    """Parameters for RATE_LIMITED error."""
+    """Parameters for RATE_LIMITED error: Client exceeded rate limit"""
 
     model_config = ConfigDict(extra="forbid")
 

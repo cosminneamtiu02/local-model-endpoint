@@ -94,6 +94,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.event.pull_request.user.login == 'dependabot[bot]' && vars.DEPENDABOT_LOCKFILE_SYNC_ENABLED == 'true'
     steps:
       - name: Verify PAT is configured
@@ -117,7 +118,7 @@ jobs:
         run: |
           LAST_AUTHOR=$(git log -1 --format='%ae' HEAD)
           echo "Last commit author email: $LAST_AUTHOR"
-          if echo "$LAST_AUTHOR" | grep -q "github-actions\[bot\]@users.noreply.github.com"; then
+          if echo "$LAST_AUTHOR" | grep -qF "41898282+github-actions"; then
             echo "Last commit is from github-actions[bot]; this workflow already ran on a previous event. Skipping to prevent loop."
             echo "skip=true" >> $GITHUB_OUTPUT
           else
@@ -158,10 +159,6 @@ jobs:
         if: steps.loop_guard.outputs.skip != 'true' && (steps.changed.outputs.needs_uv_backend == 'true' || steps.changed.outputs.needs_uv_error_contracts == 'true')
         uses: astral-sh/setup-uv@v7
 
-      - name: Set up Python
-        if: steps.loop_guard.outputs.skip != 'true' && (steps.changed.outputs.needs_uv_backend == 'true' || steps.changed.outputs.needs_uv_error_contracts == 'true')
-        run: uv python install 3.13
-
       - name: Regenerate backend uv.lock
         if: steps.loop_guard.outputs.skip != 'true' && steps.changed.outputs.needs_uv_backend == 'true'
         working-directory: apps/backend
@@ -193,4 +190,7 @@ jobs:
             -m "chore(deps): regenerate lockfiles after dependabot bump" \
             -m "Automated follow-up commit from .github/workflows/dependabot-lockfile-sync.yml. Dependabot's uv support does not regenerate workspace lockfiles when bumping a manifest; this workflow runs uv in regeneration mode and pushes the updated lockfile back so CI's frozen-lockfile check passes."
 
-          git push
+          git push || {
+            echo "Push failed (likely concurrent Dependabot push); next event will reconcile."
+            exit 0
+          }

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class InferenceTimeoutError(DomainError):
-    """Error: INFERENCE_TIMEOUT."""
+    """Inference exceeded the per-request timeout (LIP-E004-F003)"""
 
     code: ClassVar[str] = "INFERENCE_TIMEOUT"
     http_status: ClassVar[int] = 504

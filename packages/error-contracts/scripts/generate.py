@@ -16,6 +16,7 @@ import json
 import re
 import string
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -57,6 +58,11 @@ RESERVED_PARAM_NAMES = frozenset(
 # remains stable across regenerations.
 RUFF_LINE_LENGTH = 100
 
+# HTTP status range — codes outside [400, 599] are not error responses per
+# RFC 9110 §15.5/§15.6 and have no place in errors.yaml.
+HTTP_ERROR_STATUS_MIN = 400
+HTTP_ERROR_STATUS_MAX = 599
+
 
 def _code_to_class_name(code: str) -> str:
     """Convert SCREAMING_SNAKE to PascalCase error class name.
@@ -73,8 +79,7 @@ def _code_to_class_name(code: str) -> str:
 
 def _class_to_snake(name: str) -> str:
     """Convert PascalCase to snake_case. e.g. WidgetNotFoundError -> widget_not_found_error."""
-    s = re.sub(r"([A-Z])", r"_\1", name).lower().lstrip("_")
-    return s
+    return re.sub(r"([A-Z])", r"_\1", name).lower().lstrip("_")
 
 
 def _detect_duplicate_keys(raw_text: str) -> None:
@@ -104,11 +109,7 @@ def _detect_duplicate_keys(raw_text: str) -> None:
                     msg = f"Duplicate error code: {code}"
                     raise ValueError(msg)
                 seen_codes.add(code)
-            elif (
-                stripped
-                and not stripped.startswith(" ")
-                and not stripped.startswith("#")
-            ):
+            elif stripped and not stripped.startswith(" ") and not stripped.startswith("#"):
                 in_errors = False
 
 
@@ -122,9 +123,7 @@ def _derive_type_uri(code: str) -> str:
     return f"urn:lip:error:{code.lower().replace('_', '-')}"
 
 
-def _wrap_import_if_too_long(
-    import_line: str, *, line_length: int = RUFF_LINE_LENGTH
-) -> str:
+def _wrap_import_if_too_long(import_line: str, *, line_length: int = RUFF_LINE_LENGTH) -> str:
     """Wrap a ``from X import Y`` line in parens when single-line form exceeds line_length.
 
     Matches what ruff format would produce, so the generator output is
@@ -221,7 +220,11 @@ def load_and_validate(errors_path: Path) -> dict:
 
         # Validate http_status
         status = spec.get("http_status")
-        if not isinstance(status, int) or status < 400 or status > 599:
+        if (
+            not isinstance(status, int)
+            or status < HTTP_ERROR_STATUS_MIN
+            or status > HTTP_ERROR_STATUS_MAX
+        ):
             msg = f"Invalid HTTP status {status} for {code}. Must be 400-599."
             raise ValueError(msg)
 
@@ -270,16 +273,26 @@ def load_and_validate(errors_path: Path) -> dict:
     return data
 
 
-def _render_params_module(*, code: str, params_class_name: str, params: dict) -> str:
-    """Render the source for a generated *_params.py module."""
+def _render_params_module(
+    *, code: str, params_class_name: str, params: dict, description: str | None
+) -> str:
+    """Render the source for a generated *_params.py module.
+
+    The errors.yaml ``description`` is included in the params class docstring
+    when present so generated code carries the human-readable context.
+    """
     fields = "\n".join(
         f"    {name}: {PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
     )
+    if description:
+        docstring = f'"""Parameters for {code} error: {description}"""'
+    else:
+        docstring = f'"""Parameters for {code} error."""'
     return (
         '"""Generated from errors.yaml. Do not edit."""\n\n'
         "from pydantic import BaseModel, ConfigDict\n\n\n"
         f"class {params_class_name}(BaseModel):\n"
-        f'    """Parameters for {code} error."""\n\n'
+        f"    {docstring}\n\n"
         '    model_config = ConfigDict(extra="forbid")\n\n'
         f"{fields}\n"
     )
@@ -297,9 +310,7 @@ def _render_detail_template_decl(detail_template: str) -> str:
 def _render_super_block(params_class_name: str, params: dict) -> str:
     """Render the ``super().__init__(params=...)`` block, wrapped if long."""
     params_construct = ", ".join(f"{name}={name}" for name in params)
-    super_line = (
-        f"        super().__init__(params={params_class_name}({params_construct}))"
-    )
+    super_line = f"        super().__init__(params={params_class_name}({params_construct}))"
     if len(super_line) <= RUFF_LINE_LENGTH:
         return super_line + "\n"
     params_lines = ",\n                ".join(f"{name}={name}" for name in params)
@@ -312,7 +323,7 @@ def _render_super_block(params_class_name: str, params: dict) -> str:
     )
 
 
-def _render_error_module(
+def _render_error_module(  # noqa: PLR0913 — codegen template assembly is intentionally explicit
     *,
     code: str,
     error_class_name: str,
@@ -323,6 +334,7 @@ def _render_error_module(
     params: dict,
     params_class_name: str | None,
     params_file_stem: str | None,
+    description: str | None,
 ) -> str:
     """Render the source for a generated *_error.py module."""
     title_literal = _python_string_literal(title)
@@ -336,8 +348,10 @@ def _render_error_module(
     )
 
     if params:
-        assert params_class_name is not None  # invariant when params truthy
-        assert params_file_stem is not None
+        # Invariant: when params truthy, both names are populated by the caller.
+        # Use cast (not assert) so this survives `python -O`.
+        params_class_name = cast("str", params_class_name)
+        params_file_stem = cast("str", params_file_stem)
         super_block = _render_super_block(params_class_name, params)
         params_import = _wrap_import_if_too_long(
             f"from app.exceptions._generated.{params_file_stem} import {params_class_name}"
@@ -364,7 +378,7 @@ def _render_error_module(
             "if TYPE_CHECKING:\n"
             "    from pydantic import BaseModel\n\n\n"
             f"class {error_class_name}(DomainError):\n"
-            f'    """Error: {code}."""\n\n'
+            f'    """{description or f"Error: {code}."}"""\n\n'
             + classvars
             + "\n"
             + f"    def __init__(self, *, {kw_args}) -> None:\n"
@@ -434,6 +448,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                     code=code,
                     params_class_name=params_class_name,
                     params=params,
+                    description=spec.get("description"),
                 )
             )
             generated_files.append(params_file)
@@ -459,6 +474,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 params=params,
                 params_class_name=params_class_name,
                 params_file_stem=params_file_stem,
+                description=spec.get("description"),
             )
         )
         generated_files.append(error_file)
@@ -487,9 +503,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
 
     # Generate _registry.py (sorted, error classes only).
     registry_file = output_dir / "_registry.py"
-    error_imports = sorted(
-        (name, imp) for name, imp in init_entries if name.endswith("Error")
-    )
+    error_imports = sorted((name, imp) for name, imp in init_entries if name.endswith("Error"))
     sorted_registry_entries = sorted(registry_entries, key=lambda pair: pair[0])
     registry_content = (
         '"""Generated error registry. Do not edit."""\n\n'
@@ -564,9 +578,7 @@ def generate_required_keys(errors_path: Path, output_path: Path) -> Path:
     errors = data["errors"]
 
     keys = list(errors.keys())
-    params_by_key = {
-        code: list(spec.get("params", {}).keys()) for code, spec in errors.items()
-    }
+    params_by_key = {code: list(spec.get("params", {}).keys()) for code, spec in errors.items()}
 
     result = {
         "version": 1,

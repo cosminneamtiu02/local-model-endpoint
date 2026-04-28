@@ -36,6 +36,12 @@ class DomainError(Exception):
     params: BaseModel | None
 
     def __init__(self, *, params: BaseModel | None = None) -> None:
+        # DomainError is abstract — only generated subclasses (which carry the
+        # required ClassVars) may be instantiated. Direct construction is a
+        # programming error.
+        if type(self) is DomainError:
+            msg = "DomainError is abstract; instantiate a generated subclass instead."
+            raise TypeError(msg)
         self.params = params
         # Only expose code in exception args — never user params (PII risk)
         super().__init__(self.code)

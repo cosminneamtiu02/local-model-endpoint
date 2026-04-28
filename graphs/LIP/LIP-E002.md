@@ -31,3 +31,9 @@ None. The three Epic-level open questions raised at requirements-elicitation tim
 - **Registry entry schema** — resolved by F001 (`ModelInfo` Pydantic value-object with `logical_name`, `backend: Literal["ollama"]`, `backend_tag`, `sampling_defaults: ModelParams`, `capabilities: frozenset[Literal["text", "image", "audio"]]`, `context_max: int`).
 - **Logical-name format (namespaced vs flat)** — resolved by F001: flat (e.g., `"default-task"`, not `"text/default-task"`).
 - **Initial Gemma 4 E2B sampling defaults** — resolved by F001: `temperature=0.0` (cognitive-task workload, fully greedy/deterministic decoding per Ollama's documented behavior), all other `ModelParams` fields `None`, `think=False`.
+
+## Features
+
+- [LIP-E002-F001](LIP-E002-F001.md) — In-process model registry with Gemma 4 E2B as the v1 entry (verifiable, p30)
+- [LIP-E002-F002](LIP-E002-F002.md) — Per-model sampling default merging with consumer overrides (verifiable, p40)
+- [LIP-E002-F003](LIP-E002-F003.md) — Capability-flag exposure for envelope validation (verifiable, p50)

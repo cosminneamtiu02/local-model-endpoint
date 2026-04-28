@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class ModelCapabilityNotSupportedError(DomainError):
-    """Error: MODEL_CAPABILITY_NOT_SUPPORTED."""
+    """Request requires a capability the model does not advertise (LIP-E001-F002)"""
 
     code: ClassVar[str] = "MODEL_CAPABILITY_NOT_SUPPORTED"
     http_status: ClassVar[int] = 422

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class RateLimitedError(DomainError):
-    """Error: RATE_LIMITED."""
+    """Client exceeded rate limit"""
 
     code: ClassVar[str] = "RATE_LIMITED"
     http_status: ClassVar[int] = 429
