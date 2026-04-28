@@ -161,9 +161,12 @@ class OllamaClient:
         """Translate envelope -> Ollama /api/chat -> OllamaChatResult.
 
         ``model_tag`` is the registry-resolved backend tag. ``params`` is
-        already merged over registry defaults upstream. Failure mapping
-        (httpx exceptions -> typed DomainError) wraps this method.
+        already merged over registry defaults by the caller. Failure
+        mapping (httpx exceptions -> typed DomainError) wraps this method.
         """
+        # Field order intentionally mirrors the Ollama /api/chat spec
+        # example body (model, messages, options, stream, think) so wire
+        # dumps are reviewable side-by-side with upstream API docs.
         body: dict[str, Any] = {
             "model": model_tag,
             "messages": [translate_message(m) for m in messages],

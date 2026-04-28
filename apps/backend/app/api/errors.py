@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import uuid
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 from fastapi.exceptions import RequestValidationError
@@ -69,7 +69,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PROBLEM_JSON_MEDIA_TYPE = "application/problem+json; charset=utf-8"
+PROBLEM_JSON_MEDIA_TYPE: Final[str] = "application/problem+json; charset=utf-8"
 """RFC 7807 §3 media type, with explicit UTF-8 charset.
 
 RFC 8259 makes UTF-8 implicit for ``application/json``-style payloads, but
@@ -77,10 +77,10 @@ declaring it explicitly disambiguates against legacy proxies and intermediary
 caches that historically guessed the charset for unknown ``+json`` suffixes.
 """
 
-_CONTENT_LANGUAGE = "en"
+_CONTENT_LANGUAGE: Final[str] = "en"
 """RFC 7807 §3.1 advertises the language of ``title`` and ``detail``."""
 
-_ABOUT_BLANK = "about:blank"
+_ABOUT_BLANK: Final[str] = "about:blank"
 """RFC 7807 §4.2 ``type`` value for HTTP errors with no extra semantics."""
 
 
@@ -200,9 +200,6 @@ def _problem_response(problem: ProblemDetails) -> Response:
         media_type=PROBLEM_JSON_MEDIA_TYPE,
         headers={"Content-Language": _CONTENT_LANGUAGE},
     )
-
-
-# ── Handlers (module-level; registered via add_exception_handler below) ──
 
 
 async def _handle_domain_error(request: Request, exc: Exception) -> Response:

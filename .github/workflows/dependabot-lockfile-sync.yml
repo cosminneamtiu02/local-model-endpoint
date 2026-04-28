@@ -96,9 +96,14 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
 
+# GITHUB_TOKEN scopes are intentionally minimal: this workflow's only
+# write surface is ``git push`` authenticated by the user-supplied PAT
+# (see ``token: ${{ secrets.DEPENDABOT_LOCKFILE_SYNC_PAT }}`` on the
+# checkout step). The PAT carries Contents:RW + Pull-requests:RW for the
+# scope it needs; GITHUB_TOKEN itself is never exercised, so least-
+# privilege says read-only here.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 # Two synchronize events in quick succession (e.g. Dependabot push followed
 # by an unrelated sync) would otherwise spawn two parallel sync runs that
@@ -114,7 +119,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.pull_request.user.login == 'dependabot[bot]' && vars.DEPENDABOT_LOCKFILE_SYNC_ENABLED == 'true'
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.draft == false && vars.DEPENDABOT_LOCKFILE_SYNC_ENABLED == 'true'
     steps:
       - name: Verify PAT is configured
         env:
@@ -197,8 +202,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Stage only lockfile paths to avoid accidentally committing anything else
-          git add -u apps/backend/uv.lock packages/error-contracts/uv.lock 2>/dev/null || true
+          # Stage only lockfile paths to avoid accidentally committing anything else.
+          # Iterate so a missing lockfile is silently skipped while a real git error
+          # (corrupt index, permission failure) still propagates.
+          for f in apps/backend/uv.lock packages/error-contracts/uv.lock; do
+            if [ -f "$f" ]; then
+              git add "$f"
+            fi
+          done
 
           if git diff --cached --quiet; then
             echo "No lockfile changes to commit. Dependabot may have regenerated them correctly, or this PR touches no relevant manifests."

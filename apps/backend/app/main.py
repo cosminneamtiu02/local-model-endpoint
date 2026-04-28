@@ -21,10 +21,8 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan hook.
 
     Constructs lifespan-managed resources via lifespan_resources() and
-    parks the resulting AppState on `application.state.context` so
-    feature dependencies can read them via Depends factories. The
-    warm-up dummy inference (LIP-E005-F001) layers on top of this when
-    that feature lands.
+    parks the resulting AppState on ``application.state.context`` so
+    feature dependencies can read them via Depends factories.
     """
     settings = get_settings()
     # Log host/port separately rather than the full URL so a future

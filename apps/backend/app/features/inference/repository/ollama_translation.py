@@ -13,6 +13,7 @@ exercise them directly without transport mocking, and the
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
 
 from app.features.inference.model.audio_content import AudioContent
@@ -21,26 +22,28 @@ from app.features.inference.model.ollama_chat_result import OllamaChatResult
 from app.features.inference.model.text_content import TextContent
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from app.features.inference.model.finish_reason import FinishReason
     from app.features.inference.model.message import Message
     from app.features.inference.model.model_params import ModelParams
 
-# Single rename in v1: Ollama calls the max-tokens cap `num_predict`.
-# Adding a second entry here is a spec change — update
-# graphs/LIP/LIP-E003-F002.md (Scope > params mapping) before extending.
-_PARAM_RENAMES: Final[dict[str, str]] = {"max_tokens": "num_predict"}
+# Single rename: Ollama calls the max-tokens cap `num_predict`.
+# Wrapped in MappingProxyType so the rebind-immutable Final guarantee
+# extends to the contained dict — symmetric with the frozen=True value-
+# objects in this same feature.
+_PARAM_RENAMES: Final[Mapping[str, str]] = MappingProxyType({"max_tokens": "num_predict"})
 
-# Ollama `done_reason` values F002 propagates as-is. Anything outside
-# this allowlist (e.g. "unload", missing key, non-string) collapses to
-# "stop" — see build_chat_result. Typed with the public FinishReason
-# Literal so dict.get(...) narrows to the model's accepted alphabet
-# without needing a `# type: ignore` at the OllamaChatResult call site.
-# Note: F002 itself never emits "timeout"; that value is set by
-# E004-F003 when its asyncio.wait_for budget elapses around the call.
-_OLLAMA_TO_LIP_FINISH: Final[dict[str, FinishReason]] = {
-    "stop": "stop",
-    "length": "length",
-}
+# Ollama `done_reason` values propagated as-is. Anything outside this
+# allowlist (e.g. "unload", missing key, non-string) collapses to "stop"
+# — see build_chat_result. Typed with the public FinishReason Literal so
+# dict.get(...) narrows to the model's accepted alphabet.
+_OLLAMA_TO_LIP_FINISH: Final[Mapping[str, FinishReason]] = MappingProxyType(
+    {
+        "stop": "stop",
+        "length": "length",
+    }
+)
 
 
 def translate_message(msg: Message) -> dict[str, Any]:
@@ -48,11 +51,10 @@ def translate_message(msg: Message) -> dict[str, Any]:
 
     String-content messages pass through unchanged. List-content
     (multimodal) messages are flattened: text parts joined with the
-    `\\n\\n` separator, image base64 payloads collected into an `images`
-    array on the same message object (Ollama's wire format; URL-only
-    `ImageContent` raises NotImplementedError pending pre-encoding by
-    an upstream layer), and audio parts deferred until the [UNRESOLVED]
-    live-Ollama check is done.
+    ``\\n\\n`` separator, image base64 payloads collected into an
+    ``images`` array on the same message object. URL-only ImageContent
+    and AudioContent raise NotImplementedError; an upstream layer is
+    expected to pre-encode or reject them.
     """
     if isinstance(msg.content, str):
         return {"role": msg.role, "content": msg.content}
@@ -96,31 +98,28 @@ def translate_message(msg: Message) -> dict[str, Any]:
 def translate_params(params: ModelParams) -> dict[str, Any]:
     """ModelParams -> Ollama options dict.
 
-    Only consumer-set fields are forwarded (via
-    `model_dump(exclude_unset=True)`); registry defaults are merged
-    upstream by E002-F002. `think` is stripped here because it is
-    promoted to a top-level Ollama field by `OllamaClient.chat`,
-    not nested in `options`.
+    Only consumer-set fields are forwarded; registry defaults are merged
+    upstream. ``think`` is excluded here because it is promoted to a
+    top-level Ollama field by ``OllamaClient.chat``, not nested in
+    ``options``.
     """
-    consumer_overrides = params.model_dump(exclude_unset=True)
-    consumer_overrides.pop("think", None)
+    consumer_overrides = params.model_dump(exclude_unset=True, exclude={"think"})
     return {_PARAM_RENAMES.get(k, k): v for k, v in consumer_overrides.items()}
 
 
 def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     """Ollama /api/chat JSON response -> OllamaChatResult.
 
-    Reads `message.content` as the canonical answer (`tool_calls` are
-    ignored: tools are out of v1 scope, and Gemma 4 may emit them in
-    some configurations — `content` is the source of truth either way).
-    Token-count keys default to 0 if Ollama omits them; `done_reason`
-    falls back to "stop" for anything outside the LIP Literal set.
+    Reads ``message.content`` as the canonical answer (``tool_calls``
+    are ignored — tools are not currently supported, and ``content`` is
+    the source of truth either way). Token-count keys default to 0 if
+    Ollama omits them; ``done_reason`` falls back to "stop" for anything
+    outside the accepted Literal set.
 
-    Defensive: with `stream=False` Ollama is contractually required to
-    return a single terminal frame with `done=True`. A non-terminal
-    frame (e.g. proxy hiccup) would otherwise surface as a truncated
-    OllamaChatResult; surface the contract violation as a typed error
-    that F003's failure-mapping layer can convert to malformed_response.
+    Defensive: with ``stream=False`` Ollama is contractually required to
+    return a single terminal frame with ``done=True``. A non-terminal
+    frame (e.g. proxy hiccup) is surfaced as a typed KeyError so the
+    failure-mapping layer can convert it to malformed_response.
     """
     if not response_json.get("done", True):
         error_message = "Ollama returned done=False under stream=False; expected terminal frame."

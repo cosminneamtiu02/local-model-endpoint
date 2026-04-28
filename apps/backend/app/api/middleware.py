@@ -1,22 +1,16 @@
 """Request middleware — request ID propagation + per-request access log.
 
-Implemented as pure ASGI middleware (not BaseHTTPMiddleware) to avoid
-the documented cancellation and contextvar-fork issues with
-Starlette's BaseHTTPMiddleware (encode/starlette#1438, #1715). With
-LIP-E004-F003's per-request timeout, cancellation propagation is
-load-bearing: if a consumer disconnects mid-inference, the in-flight
-httpx request must be aborted so the semaphore slot frees.
+Implemented as pure ASGI middleware (not BaseHTTPMiddleware) to avoid the
+cancellation and contextvar-fork issues documented in encode/starlette
+#1438 and #1715 — cancellation must propagate cleanly so a disconnected
+consumer releases the in-flight semaphore slot.
 
 Two concerns layered on the ASGI scope:
-1. Validate / mint `X-Request-Id` and bind it via structlog
-   contextvars so every log line in the request carries it.
-2. Emit a single `request_completed` log line per request with
-   duration / status / method / path. This is the structlog-native
-   replacement for uvicorn's access log (silenced in core/logging.py).
-
-CORS, security headers, and auth were stripped during project-bootstrap
-because the service is local-network-only and v1's Project Boundary
-defers browser-protective surfaces to a future milestone.
+1. Validate / mint `X-Request-Id` and bind it via structlog contextvars
+   so every log line in the request carries it.
+2. Emit a single `request_completed` log line per request with duration
+   / status / method / path. This replaces uvicorn's access log
+   (silenced in core/logging.py).
 """
 
 import re
@@ -104,10 +98,6 @@ class RequestIdMiddleware:
         scope.setdefault("state", {})
         scope["state"]["request_id"] = request_id
 
-        # `nonlocal` is the canonical construct for binding an int from
-        # the inner closure — using a 1-element list to fake mutability
-        # is an idiomatic anti-pattern (PEP 3104 added nonlocal precisely
-        # to avoid that workaround).
         captured_status: int = 0
         method = str(scope.get("method", ""))
         path = str(scope.get("path", ""))

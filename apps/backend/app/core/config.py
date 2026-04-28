@@ -26,25 +26,11 @@ def _is_private_host(host: str) -> bool:
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables.
+    """Application settings loaded from environment variables."""
 
-    LIP-specific fields are added during feature-dev as LIP-E004 and
-    LIP-E005 are thickened. Planned-but-deferred fields:
-        - queue depth                     (LIP-E004-F001)
-        - per-request timeout seconds     (LIP-E004-F003)
-        - idle-shutdown interval seconds  (LIP-E005-F002)
-    """
-
-    # ``env_prefix="LIP_"`` namespaces every env-var read so a single shell
-    # can run both the Ollama daemon (which reads ``OLLAMA_HOST``) and LIP
-    # without crossed wires. Every field's env var is therefore
-    # ``LIP_<UPPER_FIELD_NAME>`` (e.g. ``LIP_APP_ENV``, ``LIP_OLLAMA_HOST``).
-    # ``case_sensitive=False`` matches pydantic-settings' default; pinning
-    # explicit defends against future minor-release default flips.
-    # ``env_ignore_empty=True`` lets an exported-but-empty ``LIP_X=`` fall
-    # back to the field default (the common shell-unset pattern).
-    # ``validate_default=True`` runs validators against literal defaults so
-    # a constraint-violating default fails at import time, not first-use.
+    # env_prefix="LIP_" disambiguates every env var from Ollama daemon's
+    # own OLLAMA_HOST. validate_default=True ensures bad defaults fail at
+    # import time.
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -81,10 +67,10 @@ class Settings(BaseSettings):
     # values unless this is explicitly True.
     allow_public_bind: bool = False
 
-    # Interface to bind uvicorn to. Default is loopback only; binding to
-    # 0.0.0.0 / :: requires opt-in via allow_public_bind because LIP has
-    # no authentication layer.
-    bind_host: str = Field(default="127.0.0.1")
+    # Interface to bind uvicorn to. Default is loopback only; binding to a
+    # non-private host requires opt-in via allow_public_bind because LIP
+    # has no authentication layer.
+    bind_host: str = "127.0.0.1"
     bind_port: int = Field(default=8000, ge=1024, le=65535)
 
     @model_validator(mode="after")

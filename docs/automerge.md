@@ -359,8 +359,9 @@ step 4 is only safe to flip on after the ruleset in step 1 is verified
    linear history, require a pull request before merging (0 approvals,
    dismiss stale approvals on push, require conversation resolution,
    squash-only), require status checks to pass with `strict: true` and
-   required contexts `backend-checks` and `error-contracts` (plus CodeQL if
-   the repo has a CodeQL workflow), block force pushes. Verify the contexts
+   required contexts `backend-checks` and `error-contracts` (LIP does not
+   ship CodeQL in v1 — drop the parenthetical from any template that
+   carries it), block force pushes. Verify the contexts
    bind to GitHub Actions (`integration_id: 15368`) using the
    [verification commands](#verification-commands) above.
 
