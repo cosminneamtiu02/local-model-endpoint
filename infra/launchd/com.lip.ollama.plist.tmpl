@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
+  LaunchAgent template. ``__HOME__`` is substituted with $HOME when
+  ``task ollama:install`` materializes the plist into
+  ``~/Library/LaunchAgents/com.lip.ollama.plist``. launchd does NOT
+  expand env vars in plists, so the substitution is a build step.
+
   LaunchAgent ONLY. Install under ~/Library/LaunchAgents/, never under
   /Library/LaunchDaemons/. The latter loads as root and lacks the user
   context Ollama needs (model paths under ~/.ollama, GPU access, etc.).
@@ -43,9 +48,9 @@
     <string>Background</string>
 
     <key>StandardOutPath</key>
-    <string>/Users/cosminneamtiu/Library/Logs/ollama/stdout.log</string>
+    <string>__HOME__/Library/Logs/ollama/stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/cosminneamtiu/Library/Logs/ollama/stderr.log</string>
+    <string>__HOME__/Library/Logs/ollama/stderr.log</string>
 </dict>
 </plist>

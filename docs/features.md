@@ -74,7 +74,7 @@ maps error code strings back to classes for handler lookup. The canonical list o
 lives in [`packages/error-contracts/errors.yaml`](../packages/error-contracts/errors.yaml)
 — do not duplicate it here (hand-curated lists drift the moment a code is added).
 
-### Exception Handlers ([app/api/errors.py](../apps/backend/app/api/errors.py))
+### Exception Handlers ([app/api/exception_handlers.py](../apps/backend/app/api/exception_handlers.py))
 Four handlers serialize `DomainError`, `RequestValidationError`, `StarletteHTTPException`,
 and unhandled `Exception` into a unified RFC 7807 `application/problem+json`
 ProblemDetails envelope (per LIP-E004-F004, PR #14). Every error the client sees is
@@ -131,7 +131,7 @@ Run in well under 10 seconds. Cover:
 - **`tests/unit/exceptions/`** — `test_base.py` (DomainError ergonomics),
   `test_domain_errors.py` (per-code construction), `test_registry.py`
   (`ERROR_CLASSES` lookup invariants), `test_error_handler.py` (exception-handler
-  unit tests; mirrors `app/api/errors.py`).
+  unit tests; mirrors `app/api/exception_handlers.py`).
 - **`tests/unit/schemas/`** — `test_problem_details.py`, `test_validation_error_detail.py`
   for the RFC 7807 wire shapes.
 - **`tests/unit/features/inference/`** — value-object and schema unit tests:
@@ -139,7 +139,7 @@ Run in well under 10 seconds. Cover:
   `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
   `test_inference_request.py`, `test_inference_response.py`,
   `test_response_metadata.py`, `test_ollama_chat_result.py`,
-  `test_openapi_shape.py`, plus `repository/test_ollama_client.py` and
+  `test_inference_schema_shapes.py`, plus `repository/test_ollama_client.py` and
   `repository/test_ollama_translation.py` for the typed httpx client wrapper
   and envelope↔Ollama translation.
 - **`tests/unit/launchd/`** — `test_ollama_plist.py` parses

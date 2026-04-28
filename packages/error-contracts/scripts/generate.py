@@ -1,13 +1,9 @@
 """Code generator from errors.yaml.
 
-Primary output: Python exception classes (one file per error class plus optional
-params class), wired through ``generate_python``. The Taskfile and CI invoke
-only this entry point, so the generated Python tree under
+Primary (and only) output: Python exception classes (one file per error class
+plus optional params class), wired through ``generate_python``. The Taskfile
+and CI invoke this entry point, and the generated Python tree under
 ``app/exceptions/_generated/`` is the canonical artifact.
-
-Secondary outputs: ``generate_typescript`` and ``generate_required_keys`` remain
-in this module but are not currently orchestrated. They are retained for future
-re-introduction if a frontend or translation-validation tool ships.
 
 Generated files are committed but never edited by hand.
 """
@@ -36,12 +32,6 @@ PARAM_TYPE_TO_PYTHON = {
     "integer": "int",
     "number": "float",
     "boolean": "bool",
-}
-PARAM_TYPE_TO_TS = {
-    "string": "string",
-    "integer": "number",
-    "number": "number",
-    "boolean": "boolean",
 }
 
 # RFC 7807 standard fields plus LIP project extensions plus the validation_errors
@@ -616,68 +606,6 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
             stale.unlink()
 
     return generated_files
-
-
-def generate_typescript(errors_path: Path, output_path: Path) -> Path:
-    """Generate TypeScript types from errors.yaml."""
-    data = load_and_validate(errors_path)
-    errors = data["errors"]
-
-    codes_array = ", ".join(f'"{code}"' for code in errors)
-
-    params_entries: list[str] = []
-    status_entries: list[str] = []
-    for code, spec in errors.items():
-        params = spec.get("params", {})
-        if params:
-            fields = "; ".join(
-                f"{name}: {PARAM_TYPE_TO_TS[ptype]}" for name, ptype in params.items()
-            )
-            params_entries.append(f"  {code}: {{ {fields} }};")
-        else:
-            params_entries.append(f"  {code}: Record<string, never>;")
-        status_entries.append(f"  {code}: {spec['http_status']},")
-
-    content = (
-        "// THIS FILE IS GENERATED FROM errors.yaml\n"
-        "// DO NOT EDIT BY HAND. Run `task errors:generate` to regenerate.\n\n"
-        f"export type ErrorCode =\n  | {'\n  | '.join(f'"{code}"' for code in errors)};\n\n"
-        "export interface ErrorParamsByCode {\n" + "\n".join(params_entries) + "\n}\n\n"
-        "export interface ApiErrorPayload<C extends ErrorCode = ErrorCode> {\n"
-        "  code: C;\n"
-        "  params: ErrorParamsByCode[C];\n"
-        "  details: Array<{ field: string; reason: string }> | null;\n"
-        "  request_id: string;\n"
-        "}\n\n"
-        f"export const ERROR_CODES: readonly ErrorCode[] = [{codes_array}] as const;\n\n"
-        "export const HTTP_STATUS_BY_CODE: Record<ErrorCode, number> = {\n"
-        + "\n".join(status_entries)
-        + "\n};\n"
-    )
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(content, encoding="utf-8")
-    return output_path
-
-
-def generate_required_keys(errors_path: Path, output_path: Path) -> Path:
-    """Generate required-keys.json for translation validation."""
-    data = load_and_validate(errors_path)
-    errors = data["errors"]
-
-    keys = list(errors)
-    params_by_key = {code: list(spec.get("params", {})) for code, spec in errors.items()}
-
-    result = {
-        "version": 1,
-        "namespace": "errors",
-        "keys": keys,
-        "params_by_key": params_by_key,
-    }
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    return output_path
 
 
 def _cli_main() -> None:

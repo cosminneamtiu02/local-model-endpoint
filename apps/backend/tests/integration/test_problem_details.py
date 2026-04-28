@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 
-from app.api.errors import PROBLEM_JSON_MEDIA_TYPE, register_exception_handlers
+from app.api.exception_handlers import PROBLEM_JSON_MEDIA_TYPE, register_exception_handlers
 from app.api.middleware import RequestIdMiddleware
 from app.exceptions import (
     AdapterConnectionFailureError,

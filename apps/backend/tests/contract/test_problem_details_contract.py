@@ -53,7 +53,7 @@ def test_health_route_declares_problem_details_default_response() -> None:
 
     The route uses ``responses={"default": ...}`` instead of enumerating
     individual 5xx codes (``500``, ``503``). This matches the truth on the
-    ground: the global exception handler in ``app/api/errors.py`` runs
+    ground: the global exception handler in ``app/api/exception_handlers.py`` runs
     against every status code we don't enumerate, and ``/health`` itself
     is liveness-only and never raises (so listing 500/503 as endpoint-
     specific responses would imply behavior that doesn't exist).
@@ -71,7 +71,7 @@ def test_health_route_declares_problem_details_default_response() -> None:
     # The ProblemDetails schema must be referenced under at least one
     # media type. The route declares both ``application/json`` (FastAPI's
     # default for ``model=...``) and ``application/problem+json`` (the
-    # runtime media type emitted by ``app/api/errors.py``).
+    # runtime media type emitted by ``app/api/exception_handlers.py``).
     assert any("ProblemDetails" in str(media) for media in content.values()), (
         f"/health 'default' response must reference ProblemDetails, got {content}"
     )

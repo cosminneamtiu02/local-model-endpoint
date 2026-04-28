@@ -22,7 +22,7 @@ milestone.
 in [packages/error-contracts/errors.yaml](../packages/error-contracts/errors.yaml) — a
 codegen script produces one Python exception class per error code in
 `app/exceptions/_generated/`. Four handlers in
-[app/api/errors.py](../apps/backend/app/api/errors.py) map `DomainError`,
+[app/api/exception_handlers.py](../apps/backend/app/api/exception_handlers.py) map `DomainError`,
 `RequestValidationError`, `StarletteHTTPException`, and unhandled `Exception` into a
 unified RFC 7807 `application/problem+json` ProblemDetails envelope (LIP-E004-F004).
 
