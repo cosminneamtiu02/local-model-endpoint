@@ -49,8 +49,11 @@
 #   - Contents: Read and write
 #   - Pull requests: Read and write
 #
-# Store it as a repo secret named DEPENDABOT_LOCKFILE_SYNC_PAT. See
-# docs/new-project-setup.md Phase 5b for step-by-step setup.
+# Store it as a repo secret named DEPENDABOT_LOCKFILE_SYNC_PAT. To set
+# up: create a fine-grained PAT scoped to this repo with the two
+# permissions above, save it as the repo secret named above, then enable
+# the workflow with `gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED
+# --body "true"`.
 #
 # PREREQUISITES (THIS WORKFLOW WILL NO-OP UNTIL ALL ARE SATISFIED)
 # ----------------------------------------------------------------
@@ -98,7 +101,7 @@ jobs:
           PAT: ${{ secrets.DEPENDABOT_LOCKFILE_SYNC_PAT }}
         run: |
           if [ -z "$PAT" ]; then
-            echo "::error::DEPENDABOT_LOCKFILE_SYNC_PAT secret is not set, but DEPENDABOT_LOCKFILE_SYNC_ENABLED variable is 'true'. Either create the PAT (see docs/new-project-setup.md Phase 5b) or unset the variable with: gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED --body 'false'"
+            echo "::error::DEPENDABOT_LOCKFILE_SYNC_PAT secret is not set, but DEPENDABOT_LOCKFILE_SYNC_ENABLED variable is 'true'. Either create a fine-grained PAT scoped to this repo (Contents:RW, Pull requests:RW) and save it as DEPENDABOT_LOCKFILE_SYNC_PAT, or unset the variable with: gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED --body 'false'"
             exit 1
           fi
 
@@ -124,9 +127,10 @@ jobs:
       - name: Detect which manifests changed
         id: changed
         if: steps.loop_guard.outputs.skip != 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           echo "Diffing $BASE_SHA..$HEAD_SHA"
 
           CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")

@@ -21,8 +21,15 @@ class DomainError(Exception):
 
     code: ClassVar[str]
     http_status: ClassVar[int]
+    params: BaseModel | None
 
     def __init__(self, *, params: BaseModel | None = None) -> None:
         self.params = params
         # Only expose code in exception args — never user params (PII risk)
         super().__init__(self.code)
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        if not hasattr(cls, "code") or not hasattr(cls, "http_status"):
+            msg = f"{cls.__name__} must declare ClassVar 'code' and 'http_status'"
+            raise TypeError(msg)

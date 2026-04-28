@@ -1,9 +1,10 @@
 """Top-level error response schema for OpenAPI documentation.
 
-This model is used as `responses={}` metadata on route decorators so the
-generated TypeScript client and Swagger UI know the error shape. The exception
-handler in api/errors.py builds error responses directly as JSONResponse dicts
-at runtime. ErrorResponse is never instantiated in application code.
+ErrorResponse is wired into route decorators via `responses={...}` once the LIP
+feature router lands (LIP-E001-F002). Until then it serves as the canonical
+error envelope reference for tests and contract specs. The exception handler in
+api/errors.py builds error responses directly as JSONResponse dicts at runtime.
+ErrorResponse is never instantiated in application code.
 """
 
 from pydantic import BaseModel

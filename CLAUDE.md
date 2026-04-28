@@ -20,6 +20,7 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
 - FastAPI, Pydantic v2, pydantic-settings, asyncio, httpx, structlog
 - Inference backend: Ollama (Gemma 4 E2B in v1)
 - Testing: pytest + pytest-asyncio + Schemathesis
+- Architecture enforcement: import-linter (contracts), Pyright (strict mode)
 - Task runner: Taskfile. No Make. No npm.
 - When unsure about a library API, use Context7 to fetch current documentation
   rather than relying on training data.
@@ -142,7 +143,7 @@ Type checker (Pyright strict) is a build failure, not a warning.
 
 Excluded: property-based, performance, mutation, snapshot, fuzz beyond Schemathesis.
 
-## Conventions (no code in template)
+## Conventions (planned, not yet implemented)
 
 - **WebSockets:** if added, endpoints in api/v1/ws/, envelope `{type, payload, request_id}`,
   ConnectionManager class.

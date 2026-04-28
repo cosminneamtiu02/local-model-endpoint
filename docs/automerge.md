@@ -137,7 +137,9 @@ The invariant only holds when every component is correctly configured. The setup
 
 ---
 
-## Incident log
+## Historical (pre-bootstrap)
+
+The incidents below are pre-bootstrap narrative from the full-stack template LIP was extracted from. The lessons (the four guard-condition / ruleset / `--auto` / sibling-conflict patterns) still apply unchanged. The symptom-level references to `frontend-checks`, `api-client-checks`, `pnpm-lock.yaml`, and `ERR_PNPM_OUTDATED_LOCKFILE` are pre-bootstrap context — those check names and that ecosystem no longer exist in this repo. Required status checks for LIP are `backend-checks` and `error-contracts`; the lockfile-sync workflow operates only on `uv.lock` files.
 
 ### Incident 1: PR #19 — auto-merged with red CI because ruleset didn't exist yet
 
@@ -238,8 +240,7 @@ This is the preferred path. It performs the rebase server-side, emits a `synchro
 **4. If the workflow is reporting `skipped` when you expect it to run,** the guard is returning false. Check in order: (a) is the PR author `dependabot[bot]` (not some other bot)? (b) is `DEPENDABOT_AUTOMERGE_ENABLED` set to the literal string `"true"`? Query with `gh variable list`. (c) is the workflow file still present on main with the correct guard condition? Compare against this repo's [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml).
 
 **5. If CI is red on the PR,** the auto-merge is correctly refusing to merge. Investigate the failing check. Common causes:
-   - `frontend-checks` with `ERR_PNPM_OUTDATED_LOCKFILE`: Dependabot modified `package.json` but not `pnpm-lock.yaml`. Close the PR, bump manually with `pnpm update --latest`, open a replacement that touches both files.
-   - `backend-checks` with an `uv sync` error: usually `pyproject.toml` / `uv.lock` divergence. Same pattern — close, manual bump, replacement.
+   - One of the relevant required-status-check names with an `uv sync` error: usually `pyproject.toml` / `uv.lock` divergence. Close the PR, run `uv lock` locally inside the affected workspace, commit both the manifest and lockfile atomically, open a replacement.
    - A genuine test failure introduced by the dependency bump: investigate as a real regression. Either pin the old version, or fix the code that broke.
 
 ### How to unstick a cascade of stuck PRs
@@ -257,13 +258,13 @@ done
 
 Each iteration takes about 60–90 seconds end-to-end. The `--watch` blocks until checks resolve, giving the auto-merge time to fire before starting the next.
 
-### The Dependabot lockfile gap — fixed at template level by the sync workflow
+### The Dependabot lockfile gap — fixed at the repo level by the sync workflow
 
-Dependabot's version update ecosystem support for pnpm workspaces has a known bug: when a monorepo uses a single root `pnpm-lock.yaml` and per-workspace `package.json` files, Dependabot updates only the manifest and fails to regenerate the root lockfile. CI then rejects the PR with `ERR_PNPM_OUTDATED_LOCKFILE` when `pnpm install --frozen-lockfile` runs. The backend has a looser equivalent: `uv sync --dev` regenerates `uv.lock` on the fly, so the divergence doesn't break CI, but the lockfile in git is still silently out of sync after every Dependabot merge.
+Dependabot's version updates touch only manifest files (`pyproject.toml` in LIP's case), not the lockfiles next to them. `uv sync --dev` is lenient about `pyproject.toml` / `uv.lock` divergence — CI doesn't break — but the lockfile in git is silently out of sync after every Dependabot merge unless something regenerates it.
 
-**The template now ships a fix:** [.github/workflows/dependabot-lockfile-sync.yml](../.github/workflows/dependabot-lockfile-sync.yml). See the "Lockfile sync workflow" section below for the architecture and the setup steps. Once enabled, the close-and-replace manual workflow is no longer needed — Dependabot PRs that hit the lockfile-gap bug are auto-fixed within 2–3 minutes of being opened, with zero human intervention, and then proceed through the normal auto-merge pipeline.
+**The repo ships a fix:** [.github/workflows/dependabot-lockfile-sync.yml](../.github/workflows/dependabot-lockfile-sync.yml). See "The lockfile sync workflow" section below for the architecture and the setup steps. Once enabled, Dependabot PRs that touch a `pyproject.toml` are auto-corrected within 2–3 minutes of being opened, with zero human intervention, and then proceed through the normal auto-merge pipeline.
 
-**Manual fallback if the sync workflow isn't enabled** (or fails for any reason): close the broken PR, run `pnpm update --latest <packages>` (or `uv lock` for backend) locally from the workspace directory, commit both the updated manifest and the regenerated lockfile atomically, open a replacement PR.
+**Manual fallback if the sync workflow isn't enabled** (or fails for any reason): close the broken PR, run `uv lock` locally inside the affected workspace (`apps/backend` or `packages/error-contracts`), commit both the updated manifest and the regenerated lockfile atomically, open a replacement PR.
 
 ---
 
@@ -278,11 +279,10 @@ Fires on every `pull_request` event (`opened`, `synchronize`, `reopened`). The j
 1. **Verifies the PAT secret exists** and fails loudly if it doesn't (see "Why a PAT is required" below).
 2. **Checks out the PR branch** using the PAT as the git token.
 3. **Guards against self-triggered loops** — if the most recent commit was authored by `github-actions[bot]@users.noreply.github.com`, the workflow skips without doing anything. This is the infinite-loop prevention: the workflow's own push becomes the head commit; the resulting `synchronize` event fires the workflow again; the loop guard detects its own authorship and exits cleanly.
-4. **Detects which manifests changed** by diffing `base.sha..head.sha`. Produces three flags: `needs_pnpm`, `needs_uv_backend`, `needs_uv_error_contracts`. The workflow only runs the package managers that actually have work to do.
-5. **Regenerates the pnpm lockfile** with `pnpm install --no-frozen-lockfile --lockfile-only` (skip installing `node_modules`, just update the lockfile).
-6. **Regenerates the uv lockfiles** with `uv lock` inside `apps/backend` and/or `packages/error-contracts` as needed.
-7. **Stages and commits** any lockfile changes. If `git diff --cached --quiet`, the workflow exits cleanly — there's nothing to push.
-8. **Pushes** the update back to the PR branch using the PAT.
+4. **Detects which manifests changed** by diffing `base.sha..head.sha`. Produces two flags: `needs_uv_backend` and `needs_uv_error_contracts`. The workflow only runs `uv lock` in the workspaces that actually have work to do.
+5. **Regenerates the uv lockfiles** with `uv lock` inside `apps/backend` and/or `packages/error-contracts` as needed.
+6. **Stages and commits** any lockfile changes. If `git diff --cached --quiet`, the workflow exits cleanly — there's nothing to push.
+7. **Pushes** the update back to the PR branch using the PAT.
 
 The push triggers a new `pull_request.synchronize` event, which fires the workflow again (no-op, loop guard catches it) plus the auto-merge workflow and CI. CI now runs against the corrected lockfile and passes. Auto-merge queue sees all required checks green and executes the squash-merge.
 
@@ -331,17 +331,17 @@ Either sequence converges to the same end state in roughly the same wall clock t
 gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED --body "false"
 ```
 
-Effective on the next `pull_request` event. The workflow continues to run on every event but reports `skipped` instead of doing anything. The auto-merge workflow is not affected; PRs that would have been lockfile-fixed will now sit stuck with red CI again until either you flip the variable back on, you manually run `pnpm update`/`uv lock` and push, or you close and manually replace the PR.
+Effective on the next `pull_request` event. The workflow continues to run on every event but reports `skipped` instead of doing anything. The auto-merge workflow is not affected; PRs that would have been lockfile-fixed will now sit stuck until either you flip the variable back on, you manually run `uv lock` and push, or you close and manually replace the PR.
 
 ---
 
 ## Related reading
 
 - [ADR-010: Dependabot Auto-Merge Exception to Manual-Squash Rule](decisions.md#adr-010-dependabot-auto-merge-exception-to-manual-squash-rule) — the design decision and its rationale
-- [docs/new-project-setup.md Phase 3](new-project-setup.md) — merge method settings the auto-merge workflow depends on
-- [docs/new-project-setup.md Phase 4](new-project-setup.md) — the `main-protection` ruleset setup
-- [docs/new-project-setup.md Phase 5](new-project-setup.md) — workflow permissions and `DEPENDABOT_AUTOMERGE_ENABLED` variable
-- [docs/new-project-setup.md Phase 5b](new-project-setup.md) — `DEPENDABOT_LOCKFILE_SYNC_ENABLED` variable + PAT setup for the lockfile sync workflow
+- Phase 3 (historical setup checklist) — merge method settings the auto-merge workflow depends on (squash-only, branch auto-delete, `allow_auto_merge`)
+- Phase 4 (historical setup checklist) — the `main-protection` ruleset setup with required status checks bound to GitHub Actions
+- Phase 5 (historical setup checklist) — workflow permissions and the `DEPENDABOT_AUTOMERGE_ENABLED` variable, set only after Phase 4 ruleset verification
+- Phase 5b (historical setup checklist) — `DEPENDABOT_LOCKFILE_SYNC_ENABLED` variable plus the fine-grained PAT secret for the lockfile sync workflow
 - [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml) — the auto-merge workflow with inline comments
 - [.github/workflows/dependabot-lockfile-sync.yml](../.github/workflows/dependabot-lockfile-sync.yml) — the lockfile sync workflow with inline comments
 - [.github/dependabot.yml](../.github/dependabot.yml) — grouping configuration with rationale comments
