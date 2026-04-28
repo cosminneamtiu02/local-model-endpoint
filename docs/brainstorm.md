@@ -38,4 +38,3 @@ Template fit — derive from existing monorepo template and delete frontend, or 
 Pre-elicitation homework (must do first). Stand up Ollama on the Mini, pull gemma4:e2b, run with the env vars above, time real requests with realistic prompt sizes. Use measured tok/s and p95 latency to size the queue depth and timeout in elicitation, not extrapolated numbers.
 
 That's the artifact. Take it to idea-disambiguation next, not brainstorming. And do the homework before the skill runs — elicitation grounded in real numbers is worth ten times the same elicitation grounded in guesses.
-Which was it, by the way — the handoff, or the stall?

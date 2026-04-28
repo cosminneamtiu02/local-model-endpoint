@@ -18,9 +18,15 @@ class InferenceRequest(BaseModel):
     validating contents.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    messages: list[Message] = Field(min_length=1)
-    model: str = Field(min_length=1)
+    # max_length on messages caps a single inference body; 64 is far
+    # above any realistic conversation chain on Gemma's 128K context.
+    messages: list[Message] = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
     params: ModelParams = Field(default_factory=ModelParams)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    # metadata stays dict[str, Any] to honor the "v1 reserves space
+    # without validating contents" contract, but max_length=16 caps the
+    # number of keys so a malicious LAN consumer cannot blow up the
+    # process with `{"x_<n>": <huge>}` style payloads.
+    metadata: dict[str, Any] = Field(default_factory=dict, max_length=16)

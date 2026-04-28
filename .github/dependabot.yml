@@ -27,6 +27,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    rebase-strategy: "auto"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
@@ -37,21 +38,28 @@ updates:
         patterns:
           - "pydantic"
           - "pydantic-settings"
+        # Major bumps stay ungrouped so they're evaluated individually;
+        # only minor/patch ride together in a single PR.
+        update-types: ["minor", "patch"]
       pytest:
         patterns:
           - "pytest"
           - "pytest-*"
+        update-types: ["minor", "patch"]
       fastapi-stack:
         patterns:
           - "fastapi"
           - "starlette"
           - "uvicorn*"
+        update-types: ["minor", "patch"]
       dev-tools:
         patterns:
           - "ruff"
           - "pyright"
           - "import-linter"
           - "schemathesis"
+          - "pip-audit"
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "pip"
     directory: "/packages/error-contracts"
@@ -59,6 +67,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    rebase-strategy: "auto"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
@@ -69,6 +78,12 @@ updates:
         patterns:
           - "pytest"
           - "pytest-*"
+        update-types: ["minor", "patch"]
+      dev-tools:
+        patterns:
+          - "ruff"
+          - "pyright"
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -76,6 +91,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    rebase-strategy: "auto"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
@@ -85,3 +101,4 @@ updates:
       github-official-actions:
         patterns:
           - "actions/*"
+        update-types: ["minor", "patch"]

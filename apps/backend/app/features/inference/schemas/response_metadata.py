@@ -13,7 +13,7 @@ class ResponseMetadata(BaseModel):
     rather than a silent drift.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     model: str = Field(min_length=1)
     prompt_tokens: int = Field(ge=0)

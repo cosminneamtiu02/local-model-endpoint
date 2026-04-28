@@ -12,7 +12,7 @@ class InferenceResponse(BaseModel):
     scope — every response is buffered in full before return.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     content: str
     metadata: ResponseMetadata

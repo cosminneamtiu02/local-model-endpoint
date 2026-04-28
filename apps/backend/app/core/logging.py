@@ -10,7 +10,7 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     """Configure structlog for the application.
 
     Args:
-        log_level: The minimum log level (debug, info, warning, error).
+        log_level: The minimum log level (debug, info, warning, error, critical).
         json_output: If True, output JSON. If False, output pretty console format.
     """
     # Build the shared processor chain. In JSON mode we insert
@@ -24,7 +24,10 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="iso"),
+        # utc=True keeps log timestamps in lockstep with the project's
+        # datetime.now(UTC) discipline (see CLAUDE.md). Without it,
+        # structlog defaults to local time, producing tz-ambiguous lines.
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
     ]
     if json_output:
@@ -46,7 +49,11 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
         cache_logger_on_first_use=True,
     )
 
+    # foreign_pre_chain pipes stdlib-originated records (uvicorn, httpx,
+    # asyncio) through the same processor stack so JSON output stays
+    # uniform across native structlog and stdlib emitters.
     formatter = structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=shared_processors,
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             renderer,
@@ -61,5 +68,10 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     root_logger.addHandler(handler)
     root_logger.setLevel(log_level.upper())
 
-    # Silence noisy third-party loggers
+    # Silence noisy third-party loggers. uvicorn.access duplicates
+    # information that the request-id middleware (and a future
+    # request.completed line) already carries — and we don't want
+    # the unstructured access format polluting JSON output.
+    # This is the one approved use of stdlib logging.getLogger; the
+    # forbidden pattern is using stdlib loggers for application logs.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

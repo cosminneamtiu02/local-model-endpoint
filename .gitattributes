@@ -16,5 +16,6 @@
 # Generated files — diff but do not merge
 apps/backend/app/exceptions/_generated/** linguist-generated=true
 
-# Lock files
+# Lock files (collapse in PR diffs; tracked but not human-reviewed)
 apps/backend/uv.lock linguist-generated=true -diff
+packages/error-contracts/uv.lock linguist-generated=true -diff

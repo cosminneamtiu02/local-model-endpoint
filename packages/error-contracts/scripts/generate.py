@@ -13,6 +13,7 @@ Generated files are committed but never edited by hand.
 """
 
 import json
+import keyword
 import re
 import string
 from pathlib import Path
@@ -203,6 +204,40 @@ def _validate_detail_template(code: str, template: str, params: dict) -> None:
         raise ValueError(msg)
 
 
+def _validate_params(code: str, params: dict) -> None:
+    """Validate param types, reserved-name collisions, and identifier safety.
+
+    Three independent checks per param:
+    1. Type is one of VALID_PARAM_TYPES.
+    2. Name does not collide with a reserved RFC 7807 / LIP envelope key
+       (response handler crashes on kwargs collision otherwise).
+    3. Name is a valid Python identifier and not a reserved keyword (the
+       codegen emits ``def __init__(self, *, <name>: <type>)``, so a bad
+       name produces invalid Python at class-definition time).
+    """
+    for param_name, param_type in params.items():
+        if param_type not in VALID_PARAM_TYPES:
+            msg = (
+                f"Invalid param type '{param_type}' for {code}.{param_name}. "
+                f"Must be one of: {', '.join(sorted(VALID_PARAM_TYPES))}"
+            )
+            raise ValueError(msg)
+        if param_name in RESERVED_PARAM_NAMES:
+            msg = (
+                f"Param name '{param_name}' on {code} collides with a reserved "
+                f"RFC 7807 / LIP envelope key (one of "
+                f"{', '.join(sorted(RESERVED_PARAM_NAMES))}); "
+                f"the response handler would crash on the kwargs collision."
+            )
+            raise ValueError(msg)
+        if not param_name.isidentifier() or keyword.iskeyword(param_name):
+            msg = (
+                f"Invalid param name '{param_name}' for {code}: must be a valid "
+                "Python identifier and not a reserved keyword"
+            )
+            raise ValueError(msg)
+
+
 def load_and_validate(errors_path: Path) -> dict:
     """Load errors.yaml and validate its contents."""
     raw_text = errors_path.read_text()
@@ -228,23 +263,9 @@ def load_and_validate(errors_path: Path) -> dict:
             msg = f"Invalid HTTP status {status} for {code}. Must be 400-599."
             raise ValueError(msg)
 
-        # Validate param types and reserved names
+        # Validate param types, reserved names, and identifier safety
         params = spec.get("params", {})
-        for param_name, param_type in params.items():
-            if param_type not in VALID_PARAM_TYPES:
-                msg = (
-                    f"Invalid param type '{param_type}' for {code}.{param_name}. "
-                    f"Must be one of: {', '.join(sorted(VALID_PARAM_TYPES))}"
-                )
-                raise ValueError(msg)
-            if param_name in RESERVED_PARAM_NAMES:
-                msg = (
-                    f"Param name '{param_name}' on {code} collides with a reserved "
-                    f"RFC 7807 / LIP envelope key (one of "
-                    f"{', '.join(sorted(RESERVED_PARAM_NAMES))}); "
-                    f"the response handler would crash on the kwargs collision."
-                )
-                raise ValueError(msg)
+        _validate_params(code, params)
 
         # Validate RFC 7807 fields (LIP-E004-F004): both required, both strings.
         for required in ("title", "detail_template"):
@@ -590,3 +611,21 @@ def generate_required_keys(errors_path: Path, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, indent=2) + "\n")
     return output_path
+
+
+def _cli_main() -> None:
+    """Run the Python codegen against the canonical errors.yaml location.
+
+    `task errors:generate` invokes this entrypoint so the canonical
+    code path lives in this module rather than a fragile inline
+    `python -c` one-liner in the Taskfile.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    errors_yaml = repo_root / "errors.yaml"
+    output_dir = repo_root.parent.parent / "apps" / "backend" / "app" / "exceptions" / "_generated"
+    generated = generate_python(errors_yaml, output_dir)
+    print(f"Generated {len(generated)} Python error files in {output_dir}")  # noqa: T201
+
+
+if __name__ == "__main__":
+    _cli_main()

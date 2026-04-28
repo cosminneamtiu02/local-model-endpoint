@@ -26,6 +26,9 @@ htmlcov/
 *.swp
 *.swo
 
+# Claude Code per-machine working state (worktrees, transcripts, etc.)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

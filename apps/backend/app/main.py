@@ -1,6 +1,6 @@
 """FastAPI application factory."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import structlog
@@ -8,7 +8,6 @@ from fastapi import FastAPI
 
 from app.api.deps import get_settings
 from app.api.errors import register_exception_handlers
-from app.api.health_router import router as health_router
 from app.api.middleware import configure_middleware
 from app.api.router_registry import lifespan_resources, register_routers
 from app.core.logging import configure_logging
@@ -17,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan hook.
 
     Constructs lifespan-managed resources via lifespan_resources() and
@@ -27,7 +26,15 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     that feature lands.
     """
     settings = get_settings()
-    logger.info("app_startup", env=settings.app_env)
+    logger.info(
+        "app_startup",
+        env=settings.app_env,
+        version=application.version,
+        bind_host=settings.bind_host,
+        bind_port=settings.bind_port,
+        lip_ollama_host=str(settings.lip_ollama_host),
+        log_level=settings.log_level,
+    )
     async with lifespan_resources(settings) as state:
         application.state.context = state
         try:
@@ -59,7 +66,6 @@ def create_app() -> FastAPI:
 
     configure_middleware(application)
     register_exception_handlers(application)
-    application.include_router(health_router)
     register_routers(application)
 
     return application
