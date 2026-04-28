@@ -3,7 +3,7 @@
 Going through this entry point (rather than `uvicorn app.main:app
 --host ... --port ...` with hardcoded flags) keeps Settings as the
 single source of truth for bind_host / bind_port. The validator that
-rejects 0.0.0.0 binds without ALLOW_PUBLIC_BIND=true then actually
+rejects 0.0.0.0 binds without LIP_ALLOW_PUBLIC_BIND=true then actually
 takes effect on the running process.
 """
 

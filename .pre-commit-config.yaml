@@ -1,3 +1,10 @@
+# ``default_install_hook_types`` makes the pre-push-staged hooks (pytest,
+# pyright, import-linter below) install on a plain ``pre-commit install``.
+# Without this, a fresh-clone developer who does not also run
+# ``pre-commit install --hook-type pre-push`` silently gets none of the
+# slow safety nets — the most common bootstrap stumble for this repo.
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
@@ -26,9 +33,12 @@ repos:
   - repo: local
     hooks:
       # Pre-commit: validate Taskfile syntax (check-yaml excludes Taskfile.yml).
+      # The ``command -v task`` guard surfaces a clearer error than the raw
+      # "bash: task: command not found" if the developer hasn't installed
+      # Taskfile yet.
       - id: taskfile-syntax
         name: Validate Taskfile syntax
-        entry: bash -c "task --list-all > /dev/null"
+        entry: scripts/check_taskfile.sh
         language: system
         pass_filenames: false
         files: ^Taskfile\.yml$

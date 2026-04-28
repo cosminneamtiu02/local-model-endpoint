@@ -97,7 +97,14 @@ def _resolve_request_id(request: Request) -> str:
     if isinstance(request_id, str) and request_id:
         return request_id
     fallback = str(uuid.uuid4())
-    logger.warning("request_id_missing_in_state", fallback_request_id=fallback)
+    # Path + method are added so a single warning identifies the
+    # misconfigured route without forcing operators to re-grep the code.
+    logger.warning(
+        "request_id_missing_in_state",
+        fallback_request_id=fallback,
+        path=request.url.path,
+        method=request.method,
+    )
     return fallback
 
 
@@ -135,10 +142,7 @@ def _build_problem_payload(
     )
 
 
-def _problem_response(
-    problem: ProblemDetails,
-    request_id: str,  # noqa: ARG001 — kept for handler-side parity; header injected by RequestIdMiddleware
-) -> Response:
+def _problem_response(problem: ProblemDetails) -> Response:
     """Serialize a :class:`ProblemDetails` into the canonical RFC 7807 response.
 
     Single-pass serialization via ``model_dump_json()`` (Pydantic's
@@ -146,10 +150,12 @@ def _problem_response(
     and honors any future custom ``@field_serializer`` we add to ``ProblemDetails``
     (which the dict route would silently bypass).
 
-    ``X-Request-ID`` is intentionally NOT set here — :class:`RequestIdMiddleware`
-    is a pure ASGI middleware that injects the header on every response,
-    including the catch-all 500 path. Setting it here would duplicate the
-    header (httpx joins multi-value headers with commas).
+    ``X-Request-ID`` is intentionally NOT set on typed-handler responses —
+    :class:`RequestIdMiddleware` is a pure ASGI middleware that injects the
+    header on every response that flows through the user middleware stack.
+    The catch-all 500 path is the one exception (Starlette's
+    ``ServerErrorMiddleware`` runs OUTSIDE the user stack), so
+    :func:`_handle_unhandled_exception` injects the header explicitly there.
     """
     return Response(
         content=problem.model_dump_json(),
@@ -167,7 +173,7 @@ async def _handle_domain_error(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, DomainError)  # noqa: S101 — narrows for static checkers
     request_id = _resolve_request_id(request)
     problem = _build_problem_payload(exc, request, request_id)
-    return _problem_response(problem, request_id)
+    return _problem_response(problem)
 
 
 async def _handle_validation_error(request: Request, exc: Exception) -> Response:
@@ -216,7 +222,7 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         detail_override=detail_override,
         extras={"validation_errors": validation_errors},
     )
-    return _problem_response(problem, request_id)
+    return _problem_response(problem)
 
 
 def _http_status_phrase(status_code: int) -> str:
@@ -273,7 +279,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
             request_id,
             detail_override=detail_text,
         )
-        return _problem_response(problem, request_id)
+        return _problem_response(problem)
 
     problem = ProblemDetails(
         type=_ABOUT_BLANK,
@@ -284,7 +290,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         code=_http_code_for_status(status_code),
         request_id=request_id,
     )
-    return _problem_response(problem, request_id)
+    return _problem_response(problem)
 
 
 async def _handle_unhandled_exception(request: Request, exc: Exception) -> Response:
@@ -306,16 +312,24 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     RequestIdMiddleware, so they get the header automatically.
     """
     request_id = _resolve_request_id(request)
+    # ``exc_message`` is added (alongside ``exc_type``) so dev-mode
+    # ConsoleRenderer logs and JSON-mode bucket-by-message both have
+    # the message at the structured-log layer without parsing the
+    # nested ``dict_tracebacks`` payload. The message is not echoed
+    # into the response body — only ``InternalError``'s rendered detail
+    # ships to the consumer, preserving the no-PII / no-stack-trace-leak
+    # contract on the wire.
     logger.exception(
         "unhandled_exception",
         request_id=request_id,
         exc_type=type(exc).__name__,
+        exc_message=str(exc),
         method=request.method,
         path=request.url.path,
     )
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)
-    response = _problem_response(problem, request_id)
+    response = _problem_response(problem)
     response.headers["X-Request-ID"] = request_id
     return response
 

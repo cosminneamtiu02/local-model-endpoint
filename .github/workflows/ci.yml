@@ -57,6 +57,16 @@ jobs:
         working-directory: .
         run: task check:test
 
+      # Lockfile freshness: a manifest change without a corresponding
+      # ``uv lock`` regen would slip past the local-only ``task check``
+      # otherwise. Symmetric with the ``error-contracts`` job's
+      # ``check:errors`` gate. ``check:plist`` is intentionally omitted
+      # — it is darwin-only (validates the launchd plist with ``plutil``)
+      # and the runner is ``ubuntu-latest``.
+      - name: Lockfile freshness check
+        working-directory: .
+        run: task check:lockfile
+
   error-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -84,6 +94,10 @@ jobs:
       - name: Verify error contracts (codegen + diff)
         working-directory: .
         run: task check:errors
+
+      - name: Type check (codegen + tests)
+        working-directory: .
+        run: task check:types:errors
 
       - name: Codegen + validator tests
         run: uv run pytest tests/ -v

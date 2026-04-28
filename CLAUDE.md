@@ -43,7 +43,7 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
 app/core/           -- config, logging
 app/api/            -- middleware, exception handler, health, shared deps
 app/exceptions/     -- DomainError hierarchy (base + _generated/)
-app/schemas/        -- ErrorResponse, ErrorBody, ErrorDetail
+app/schemas/        -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse (RFC 7807 problem+json + liveness shape)
 app/features/<feature>/ -- model, repository, service, router, schemas/
 ```
 
