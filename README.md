@@ -23,8 +23,10 @@ cd apps/backend
 uv sync --dev
 
 # Run the service
-uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+task dev
 ```
+
+`task dev` runs `uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000` under the hood; reach for the bare `uv run` form only if you need to override one of those flags.
 
 ## Commands
 
@@ -44,11 +46,15 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ## Documentation
 
 - [Disambiguated idea](docs/disambigued-idea.md) — full project description
-- [Architecture](docs/architecture.md)
-- [Conventions](docs/conventions.md)
-- [Decisions](docs/decisions.md)
-- [Testing](docs/testing.md)
-- [Runbook](docs/runbook.md)
+- [Features](docs/features.md) — catalog of features in the box
+- [Architecture](docs/architecture.md) — vertical-slice layout and layer rules
+- [Conventions](docs/conventions.md) — naming, schemas, and other code-style rules
+- [Decisions](docs/decisions.md) — current architectural decision records
+- [Bootstrap decisions](docs/bootstrap-decisions.md) — record of decisions taken during the LIP bootstrap from the template
+- [AI guide](docs/ai-guide.md) — overview of the AI-assisted scaffold (skills, graphs, contracts)
+- [Testing](docs/testing.md) — three-level test strategy in v1
+- [Runbook](docs/runbook.md) — day-to-day operational commands
+- [Auto-merge](docs/automerge.md) — Dependabot auto-merge architecture and runbook
 
 ## AI-Assisted Development
 

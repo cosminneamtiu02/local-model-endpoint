@@ -8,7 +8,9 @@ from app.exceptions._generated import (
     InternalError,
     NotFoundError,
     RateLimitedError,
+    RateLimitedParams,
     ValidationFailedError,
+    ValidationFailedParams,
 )
 from app.exceptions.base import DomainError
 
@@ -18,5 +20,7 @@ __all__ = [
     "InternalError",
     "NotFoundError",
     "RateLimitedError",
+    "RateLimitedParams",
     "ValidationFailedError",
+    "ValidationFailedParams",
 ]

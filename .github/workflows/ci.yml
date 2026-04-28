@@ -65,11 +65,11 @@ jobs:
         run: uv sync --dev
 
       - name: Codegen + validator tests
-        run: uv run --with pytest --with pyyaml pytest tests/ -v
+        run: uv run pytest tests/ -v
 
       - name: Regenerate Python error contracts
         run: |
-          uv run --with pyyaml python -c "
+          uv run python -c "
           from pathlib import Path
           from scripts.generate import generate_python
           p = Path('errors.yaml')

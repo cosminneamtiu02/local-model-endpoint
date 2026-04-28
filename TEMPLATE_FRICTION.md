@@ -24,7 +24,7 @@ When the monorepo uses a single root `pnpm-lock.yaml` with per-workspace `packag
 
 **Template-level fix we shipped next:** [.github/workflows/dependabot-lockfile-sync.yml](.github/workflows/dependabot-lockfile-sync.yml) — a new workflow that fires on every Dependabot PR, detects whether the PR modified `package.json` or `pyproject.toml` without the corresponding lockfile, runs the package manager in regeneration mode, and pushes the updated lockfile back to the PR branch as a follow-up commit. Composes naturally with the existing auto-merge workflow: sync fires → pushes lockfile fix → new `synchronize` event → auto-merge workflow re-fires (harmless idempotent) and CI re-runs on the fixed commit → checks pass → auto-merge queue executes the squash-merge. Net result: a Dependabot PR with the lockfile-gap bug goes from "stuck red indefinitely" to "auto-merges cleanly" within about 2–3 minutes, with zero human intervention.
 
-**Prerequisites for the sync workflow to function** (downstream project concern — documented in [docs/new-project-setup.md Phase 5b](docs/new-project-setup.md)):
+**Prerequisites for the sync workflow to function** (downstream project concern — historically documented under Phase 5b of the template's new-project setup checklist):
 1. A fine-grained PAT with `Contents: Read and write` + `Pull requests: Read and write` scoped to the project's one repo. Must be a PAT, not `GITHUB_TOKEN`, because `GITHUB_TOKEN`-authored pushes do not trigger subsequent workflow runs and CI would never re-run on the fixed commit.
 2. Repo secret `DEPENDABOT_LOCKFILE_SYNC_PAT` set to that PAT.
 3. Repo variable `DEPENDABOT_LOCKFILE_SYNC_ENABLED` set to `"true"`.
@@ -34,6 +34,8 @@ Both the variable and secret are unset on the template itself so the workflow is
 **Backend equivalent:** `uv sync --dev` is lenient about `pyproject.toml` / `uv.lock` divergence, so backend Dependabot PRs don't surface the bug as loudly, but `uv.lock` in git is silently out of sync with the manifest after each merge. The new lockfile-sync workflow **also** handles backend: it runs `uv lock` in `apps/backend` and `packages/error-contracts` when those manifests changed, committing the regenerated lockfile back. This means `uv.lock` stays authoritative in git without needing to switch CI to `uv sync --frozen`.
 
 **Upstream bug status:** still unfixed in `dependabot-core`. The workaround workflow is tool-side infrastructure — the moment dependabot-core ships a proper fix for pnpm workspaces, the sync workflow becomes redundant and can be deleted. Until then, it's load-bearing.
+
+**Post-LIP-bootstrap (2026-04):** the pnpm path was removed entirely from `dependabot-lockfile-sync.yml`; only the uv code path ships in this repo.
 
 ### 2026-04-12 — `github.actor` is the wrong field for Dependabot auto-merge workflows
 
@@ -49,7 +51,7 @@ The template's auto-merge workflow called `gh pr merge --auto --squash` directly
 
 Observed on PR #19 (the first grouped TanStack Dependabot PR after the grouping config landed): it merged on the spot with `frontend-checks` and `api-client-checks` red because the workflow was deployed before the `main-protection` ruleset was created. Main was broken for ~2 minutes until a follow-up PR with the lockfile fix race-landed and accidentally repaired it.
 
-**Template-level fix we shipped:** hotfix added a `DEPENDABOT_AUTOMERGE_ENABLED` repo variable. The workflow's `if:` guard now requires the variable to be literally `"true"` before running. The user must set the variable only after verifying the ruleset exists with all required status checks — documented as a hard prerequisite in [new-project-setup.md Phase 5a](docs/new-project-setup.md). The variable also serves as the emergency kill switch (`gh variable set DEPENDABOT_AUTOMERGE_ENABLED --body "false"`).
+**Template-level fix we shipped:** hotfix added a `DEPENDABOT_AUTOMERGE_ENABLED` repo variable. The workflow's `if:` guard now requires the variable to be literally `"true"` before running. The user must set the variable only after verifying the ruleset exists with all required status checks — historically a hard prerequisite under Phase 5a of the template's new-project setup checklist. The variable also serves as the emergency kill switch (`gh variable set DEPENDABOT_AUTOMERGE_ENABLED --body "false"`).
 
 **Root cause of the original assumption:** conflated `allow_auto_merge` (a repo setting controlling the UI button) with "the thing that gates --auto". They are not the same. `--auto` is gated by the *ruleset's* required status checks, not the repo setting.
 
@@ -59,7 +61,7 @@ When a human clicks "Update branch" on a Dependabot PR, GitHub performs the reba
 
 Observed on all 5 backend Dependabot PRs during the auto-merge setup session. Once disavowed, there was no Dependabot-controlled path to unstick them.
 
-**Template-level workaround we found:** use the server-side `PUT /repos/OWNER/REPO/pulls/NUMBER/update-branch` API endpoint instead of the UI button. This endpoint is not owned by Dependabot, works regardless of disavowal state, and respects the repo's configured merge method (squash-only in our case). Documented in [CLAUDE.md](CLAUDE.md), [docs/automerge.md](docs/automerge.md), and [new-project-setup.md](docs/new-project-setup.md).
+**Template-level workaround we found:** use the server-side `PUT /repos/OWNER/REPO/pulls/NUMBER/update-branch` API endpoint instead of the UI button. This endpoint is not owned by Dependabot, works regardless of disavowal state, and respects the repo's configured merge method (squash-only in our case). Documented in [CLAUDE.md](CLAUDE.md), [docs/automerge.md](docs/automerge.md), and historically in the template's new-project setup checklist.
 
 **Template-level fix still needed:** GitHub's UI "Update branch" button should call this same server-side endpoint when clicked on a Dependabot PR, so disavowal doesn't happen. That's a GitHub product decision, not something we can fix at the template level. Document avoidance only.
 
