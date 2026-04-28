@@ -51,6 +51,7 @@ content-negotiated; the ``title`` and ``detail`` strings (per RFC 7807 §3.1
 
 from __future__ import annotations
 
+import re
 import uuid
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -63,6 +64,7 @@ from starlette.responses import Response
 
 from app.exceptions import DomainError, InternalError, NotFoundError, ValidationFailedError
 from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
+from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHARS
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request
@@ -84,32 +86,70 @@ _ABOUT_BLANK: Final[str] = "about:blank"
 """RFC 7807 §4.2 ``type`` value for HTTP errors with no extra semantics."""
 
 
-def _resolve_request_id(request: Request) -> str:
+_REQUEST_ID_UUID_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _resolve_request_id(request: Request) -> tuple[str, bool]:
     """Read the request ID set by :class:`RequestIdMiddleware`.
+
+    Returns ``(request_id, missed_middleware)``. The bool is True only on the
+    fallback path so callers can compensate for the missing middleware (e.g.
+    explicitly stamp the ``X-Request-ID`` response header that the middleware
+    would otherwise have set).
 
     Returning a fallback UUID instead of a static ``"unknown"`` string keeps
     every emitted ``request_id`` field uniformly UUID-shaped, which matters
-    for log-correlation tooling that pattern-matches the format. The fallback
-    firing means the middleware did not run for this request — a misconfigured
-    app, not a normal code path — so we log a structlog warning to make the
-    drift visible without crashing the response.
+    for log-correlation tooling that pattern-matches the format.
+
+    Defense-in-depth: re-validate that ``request.state.request_id`` matches
+    the UUID shape even when middleware-stamped — a future handler that writes
+    arbitrary strings to ``request.state`` (e.g. an X-Trace-Id pass-through)
+    would otherwise leak unvalidated values into every response body's
+    ``request_id`` field.
     """
     request_id = getattr(request.state, "request_id", None)
-    if isinstance(request_id, str) and request_id:
-        return request_id
+    if (
+        isinstance(request_id, str)
+        and request_id
+        and _REQUEST_ID_UUID_PATTERN.match(request_id) is not None
+    ):
+        return request_id, False
     fallback = str(uuid.uuid4())
-    # Bind ``request_id`` so this and any subsequent log lines for this
-    # request use the standard key (correlation by UUID still works
-    # despite the middleware skip). Path + method tag the warning so a
-    # single line identifies the misconfigured route.
-    structlog.contextvars.bind_contextvars(request_id=fallback)
+    # Bind request_id + method + path so every subsequent log line for this
+    # request carries routing context (the middleware ordinarily binds these;
+    # under fallback we duplicate the work so handler-emitted lines don't
+    # ship without method/path on the misconfigured-app path).
+    structlog.contextvars.bind_contextvars(
+        request_id=fallback,
+        method=request.method,
+        path=request.url.path,
+    )
     logger.warning(
         "request_id_missing_in_state",
         fallback_request_id=fallback,
         path=request.url.path,
         method=request.method,
     )
-    return fallback
+    return fallback, True
+
+
+def _stamp_request_id_header_if_missed(
+    response: Response,
+    request_id: str,
+    *,
+    missed: bool,
+) -> None:
+    """Set ``X-Request-ID`` on the response only when the middleware did not.
+
+    Avoids duplicating the header (the middleware appends unconditionally on
+    its happy path) while still correlating body↔header on the misconfigured-
+    app fallback path.
+    """
+    if missed:
+        response.headers["X-Request-ID"] = request_id
 
 
 def _build_problem_payload(
@@ -212,19 +252,23 @@ async def _handle_domain_error(request: Request, exc: Exception) -> Response:
     INFO line at handler-time so the event is greppable on its own.
     """
     assert isinstance(exc, DomainError)  # noqa: S101 — narrows for static checkers
-    request_id = _resolve_request_id(request)
+    request_id, missed_middleware = _resolve_request_id(request)
     structlog.contextvars.bind_contextvars(error_code=exc.code)
     # Branch level on status: 5xx is operator-actionable, 4xx is client-side
     # information; both share the same event name so filters still find them.
+    # 5xx ships with exc_info so the traceback survives — a typed 5xx is
+    # exactly the case where operators want the original raise site, and
+    # without exc_info this is the only place that ever sees the exception
+    # (the catch-all unhandled-exception path is bypassed for typed errors).
     is_server_error = exc.http_status >= HTTPStatus.INTERNAL_SERVER_ERROR
-    log_method = logger.error if is_server_error else logger.warning
-    log_method(
-        "domain_error_raised",
-        code=exc.code,
-        status=exc.http_status,
-    )
+    if is_server_error:
+        logger.exception("domain_error_raised", code=exc.code, status=exc.http_status)
+    else:
+        logger.warning("domain_error_raised", code=exc.code, status=exc.http_status)
     problem = _build_problem_payload(exc, request, request_id)
-    return _problem_response(problem)
+    response = _problem_response(problem)
+    _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
+    return response
 
 
 async def _handle_validation_error(request: Request, exc: Exception) -> Response:
@@ -244,13 +288,18 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     the per-field information is canonical only in ``validation_errors[]``.
     """
     assert isinstance(exc, RequestValidationError)  # noqa: S101 — narrows for static checkers
-    request_id = _resolve_request_id(request)
+    request_id, missed_middleware = _resolve_request_id(request)
 
     raw_errors = exc.errors()
+    # Truncate at the handler edge so over-cap inputs (Pydantic's `msg` can
+    # interpolate the offending value, especially for `string_too_long` /
+    # `union_tag_invalid`) don't trip ValidationErrorDetail's own length cap
+    # and explode the handler. The schema cap is the contract; the handler
+    # truncation is belt-and-suspenders.
     validation_errors: list[dict[str, Any]] = [
         ValidationErrorDetail(
-            field=".".join(str(loc) for loc in e.get("loc", [])),
-            reason=str(e.get("msg", "Unknown validation error")),
+            field=".".join(str(loc) for loc in e.get("loc", []))[:FIELD_MAX_CHARS],
+            reason=str(e.get("msg", "Unknown validation error"))[:REASON_MAX_CHARS],
         ).model_dump(mode="json")
         for e in raw_errors
     ]
@@ -284,7 +333,9 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         detail_override=detail_override,
         extras={"validation_errors": validation_errors},
     )
-    return _problem_response(problem)
+    response = _problem_response(problem)
+    _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
+    return response
 
 
 def _http_status_phrase(status_code: int) -> str:
@@ -329,7 +380,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     matches (e.g. 405, 415).
     """
     assert isinstance(exc, StarletteHTTPException)  # noqa: S101 — narrows for static checkers
-    request_id = _resolve_request_id(request)
+    request_id, missed_middleware = _resolve_request_id(request)
     status_code = exc.status_code
     status_phrase = _http_status_phrase(status_code)
     detail_text = str(exc.detail) if exc.detail else status_phrase
@@ -351,7 +402,9 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
             request_id,
             detail_override=detail_text,
         )
-        return _problem_response(problem)
+        response = _problem_response(problem)
+        _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
+        return response
 
     problem = ProblemDetails(
         type=_ABOUT_BLANK,
@@ -362,7 +415,9 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         code=code,
         request_id=request_id,
     )
-    return _problem_response(problem)
+    response = _problem_response(problem)
+    _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
+    return response
 
 
 async def _handle_unhandled_exception(request: Request, exc: Exception) -> Response:
@@ -383,7 +438,7 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     :class:`ExceptionMiddleware`, whose responses do flow back through
     RequestIdMiddleware, so they get the header automatically.
     """
-    request_id = _resolve_request_id(request)
+    request_id, _missed = _resolve_request_id(request)
     structlog.contextvars.bind_contextvars(error_code=InternalError.code)
     # ``exc_message`` is truncated to 200 chars so triage gets actionable
     # signal without unboundedly serializing input-value snippets. The

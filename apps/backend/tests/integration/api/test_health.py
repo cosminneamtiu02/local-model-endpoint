@@ -29,3 +29,26 @@ async def test_request_id_rejects_invalid_client_id(client: AsyncClient) -> None
     response = await client.get("/health", headers={"X-Request-ID": "not-a-uuid"})
     assert response.headers["X-Request-ID"] != "not-a-uuid"
     assert len(response.headers["X-Request-ID"]) > 0
+
+
+async def test_oversize_content_length_rejected_with_413_problem_json(client: AsyncClient) -> None:
+    """Content-Length above the 64 MiB cap is rejected before the body buffers.
+
+    The middleware sends an RFC 7807 problem+json envelope without invoking
+    the typed exception-handler chain (which sits below it in the stack).
+    """
+    oversize = (64 * 1024 * 1024) + 1
+    response = await client.post(
+        "/health",
+        headers={"Content-Length": str(oversize), "Content-Type": "application/json"},
+        content=b"",  # body is irrelevant — the Content-Length lie is what trips the guard
+    )
+    assert response.status_code == 413
+    assert response.headers["content-type"] == "application/problem+json; charset=utf-8"
+    body = response.json()
+    assert body["status"] == 413
+    assert body["code"] == "REQUEST_TOO_LARGE"
+    assert body["title"] == "Payload Too Large"
+    assert body["instance"] == "/health"
+    assert "request_id" in body
+    assert response.headers["X-Request-ID"] == body["request_id"]
