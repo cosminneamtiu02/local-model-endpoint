@@ -17,9 +17,18 @@ import keyword
 import re
 import string
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import yaml
+
+# Type aliases for the loaded YAML shape. ``yaml.safe_load`` returns ``Any``,
+# so the generator-internal contract is "validated YAML is a ``_ErrorsFile``"
+# — load_and_validate is the gatekeeper that establishes the invariant via
+# explicit isinstance checks and a final cast. Helpers below accept the
+# narrowed types so pyright strict can verify the call graph.
+_ParamsMap = dict[str, str]
+_ErrorSpec = dict[str, Any]
+_ErrorsFile = dict[str, Any]
 
 VALID_PARAM_TYPES = {"string", "integer", "number", "boolean"}
 PARAM_TYPE_TO_PYTHON = {
@@ -151,7 +160,7 @@ def _python_string_literal(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _validate_detail_template(code: str, template: str, params: dict) -> None:
+def _validate_detail_template(code: str, template: str, params: _ParamsMap) -> None:
     """Validate detail_template placeholders are safe ``{name}`` references.
 
     Disallows positional placeholders ({0}), attribute access ({x.attr}),
@@ -214,7 +223,7 @@ def _validate_detail_template(code: str, template: str, params: dict) -> None:
         raise ValueError(msg)
 
 
-def _validate_params(code: str, params: dict) -> None:
+def _validate_params(code: str, params: _ParamsMap) -> None:
     """Validate param types, reserved-name collisions, and identifier safety.
 
     Three independent checks per param:
@@ -251,17 +260,22 @@ def _validate_params(code: str, params: dict) -> None:
 SUPPORTED_SCHEMA_VERSION = 1
 
 
-def load_and_validate(errors_path: Path) -> dict:
+def load_and_validate(errors_path: Path) -> _ErrorsFile:
     """Load errors.yaml and validate its contents."""
     raw_text = errors_path.read_text()
     _detect_duplicate_keys(raw_text)
 
-    data = yaml.safe_load(raw_text)
+    raw_data = yaml.safe_load(raw_text)
     # The top-level ``version`` field is part of the error-contracts schema and
     # must match SUPPORTED_SCHEMA_VERSION. A future bump means the generator
     # interprets the YAML differently — we want a loud failure on rev mismatch
-    # rather than silent partial-regeneration of stale code.
-    declared_version = data.get("version") if isinstance(data, dict) else None
+    # rather than silent partial-regeneration of stale code. Validate the YAML
+    # is a dict (not a list / scalar / null) before we trust the cast below.
+    if not isinstance(raw_data, dict):
+        msg = f"errors.yaml top-level must be a mapping, got {type(raw_data).__name__}."
+        raise TypeError(msg)
+    data = cast("_ErrorsFile", raw_data)
+    declared_version = data.get("version")
     if declared_version != SUPPORTED_SCHEMA_VERSION:
         msg = (
             f"errors.yaml declares version {declared_version!r}; "
@@ -320,7 +334,7 @@ def load_and_validate(errors_path: Path) -> dict:
 
 
 def _render_params_module(
-    *, code: str, params_class_name: str, params: dict, description: str | None
+    *, code: str, params_class_name: str, params: _ParamsMap, description: str | None
 ) -> str:
     """Render the source for a generated *_params.py module.
 
@@ -357,7 +371,7 @@ def _render_detail_template_decl(detail_template: str) -> str:
     return f"    detail_template: ClassVar[str] = (\n        {literal}\n    )"
 
 
-def _render_super_block(params_class_name: str, params: dict) -> str:
+def _render_super_block(params_class_name: str, params: _ParamsMap) -> str:
     """Render the ``super().__init__(params=...)`` block, wrapped if long."""
     params_construct = ", ".join(f"{name}={name}" for name in params)
     super_line = f"        super().__init__(params={params_class_name}({params_construct}))"
@@ -381,7 +395,7 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
     type_uri: str,
     title: str,
     detail_template: str,
-    params: dict,
+    params: _ParamsMap,
     params_class_name: str | None,
     params_file_stem: str | None,
     description: str | None,

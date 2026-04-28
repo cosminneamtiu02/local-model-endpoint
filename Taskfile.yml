@@ -36,10 +36,22 @@ tasks:
       - uv run ruff format --check app/ tests/
 
   check:types:
-    desc: Run type checker
+    desc: Run type checker (backend + error-contracts)
+    cmds:
+      - task: check:types:backend
+      - task: check:types:errors
+
+  check:types:backend:
+    desc: Run pyright on the backend app
     dir: "{{.BACKEND_DIR}}"
     cmds:
       - uv run pyright app/
+
+  check:types:errors:
+    desc: Run pyright on the error-contracts package (codegen + tests)
+    dir: packages/error-contracts
+    cmds:
+      - uv run pyright
 
   check:arch:
     desc: Run import-linter architecture checks

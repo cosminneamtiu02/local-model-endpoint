@@ -58,7 +58,20 @@ class RequestIdMiddleware:
         # otherwise generate a new one. Prevents log injection.
         headers = dict(scope.get("headers", []))
         client_id = headers.get(b"x-request-id", b"").decode("latin-1", errors="ignore")
-        request_id = client_id if _UUID_PATTERN.match(client_id) else str(uuid.uuid4())
+        if client_id and not _UUID_PATTERN.match(client_id):
+            # Surface the rejection at info level so a chronically
+            # misconfigured consumer (e.g. hard-coded ``req-12345``)
+            # is detectable from logs. Truncate the supplied value to
+            # bound the log-injection blast radius.
+            preview = client_id[:32]
+            request_id = str(uuid.uuid4())
+            logger.info(
+                "request_id_rejected_client_value",
+                supplied_value_preview=preview,
+                generated_request_id=request_id,
+            )
+        else:
+            request_id = client_id if _UUID_PATTERN.match(client_id) else str(uuid.uuid4())
 
         # Park on scope["state"] so request.state.request_id reads it
         # via Starlette's State accessor inside route handlers and the

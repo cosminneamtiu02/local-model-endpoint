@@ -97,7 +97,14 @@ def _resolve_request_id(request: Request) -> str:
     if isinstance(request_id, str) and request_id:
         return request_id
     fallback = str(uuid.uuid4())
-    logger.warning("request_id_missing_in_state", fallback_request_id=fallback)
+    # Path + method are added so a single warning identifies the
+    # misconfigured route without forcing operators to re-grep the code.
+    logger.warning(
+        "request_id_missing_in_state",
+        fallback_request_id=fallback,
+        path=request.url.path,
+        method=request.method,
+    )
     return fallback
 
 
@@ -305,10 +312,18 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     RequestIdMiddleware, so they get the header automatically.
     """
     request_id = _resolve_request_id(request)
+    # ``exc_message`` is added (alongside ``exc_type``) so dev-mode
+    # ConsoleRenderer logs and JSON-mode bucket-by-message both have
+    # the message at the structured-log layer without parsing the
+    # nested ``dict_tracebacks`` payload. The message is not echoed
+    # into the response body — only ``InternalError``'s rendered detail
+    # ships to the consumer, preserving the no-PII / no-stack-trace-leak
+    # contract on the wire.
     logger.exception(
         "unhandled_exception",
         request_id=request_id,
         exc_type=type(exc).__name__,
+        exc_message=str(exc),
         method=request.method,
         path=request.url.path,
     )

@@ -20,9 +20,19 @@ from app.features.inference.repository.ollama_client import (
 )
 
 
-def test_default_timeout_has_5s_connect_and_unbounded_read_write_pool() -> None:
+def test_default_timeout_has_5s_connect_600s_read_unbounded_write_pool() -> None:
+    """``DEFAULT_TIMEOUT`` is the v1 backstop until LIP-E004-F003 lands.
+
+    Connect is 5s (Ollama is local, so a stalled connect is a real failure).
+    Read is 600s — generous enough not to interrupt long-running thinking-mode
+    inference under Gemma 4, but bounded so a hung daemon does not hold the
+    single semaphore slot indefinitely (which would be a self-inflicted DoS).
+    Write and pool stay unbounded — the request body is small relative to
+    Ollama's response, and the connection pool is single-instance per
+    lifespan.
+    """
     assert DEFAULT_TIMEOUT.connect == 5.0
-    assert DEFAULT_TIMEOUT.read is None
+    assert DEFAULT_TIMEOUT.read == 600.0
     assert DEFAULT_TIMEOUT.write is None
     assert DEFAULT_TIMEOUT.pool is None
 
@@ -42,7 +52,7 @@ async def test_constructor_uses_default_timeout_when_none_supplied() -> None:
         # also verify the spec scenario directly so this test does
         # not depend on test_default_timeout_* having run first
         assert client._client.timeout.connect == 5.0
-        assert client._client.timeout.read is None
+        assert client._client.timeout.read == 600.0
     finally:
         await client.close()
 

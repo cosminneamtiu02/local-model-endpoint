@@ -95,5 +95,9 @@ jobs:
         working-directory: .
         run: task check:errors
 
+      - name: Type check (codegen + tests)
+        working-directory: .
+        run: task check:types:errors
+
       - name: Codegen + validator tests
         run: uv run pytest tests/ -v

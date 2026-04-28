@@ -278,17 +278,21 @@ def test_codegen_emits_detail_method_with_template_substitution(
 def test_codegen_emits_detail_method_returning_detail_template_for_parameterless(
     sample_errors_path: Path, output_dir: Path
 ):
-    """Parameterless errors' detail() returns detail_template (or title fallback)."""
+    """Parameterless errors' detail() returns detail_template directly.
+
+    The previous template generated ``self.detail_template or self.title`` as
+    a defensive fallback; load_and_validate already enforces a non-empty
+    detail_template so the fallback was dead code that contradicted the
+    invariant. The generator now emits the bare ``return self.detail_template``.
+    """
     from scripts.generate import generate_python
 
     generate_python(sample_errors_path, output_dir)
 
     content = (output_dir / "internal_error.py").read_text()
     assert "def detail(self) -> str:" in content
-    # The parameterless body returns the YAML-declared detail_template; the
-    # ``or self.title`` fallback fires only if detail_template happens to be
-    # empty (load_and_validate forbids that, but the fallback is defensive).
-    assert "return self.detail_template or self.title" in content
+    assert "return self.detail_template\n" in content
+    assert "return self.detail_template or self.title" not in content
 
 
 def test_codegen_derives_kebab_type_uri_from_screaming_snake_code(tmp_path: Path, output_dir: Path):
@@ -389,25 +393,39 @@ def test_codegen_emits_template_format_call_for_parameterized_errors(
 def test_codegen_emits_detail_template_for_parameterless_errors(
     sample_errors_path: Path, output_dir: Path
 ):
-    """Parameterless error's detail() returns detail_template (with title fallback)."""
+    """Parameterless error's detail() returns detail_template directly.
+
+    load_and_validate now requires a non-empty ``detail_template`` for every
+    error (parameterless or not), so the previous ``or self.title`` fallback
+    was dead code and is no longer emitted by the codegen.
+    """
     from scripts.generate import generate_python
 
     generate_python(sample_errors_path, output_dir)
 
     content = (output_dir / "internal_error.py").read_text()
-    assert "return self.detail_template or self.title" in content
+    assert "return self.detail_template\n" in content
     # No template-substitution path (no params to substitute).
     assert "params.model_dump()" not in content
 
 
-def test_codegen_emits_extra_forbid_on_params_classes(sample_errors_path: Path, output_dir: Path):
-    """Generated *_params.py classes declare extra='forbid' to fail loudly on typos."""
+def test_codegen_emits_extra_forbid_and_frozen_on_params_classes(
+    sample_errors_path: Path, output_dir: Path
+):
+    """Generated *_params.py classes declare extra='forbid' and frozen=True.
+
+    extra='forbid' fails loudly on consumer typos; frozen=True matches the
+    project-wide value-object discipline (every hand-written wire schema and
+    value-object is frozen, so a typed error's params cannot be silently
+    mutated between ``raise`` and the ``_handle_domain_error`` boundary that
+    renders the detail_template).
+    """
     from scripts.generate import generate_python
 
     generate_python(sample_errors_path, output_dir)
 
     content = (output_dir / "example_not_found_params.py").read_text()
-    assert 'model_config = ConfigDict(extra="forbid")' in content
+    assert 'model_config = ConfigDict(extra="forbid", frozen=True)' in content
     assert "from pydantic import BaseModel, ConfigDict" in content
 
 
