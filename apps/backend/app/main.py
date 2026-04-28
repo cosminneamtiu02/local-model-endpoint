@@ -25,11 +25,15 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     feature dependencies can read them via Depends factories.
     """
     settings = get_settings()
+    # ``request_id="lifespan"`` is a sentinel so a jq filter on per-request
+    # request_id keeps lifespan events visible (greppable as a single
+    # log-stream slice rather than dropping out of correlated views).
     # Log host/port separately rather than the full URL so a future
     # userinfo-bearing form (unusual for Ollama, possible behind a reverse
     # proxy) cannot leak credentials into stdout.
     logger.info(
         "app_startup",
+        request_id="lifespan",
         env=settings.app_env,
         version=application.version,
         bind_host=settings.bind_host,
@@ -50,6 +54,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                 # request_completed log line's duration_ms field.
                 logger.info(
                     "app_shutdown",
+                    request_id="lifespan",
                     version=application.version,
                     env=settings.app_env,
                     uptime_ms=int((time.monotonic() - start_monotonic) * 1000),
@@ -59,7 +64,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # connect-time issue, etc.) would otherwise propagate as an opaque
         # uvicorn traceback. Log a structured ``app_startup_failed`` event
         # so the operator gets a single-line cause + correlation surface.
-        logger.exception("app_startup_failed", env=settings.app_env)
+        logger.exception("app_startup_failed", request_id="lifespan", env=settings.app_env)
         raise
 
 

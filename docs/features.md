@@ -70,11 +70,9 @@ code is stored in `args` so PII in params never accidentally ends up in stack tr
 ### Generated Error Classes ([app/exceptions/_generated/](../apps/backend/app/exceptions/_generated/))
 Every error code in `errors.yaml` is code-generated into its own Python file with a typed
 params model (where applicable), enforcing the one-class-per-file rule. A `_registry.py`
-maps error code strings back to classes for handler lookup. Current codes: `NOT_FOUND`,
-`CONFLICT`, `VALIDATION_FAILED`, `INTERNAL_ERROR`, `RATE_LIMITED`, `QUEUE_FULL`,
-`INFERENCE_TIMEOUT`, `ADAPTER_CONNECTION_FAILURE`, `REGISTRY_NOT_FOUND`,
-`MODEL_CAPABILITY_NOT_SUPPORTED`. (Note: `ADAPTER_CONNECTION_FAILURE` is the actual
-code; earlier drafts of this doc abbreviated it.)
+maps error code strings back to classes for handler lookup. The canonical list of codes
+lives in [`packages/error-contracts/errors.yaml`](../packages/error-contracts/errors.yaml)
+— do not duplicate it here (hand-curated lists drift the moment a code is added).
 
 ### Exception Handlers ([app/api/errors.py](../apps/backend/app/api/errors.py))
 Four handlers serialize `DomainError`, `RequestValidationError`, `StarletteHTTPException`,
@@ -103,12 +101,11 @@ validation problem+json; `HealthResponse` is the liveness payload.
 ## Backend — Architecture Enforcement
 
 ### Import-Linter Contracts ([apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini))
-Thirteen contracts protect the layer boundaries:
+Ten contracts protect the layer boundaries (six cross-cutting + four inference-internal):
 
-- `core-no-features`, `exceptions-no-features`, `schemas-no-features` — the three
-  cross-cutting layers cannot reach into any feature.
 - `core-is-leaf`, `exceptions-is-leaf`, `schemas-is-leaf` — none of the three
-  cross-cutting layers may reach into the others either; layering stays acyclic.
+  cross-cutting layers may reach into other layers (including features); layering
+  stays acyclic.
 - `no-direct-generated-error-imports` — only `app.exceptions/__init__` may
   import from `app.exceptions._generated`; everything else uses the public
   re-exports per CLAUDE.md.

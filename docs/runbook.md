@@ -42,7 +42,10 @@ Service: http://127.0.0.1:8000 (defaults; override via `LIP_BIND_HOST` / `LIP_BI
 
 All runtime configuration is through `pydantic-settings`. The full canonical list
 of env vars lives in [`apps/backend/.env.example`](../apps/backend/.env.example);
-the table below summarizes the production-relevant ones.
+the table below summarizes the production-relevant ones. The `.env` file is
+resolved relative to the runtime cwd — `task dev` cd's into `apps/backend/` first,
+so the lookup is `apps/backend/.env`. Running `python -m app` from the repo root
+will not find a `.env`; always launch via `task dev` (or `cd apps/backend` first).
 
 | Env var | Default | Meaning |
 |---|---|---|

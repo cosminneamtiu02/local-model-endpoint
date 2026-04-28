@@ -246,6 +246,10 @@ class RequestIdMiddleware:
                     # alongside merge_contextvars: a future regression that
                     # drops the contextvar processor would otherwise silently
                     # strip routing context from the access log.
+                    # client_host is the LAN-trusted consumer's peer IP — fine
+                    # to log unconditionally for this single-developer LAN
+                    # profile (consumers are self-owned). Revisit (toggle or
+                    # redact) the day a non-self-owned client class appears.
                     logger.info(
                         "request_completed",
                         method=method,

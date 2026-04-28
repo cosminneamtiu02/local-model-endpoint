@@ -16,6 +16,9 @@ def _is_private_host(host: str) -> bool:
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
+        # Control-flow conversion: a non-IP string (e.g. a custom DNS name) is
+        # not loopback/private — return the safe default. Not a "silent swallow"
+        # per CLAUDE.md; the parse failure encodes a known business case.
         return False
     # 0.0.0.0 / :: are unspecified — nonsensical as outbound targets and
     # the same all-interfaces values the bind-side clamp reject-lists, so

@@ -343,6 +343,9 @@ def _http_status_phrase(status_code: int) -> str:
     try:
         return HTTPStatus(status_code).phrase
     except ValueError:
+        # Control-flow conversion: an unknown status code falls back to a
+        # generic phrase. Not a "silent swallow" per CLAUDE.md; the parse
+        # failure encodes a known business case (non-IANA status).
         return "HTTP Error"
 
 

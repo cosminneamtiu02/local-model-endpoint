@@ -101,7 +101,7 @@ def _detect_duplicate_keys(raw_text: str) -> None:
     and ``# ...`` comments so common YAML formatting variants don't bypass
     the check.
     """
-    lines = raw_text.split("\n")
+    lines = raw_text.splitlines()
     in_errors = False
     seen_codes: set[str] = set()
     # Match any single-level indented `KEY:` line (any indent depth, any
@@ -194,7 +194,7 @@ def _validate_detail_template(code: str, template: str, params: _ParamsMap) -> N
     for _literal, field_name, format_spec, conversion in parsed:
         if field_name is None:
             continue
-        if field_name == "" or field_name.isdigit():
+        if not field_name or field_name.isdigit():
             msg = (
                 f"Error {code} detail_template uses positional placeholder "
                 f"{{{field_name}}}; only named placeholders ({{name}}) are permitted."
@@ -665,8 +665,8 @@ def generate_required_keys(errors_path: Path, output_path: Path) -> Path:
     data = load_and_validate(errors_path)
     errors = data["errors"]
 
-    keys = list(errors.keys())
-    params_by_key = {code: list(spec.get("params", {}).keys()) for code, spec in errors.items()}
+    keys = list(errors)
+    params_by_key = {code: list(spec.get("params", {})) for code, spec in errors.items()}
 
     result = {
         "version": 1,
