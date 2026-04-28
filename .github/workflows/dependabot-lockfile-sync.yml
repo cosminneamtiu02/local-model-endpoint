@@ -49,18 +49,27 @@
 #   - Contents: Read and write
 #   - Pull requests: Read and write
 #
-# Store it as a repo secret named DEPENDABOT_LOCKFILE_SYNC_PAT. To set
-# up: create a fine-grained PAT scoped to this repo with the two
-# permissions above, save it as the repo secret named above, then enable
-# the workflow with `gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED
-# --body "true"`.
+# Store it as a DEPENDABOT secret named DEPENDABOT_LOCKFILE_SYNC_PAT --
+# NOT a regular Actions secret. Dependabot-triggered workflows can only
+# read secrets from the Dependabot secret store (a 2021 supply-chain
+# mitigation against compromised dependencies pulling Actions secrets).
+# A PAT stored only as an Actions secret resolves to an empty string in
+# this workflow and trips the "Verify PAT" guard on every Dependabot PR.
+# To set up:
+#   1. Create a fine-grained PAT scoped to this repo with the two
+#      permissions above
+#   2. gh secret set DEPENDABOT_LOCKFILE_SYNC_PAT --app dependabot --body "<PAT>"
+#      (the --app dependabot flag is what selects the Dependabot store;
+#       omitting it lands in Actions context, which won't work here)
+#   3. gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED --body "true"
 #
 # PREREQUISITES (THIS WORKFLOW WILL NO-OP UNTIL ALL ARE SATISFIED)
 # ----------------------------------------------------------------
 #   1. Repo variable DEPENDABOT_LOCKFILE_SYNC_ENABLED = "true"
 #      (controlled separately from DEPENDABOT_AUTOMERGE_ENABLED so the
 #       two can be enabled independently if desired)
-#   2. Repo secret DEPENDABOT_LOCKFILE_SYNC_PAT with a fine-grained PAT
+#   2. Dependabot secret DEPENDABOT_LOCKFILE_SYNC_PAT (Settings ->
+#      Secrets and variables -> Dependabot tab) with a fine-grained PAT
 #   3. The Phase 5 "Allow GitHub Actions to create and approve pull
 #      requests" toggle is already required for auto-merge and is
 #      assumed here too
