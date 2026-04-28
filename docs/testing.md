@@ -31,10 +31,12 @@ router lands and there is end-to-end behavior worth covering against the real ba
 
 ### 3. Contract Tests
 
-- **What:** A lightweight spec-shape test as a canary for "did the OpenAPI even
-  generate." A full Schemathesis fuzz against every endpoint will be wired once the
-  LIP feature router (LIP-E001-F002) lands and there are inference operations to fuzz.
-- **Location:** `tests/contract/test_schemathesis.py`.
+- **What:** Spec-shape canary for "did the OpenAPI even generate" plus the LIP-E004-F004
+  RFC 7807 wire-shape contract (ProblemDetails as a published component, RFC 7807 fields
+  + LIP extensions present, `application/problem+json` advertised on the `/health` default
+  response). A full Schemathesis fuzz against every endpoint will be wired once the LIP
+  feature router (LIP-E001-F002) lands and there are inference operations to fuzz.
+- **Location:** `tests/contract/test_openapi_shape.py` (canary), `tests/contract/test_problem_details_contract.py` (RFC 7807).
 
 ## Lifecycle and lifespan integration
 
@@ -61,13 +63,13 @@ process running.
 
 - Unit: `tests/unit/<mirrors source tree>/test_<module>.py`
 - Integration: `tests/integration/<mirrors source tree>/test_<module>.py`
-- Contract: `tests/contract/test_schemathesis.py`
+- Contract: `tests/contract/test_openapi_shape.py` (OpenAPI canary), `tests/contract/test_problem_details_contract.py` (RFC 7807 wire shape).
 
 ## Pre-commit / Pre-push / CI
 
 | Layer | What runs | Speed |
 |---|---|---|
-| Pre-commit | ruff, trailing-whitespace, yaml/json check | ~5-10s |
+| Pre-commit | ruff (lint + format), trailing-whitespace, end-of-file-fixer, check-yaml/json, large-file guard, detect-secrets, Taskfile syntax check (per ADR-009) | ~5-10s |
 | Pre-push | pytest unit | ~5-15s |
 | CI | All three test levels + type checker + import-linter + error-contracts regen check | Full |
 

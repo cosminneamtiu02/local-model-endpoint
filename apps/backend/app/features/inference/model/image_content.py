@@ -13,11 +13,13 @@ class ImageContent(BaseModel):
     form is present into Ollama's wire format.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     type: Literal["image"] = "image"
-    url: str | None = Field(default=None, min_length=1)
-    base64: str | None = Field(default=None, min_length=1)
+    # max_length on url bounds long-link DoS; max_length on base64 bounds the
+    # per-part inline-blob DoS at ~15 MB binary (20 MiB of base64 ≈ 15 MB raw).
+    url: str | None = Field(default=None, min_length=1, max_length=2048)
+    base64: str | None = Field(default=None, min_length=1, max_length=20_971_520)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> Self:

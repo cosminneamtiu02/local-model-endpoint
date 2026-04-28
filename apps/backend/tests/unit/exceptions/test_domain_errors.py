@@ -6,6 +6,7 @@ import pytest
 
 from app.exceptions import (
     AdapterConnectionFailureError,
+    ConflictError,
     InferenceTimeoutError,
     InternalError,
     ModelCapabilityNotSupportedError,
@@ -72,6 +73,21 @@ def test_model_capability_not_supported_error() -> None:
     assert err.type_uri == "urn:lip:error:model-capability-not-supported"
     assert "text-only" in err.detail()
     assert "audio" in err.detail()
+
+
+def test_conflict_error() -> None:
+    """ConflictError closes the unit-coverage gap flagged by the round-3 sweep.
+
+    The registry-shape test in test_registry.py only iterated the keys; without
+    a per-class assertion of code/status/type_uri/title/detail, a YAML edit
+    breaking ``CONFLICT`` would have shipped green.
+    """
+    err = ConflictError()
+    assert err.code == "CONFLICT"
+    assert err.http_status == 409
+    assert err.type_uri == "urn:lip:error:conflict"
+    assert err.title == "Conflict"
+    assert err.detail() == "The operation conflicts with the current resource state."
 
 
 def test_internal_error_detail_returns_detail_template() -> None:

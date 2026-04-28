@@ -144,6 +144,12 @@ tasks:
     cmds:
       - uv run pytest tests/contract/ -v
 
+  test:errors:
+    desc: Run error-contracts package tests
+    dir: packages/error-contracts
+    cmds:
+      - uv run pytest tests/ -v
+
   # ── Linting & Formatting ─────────────────────────────────────
   lint:
     desc: Run linter

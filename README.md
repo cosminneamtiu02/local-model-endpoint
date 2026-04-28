@@ -29,7 +29,7 @@ uv sync --dev
 task dev
 ```
 
-`task dev` runs `uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000` under the hood; reach for the bare `uv run` form only if you need to override one of those flags.
+`task dev` runs `uv run python -m app --reload` under the hood, which goes through `app/__main__.py` so Settings (`LIP_BIND_HOST` / `LIP_BIND_PORT`) is the single source of truth for binding.
 
 ## Commands
 
@@ -61,7 +61,7 @@ task dev
 - [AI guide](docs/ai-guide.md) — overview of the AI-assisted scaffold (skills, graphs, contracts)
 - [Testing](docs/testing.md) — three-level test strategy in v1
 - [Runbook](docs/runbook.md) — day-to-day operational commands
-- [Ollama launchd agent](docs/ollama-launchd.md) — one-time install + operator commands
+- [Ollama Launchd Agent](docs/ollama-launchd.md) — one-time install + operator commands
 - [Auto-merge](docs/automerge.md) — Dependabot auto-merge architecture and runbook
 
 ## AI-Assisted Development

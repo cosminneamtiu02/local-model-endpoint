@@ -41,7 +41,8 @@ def test_model_params_explicit_none_is_dumped_when_exclude_unset() -> None:
     ],
 )
 def test_model_params_temperature_accepts_values_in_range(temperature: float) -> None:
-    ModelParams(temperature=temperature)
+    params = ModelParams(temperature=temperature)
+    assert params.temperature == temperature
 
 
 @pytest.mark.parametrize(
@@ -65,7 +66,8 @@ def test_model_params_temperature_rejects_values_out_of_range(temperature: float
     ],
 )
 def test_model_params_top_p_accepts_values_in_range(top_p: float) -> None:
-    ModelParams(top_p=top_p)
+    params = ModelParams(top_p=top_p)
+    assert params.top_p == top_p
 
 
 @pytest.mark.parametrize(
@@ -88,7 +90,8 @@ def test_model_params_top_p_rejects_values_out_of_range(top_p: float) -> None:
     ],
 )
 def test_model_params_top_k_accepts_values_in_range(top_k: int) -> None:
-    ModelParams(top_k=top_k)
+    params = ModelParams(top_k=top_k)
+    assert params.top_k == top_k
 
 
 @pytest.mark.parametrize(
@@ -111,7 +114,8 @@ def test_model_params_top_k_rejects_values_out_of_range(top_k: int) -> None:
     ],
 )
 def test_model_params_max_tokens_accepts_values_in_range(max_tokens: int) -> None:
-    ModelParams(max_tokens=max_tokens)
+    params = ModelParams(max_tokens=max_tokens)
+    assert params.max_tokens == max_tokens
 
 
 @pytest.mark.parametrize(
@@ -134,7 +138,8 @@ def test_model_params_max_tokens_rejects_values_out_of_range(max_tokens: int) ->
     ],
 )
 def test_model_params_seed_accepts_values_in_range(seed: int) -> None:
-    ModelParams(seed=seed)
+    params = ModelParams(seed=seed)
+    assert params.seed == seed
 
 
 def test_model_params_seed_rejects_negative_values() -> None:

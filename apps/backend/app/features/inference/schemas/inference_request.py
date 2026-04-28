@@ -18,7 +18,7 @@ class InferenceRequest(BaseModel):
     validating contents.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     # max_length on messages caps a single inference body; 64 is far
     # above any realistic conversation chain on Gemma's 128K context.

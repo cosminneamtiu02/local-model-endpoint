@@ -107,3 +107,24 @@ updates:
           - "astral-sh/*"
           - "arduino/*"
         update-types: ["minor", "patch"]
+
+  # Pre-commit hooks pin upstream by `rev:` SHA; without this ecosystem
+  # entry the pinned versions silently age out (ruff and detect-secrets
+  # both ship security-relevant fixes that the project would miss).
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+    groups:
+      pre-commit-tools:
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]

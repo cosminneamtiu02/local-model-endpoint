@@ -15,7 +15,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Final
 
+from app.features.inference.model.audio_content import AudioContent
+from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.ollama_chat_result import OllamaChatResult
+from app.features.inference.model.text_content import TextContent
 
 if TYPE_CHECKING:
     from app.features.inference.model.finish_reason import FinishReason
@@ -56,30 +59,35 @@ def translate_message(msg: Message) -> dict[str, Any]:
 
     text_parts: list[str] = []
     images: list[str] = []
+    # Pyright strict + a closed Literal discriminator make this an
+    # exhaustive match: adding a fourth ContentPart variant without
+    # extending this block fails type checking, so no silent fallthrough.
     for part in msg.content:
-        if part.type == "text":
-            text_parts.append(part.text)
-        elif part.type == "image":
-            if part.base64 is None:
-                # URL-only ImageContent isn't supported by F002 — Ollama's
-                # /api/chat `images` array expects raw base64 strings, not
-                # URLs. The orchestrator/capability layer should reject or
-                # pre-encode URL-only images before they reach this seam.
+        match part:
+            case TextContent():
+                text_parts.append(part.text)
+            case ImageContent():
+                if part.base64 is None:
+                    # URL-only ImageContent isn't supported by F002 —
+                    # Ollama's /api/chat `images` array expects raw base64
+                    # strings, not URLs. The orchestrator/capability layer
+                    # should reject or pre-encode URL-only images before
+                    # they reach this seam.
+                    error_message = (
+                        "URL-only ImageContent is [UNRESOLVED] in LIP-E003-F002; "
+                        "supply base64 (Ollama /api/chat images expects base64)."
+                    )
+                    raise NotImplementedError(error_message)
+                images.append(part.base64)
+            case AudioContent():
+                # Spec leaves the Ollama wire shape [UNRESOLVED] until
+                # live-Ollama verification with Gemma 4. Fail loud rather
+                # than silently dropping the audio payload.
                 error_message = (
-                    "URL-only ImageContent is [UNRESOLVED] in LIP-E003-F002; "
-                    "supply base64 (Ollama /api/chat images expects base64)."
+                    "AudioContent translation is [UNRESOLVED] in LIP-E003-F002; "
+                    "Gemma 4 audio wire format pending live-daemon verification."
                 )
                 raise NotImplementedError(error_message)
-            images.append(part.base64)
-        else:
-            # AudioContent: spec leaves the Ollama wire shape [UNRESOLVED]
-            # until live-Ollama verification with Gemma 4. Failing loud
-            # is preferable to silently dropping the audio payload.
-            error_message = (
-                "AudioContent translation is [UNRESOLVED] in LIP-E003-F002; "
-                "Gemma 4 audio wire format pending live-daemon verification."
-            )
-            raise NotImplementedError(error_message)
 
     ollama_msg: dict[str, Any] = {"role": msg.role, "content": "\n\n".join(text_parts)}
     if images:
@@ -109,7 +117,16 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     some configurations — `content` is the source of truth either way).
     Token-count keys default to 0 if Ollama omits them; `done_reason`
     falls back to "stop" for anything outside the LIP Literal set.
+
+    Defensive: with `stream=False` Ollama is contractually required to
+    return a single terminal frame with `done=True`. A non-terminal
+    frame (e.g. proxy hiccup) would otherwise surface as a truncated
+    OllamaChatResult; surface the contract violation as a typed error
+    that F003's failure-mapping layer can convert to malformed_response.
     """
+    if not response_json.get("done", True):
+        error_message = "Ollama returned done=False under stream=False; expected terminal frame."
+        raise KeyError(error_message)
     raw_finish = response_json.get("done_reason", "stop")
     finish_reason: FinishReason = _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop")
     return OllamaChatResult(

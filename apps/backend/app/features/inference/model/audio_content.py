@@ -12,11 +12,13 @@ class AudioContent(BaseModel):
     or a base64-encoded `base64` blob. Exactly one must be set.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     type: Literal["audio"] = "audio"
-    url: str | None = Field(default=None, min_length=1)
-    base64: str | None = Field(default=None, min_length=1)
+    # Mirrors ImageContent caps. 20 MiB base64 ≈ 15 MB binary covers practical
+    # voice clips; longer audio belongs in a streaming-upload path, not this body.
+    url: str | None = Field(default=None, min_length=1, max_length=2048)
+    base64: str | None = Field(default=None, min_length=1, max_length=20_971_520)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> Self:

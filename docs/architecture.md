@@ -30,7 +30,7 @@ apps/backend/
 │   ├── core/               -- config, logging. Cross-cutting infrastructure.
 │   ├── api/                -- middleware (request_id only), exception handler, health, shared deps.
 │   ├── exceptions/         -- DomainError base (base.py) + generated subclasses (_generated/).
-│   ├── schemas/            -- ErrorResponse, ErrorBody, ErrorDetail. Shared response shapes.
+│   ├── schemas/            -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse. Shared response shapes (RFC 7807 problem+json + liveness).
 │   └── features/
 │       └── <feature>/      -- One folder per feature. Self-contained vertical slice.
 │           ├── model/          -- Pydantic value-objects (Message, ModelParams, ModelInfo)
@@ -50,9 +50,11 @@ infra/
     └── com.lip.ollama.plist  -- User-scope launchd agent for the Ollama daemon.
 ```
 
-The LIP feature itself does not yet exist in code — it is scaffolded during feature-dev.
-The directory structure above describes where it will live. See [graphs/LIP/](../graphs/LIP/)
-for the planned features.
+The inference feature is partially scaffolded: `model/`, `repository/`, and wire
+`schemas/` are landed (LIP-E001-F001, LIP-E003-F001, LIP-E003-F002 implemented per
+[graphs/LIP/](../graphs/LIP/)). `service/` and `router/` arrive with LIP-E001-F002
+per ADR-011 lazy scaffolding. The directory structure above describes where each
+remaining layer will live.
 
 ### Layer Flow (within a feature)
 
@@ -87,7 +89,7 @@ Repository catches (httpx.RequestError or non-2xx) and raises a typed DomainErro
 Service may catch and re-raise with more specific typed params, or let it propagate
     |
     v
-Exception handler serializes to JSON: {error: {code, params, details, request_id}}
+Exception handler serializes to RFC 7807 application/problem+json (ProblemDetails)
     |
     v
 Consumer receives a structured error envelope it can program against

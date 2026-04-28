@@ -60,3 +60,14 @@ def test_image_content_dump_excludes_unset_base64_when_url_supplied() -> None:
     assert dumped["type"] == "image"
     assert dumped["url"] == "https://example.com/cat.png"
     assert dumped["base64"] is None
+
+
+def test_image_content_rejects_oversize_base64() -> None:
+    # max_length=20_971_520 (~20 MiB) caps the inline-blob DoS surface.
+    with pytest.raises(ValidationError):
+        ImageContent(base64="A" * 20_971_521)
+
+
+def test_image_content_rejects_oversize_url() -> None:
+    with pytest.raises(ValidationError):
+        ImageContent(url="http://x/" + ("a" * 2050))

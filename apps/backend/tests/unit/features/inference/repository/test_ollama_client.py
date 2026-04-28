@@ -11,6 +11,8 @@ Covers acceptance criteria from LIP-E003-F001 unit-test scenarios:
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -130,11 +132,10 @@ async def test_request_post_sends_json_body() -> None:
     assert response.json() == {"ok": True}
     assert captured["method"] == "POST"
     assert captured["content_type"] == "application/json"
-    import json as _json
 
     body = captured["body"]
     assert isinstance(body, bytes | bytearray)
-    assert _json.loads(body) == payload
+    assert json.loads(body) == payload
 
 
 def test_request_method_is_private_not_in_public_api_surface() -> None:

@@ -43,14 +43,17 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     start_monotonic = time.monotonic()
     async with lifespan_resources(settings) as state:
         application.state.context = state
+        logger.info("lifespan_resources_ready", env=settings.app_env)
         try:
             yield
         finally:
+            # uptime_ms keeps the time-unit consistent with the
+            # request_completed log line's duration_ms field.
             logger.info(
                 "app_shutdown",
                 version=application.version,
                 env=settings.app_env,
-                uptime_s=int(time.monotonic() - start_monotonic),
+                uptime_ms=int((time.monotonic() - start_monotonic) * 1000),
             )
 
 

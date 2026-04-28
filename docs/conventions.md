@@ -39,7 +39,7 @@ tests + a passing `task check`.
 
 - `tests/unit/` and `tests/integration/` mirror the source tree.
   `app/features/inference/service.py` -> `tests/unit/features/inference/test_inference_service.py`.
-- `tests/contract/test_schemathesis.py` for OpenAPI contract validation.
+- `tests/contract/test_openapi_shape.py` (OpenAPI canary) and `tests/contract/test_problem_details_contract.py` (RFC 7807 wire shape) for OpenAPI/contract validation.
 
 ## Pydantic Schemas
 

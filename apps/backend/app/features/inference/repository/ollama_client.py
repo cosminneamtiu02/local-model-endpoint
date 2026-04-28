@@ -5,12 +5,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Final, Literal, Self
 
 import httpx
+import structlog
 
 from app.features.inference.repository.ollama_translation import (
     build_chat_result,
     translate_message,
     translate_params,
 )
+
+logger = structlog.get_logger(__name__)
+
+# Identifies LIP traffic in Ollama logs when multiple consumers share a
+# daemon (the warm-up loop, dev requests, etc.). httpx's default
+# ``python-httpx/<v>`` is also fine but uniform LIP-prefixed agents
+# simplify multi-instance debugging.
+_USER_AGENT: Final[str] = "lip/0.1 (httpx)"
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -64,15 +73,14 @@ class OllamaClient:
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         # transport kwarg is a test seam: integration tests inject
-        # httpx.MockTransport to verify _request plumbing without a
-        # live Ollama. Production call sites pass no transport, so
-        # httpx uses its default AsyncHTTPTransport with the configured
-        # connection-pool limits.
+        # httpx.MockTransport without a live Ollama.
         self._client = httpx.AsyncClient(
             base_url=base_url,
             timeout=timeout,
             transport=transport,
+            headers={"User-Agent": _USER_AGENT},
         )
+        self._base_url = base_url
 
     async def close(self) -> None:
         """Close the underlying httpx.AsyncClient. Idempotent."""
@@ -80,17 +88,31 @@ class OllamaClient:
 
     async def __aenter__(self) -> Self:
         """Enter async context manager; returns self for `async with` binding."""
+        logger.info("ollama_client_connected", base_url=self._base_url)
         return self
 
     async def __aexit__(
         self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
+        _exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _tb: TracebackType | None,
     ) -> None:
-        """Exit async context manager; closes the underlying client."""
-        del exc_type, exc, tb  # exception state surfaced by close() / await chain
-        await self.close()
+        """Exit async context manager; close underlying client without masking body errors.
+
+        If the body of ``async with`` raised E1 and ``close()`` raises E2,
+        Python normally replaces the visible exception with E2 (chaining
+        E1 via ``__context__``). We log-and-suppress E2 so the body's E1
+        remains the visible signal at the call site.
+        """
+        try:
+            await self.close()
+        except BaseException as close_exc:  # noqa: BLE001 - intentionally suppress to preserve body error
+            logger.warning(
+                "ollama_client_close_failed",
+                exc_type=type(close_exc).__name__,
+                exc_message=str(close_exc)[:200],
+            )
+        logger.info("ollama_client_closed", base_url=self._base_url)
 
     async def _request(
         self,
@@ -136,6 +158,14 @@ class OllamaClient:
             # first exercises this path.
             body["think"] = True
 
+        logger.info("ollama_call_started", model_id=model_tag, message_count=len(messages))
         response = await self._request("POST", "/api/chat", json=body)
         response.raise_for_status()
-        return build_chat_result(response.json())
+        result = build_chat_result(response.json())
+        logger.info(
+            "ollama_call_completed",
+            model_id=model_tag,
+            status_code=response.status_code,
+            finish_reason=result.finish_reason,
+        )
+        return result

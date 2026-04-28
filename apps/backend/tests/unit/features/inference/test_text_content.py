@@ -35,3 +35,21 @@ def test_text_content_requires_text_field() -> None:
 def test_text_content_rejects_empty_text() -> None:
     with pytest.raises(ValidationError):
         TextContent(text="")
+
+
+def test_text_content_rejects_whitespace_only_text() -> None:
+    # str_strip_whitespace + min_length=1 rejects whitespace-only inputs that
+    # would otherwise bypass min_length=1 by being literally non-empty strings.
+    with pytest.raises(ValidationError):
+        TextContent(text="   ")
+
+
+def test_text_content_rejects_oversize_text() -> None:
+    # max_length=131072 caps the per-part DoS surface; 131073 chars is one over.
+    with pytest.raises(ValidationError):
+        TextContent(text="x" * 131073)
+
+
+def test_text_content_accepts_text_at_max_length() -> None:
+    part = TextContent(text="x" * 131072)
+    assert len(part.text) == 131072

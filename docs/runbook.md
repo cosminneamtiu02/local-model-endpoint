@@ -119,7 +119,7 @@ the on-disk plist.
 - Run `uv sync --dev` from `apps/backend/` to install all dev dependencies.
 - Run from the `apps/backend/` directory (or use `task` which handles `cd` for you).
 
-### Ollama daemon not reachable (after LIP-E003 lands)
+### Ollama daemon not reachable
 
 - Verify Ollama is running: `curl http://localhost:11434/api/tags`
 - Verify the Gemma model is pulled: `ollama list | grep gemma`

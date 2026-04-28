@@ -22,8 +22,12 @@ def _reset_settings_cache() -> Iterator[None]:
     *next* test's pre-yield clear is symmetric (and so a test that does
     not import ``get_settings`` still has clean state on exit).
 
-    This is a stop-gap until E004 lands the semaphore (which will need
-    similar hygiene per LIP-E004-F001 spec).
+    Note: ``asyncio_default_fixture_loop_scope = "session"`` in
+    pyproject.toml means async fixtures keep their event loop across
+    tests, so any new session-scoped async fixture that captures
+    mutable state must implement its own per-test reset hook (or be
+    function-scoped); ``_reset_settings_cache`` only handles
+    ``get_settings`` specifically.
     """
     from app.api.deps import get_settings
 

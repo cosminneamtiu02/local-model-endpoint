@@ -1,7 +1,6 @@
 """RFC 7807 problem-details response shape.
 
-Canonical wire shape for every error response in LIP, replacing the
-post-bootstrap ``{"error": {...}}`` envelope. Implements RFC 7807
+Canonical wire shape for every error response in LIP. Implements RFC 7807
 (https://datatracker.ietf.org/doc/html/rfc7807) plus two LIP project
 extensions (``code``, ``request_id``) and per-error typed params spread at
 root level (RFC 7807 §3.2).
@@ -33,6 +32,12 @@ class ProblemDetails(BaseModel):
             "future hosted-docs URL mapping can be introduced without breaking the "
             "URN format."
         ),
+        # Pin the format the handler actually produces: ``about:blank`` for
+        # framework-level HTTP errors (RFC 7807 §4.2) or ``urn:lip:error:<code>``
+        # for typed DomainErrors. A direct ``ProblemDetails(type="oops", ...)``
+        # construction now fails the schema instead of shipping a body that
+        # violates the URN convention consumers pattern-match on.
+        pattern=r"^(about:blank|urn:lip:error:[a-z0-9-]+)$",
     )
     title: str = Field(description="Short human-readable summary of the problem")
     status: int = Field(description="HTTP status code", ge=400, le=599)

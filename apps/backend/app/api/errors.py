@@ -61,7 +61,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
 from app.exceptions import DomainError, InternalError, NotFoundError, ValidationFailedError
-from app.schemas import ProblemDetails, ValidationErrorDetail
+from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request
@@ -97,8 +97,11 @@ def _resolve_request_id(request: Request) -> str:
     if isinstance(request_id, str) and request_id:
         return request_id
     fallback = str(uuid.uuid4())
-    # Path + method are added so a single warning identifies the
-    # misconfigured route without forcing operators to re-grep the code.
+    # Bind ``request_id`` so this and any subsequent log lines for this
+    # request use the standard key (correlation by UUID still works
+    # despite the middleware skip). Path + method tag the warning so a
+    # single line identifies the misconfigured route.
+    structlog.contextvars.bind_contextvars(request_id=fallback)
     logger.warning(
         "request_id_missing_in_state",
         fallback_request_id=fallback,
@@ -114,7 +117,7 @@ def _build_problem_payload(
     request_id: str,
     *,
     detail_override: str | None = None,
-    extras: dict[str, Any] | None = None,
+    extras: ProblemExtras | None = None,
 ) -> ProblemDetails:
     """Assemble and validate the RFC 7807 :class:`ProblemDetails` for a DomainError.
 
@@ -129,6 +132,12 @@ def _build_problem_payload(
     downstream.
     """
     spread: dict[str, Any] = exc.params.model_dump(mode="json") if exc.params else {}
+    # Widen TypedDict to dict[str, Any] for the spread — ProblemDetails
+    # accepts the extension fields via Pydantic's ``extra='allow'`` at
+    # runtime, but pyright cannot prove the TypedDict keys map to specific
+    # ProblemDetails kwargs. The TypedDict on the parameter remains the
+    # static-typing contract for callers.
+    extras_widened: dict[str, Any] = dict(extras) if extras else {}
     return ProblemDetails(
         type=exc.type_uri,
         title=exc.title,
@@ -138,7 +147,7 @@ def _build_problem_payload(
         code=exc.code,
         request_id=request_id,
         **spread,
-        **(extras or {}),
+        **extras_widened,
     )
 
 
@@ -169,9 +178,24 @@ def _problem_response(problem: ProblemDetails) -> Response:
 
 
 async def _handle_domain_error(request: Request, exc: Exception) -> Response:
-    """Map a :class:`DomainError` to its declared RFC 7807 body and status."""
+    """Map a :class:`DomainError` to its declared RFC 7807 body and status.
+
+    Also: bind ``error_code`` into the structlog contextvars so the
+    middleware's trailing ``request_completed`` log line carries it
+    automatically (one-line correlation between "what error fired" and
+    "how the request completed"); emit a single ``domain_error_raised``
+    INFO line at handler-time so the event is greppable on its own.
+    """
     assert isinstance(exc, DomainError)  # noqa: S101 — narrows for static checkers
     request_id = _resolve_request_id(request)
+    structlog.contextvars.bind_contextvars(error_code=exc.code)
+    logger.info(
+        "domain_error_raised",
+        code=exc.code,
+        status=exc.http_status,
+        method=request.method,
+        path=request.url.path,
+    )
     problem = _build_problem_payload(exc, request, request_id)
     return _problem_response(problem)
 
@@ -204,9 +228,22 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         for e in raw_errors
     ]
 
+    if not validation_errors:
+        # An empty errors list out of pydantic violates pydantic's own
+        # invariants for RequestValidationError. Surface it loudly so
+        # the operator can correlate via request_id rather than chasing
+        # an opaque "unknown" detail.
+        logger.warning(
+            "validation_error_with_no_details",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+        )
+
     first_field = validation_errors[0]["field"] if validation_errors else "unknown"
     first_reason = validation_errors[0]["reason"] if validation_errors else "unknown"
     domain_err = ValidationFailedError(field=str(first_field), reason=str(first_reason))
+    structlog.contextvars.bind_contextvars(error_code=domain_err.code)
 
     detail_override: str | None = None
     if len(validation_errors) > 1:
@@ -271,6 +308,19 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     status_code = exc.status_code
     status_phrase = _http_status_phrase(status_code)
     detail_text = str(exc.detail) if exc.detail else status_phrase
+    code = _http_code_for_status(status_code)
+    structlog.contextvars.bind_contextvars(error_code=code)
+    if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
+        # 5xx HTTPExceptions raised by the framework would otherwise ship
+        # without any log line — operators couldn't grep them by request_id.
+        logger.warning(
+            "http_exception_5xx",
+            request_id=request_id,
+            status_code=status_code,
+            detail=detail_text,
+            method=request.method,
+            path=request.url.path,
+        )
 
     if status_code == HTTPStatus.NOT_FOUND:
         problem = _build_problem_payload(
@@ -287,7 +337,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         status=status_code,
         detail=detail_text,
         instance=request.url.path,
-        code=_http_code_for_status(status_code),
+        code=code,
         request_id=request_id,
     )
     return _problem_response(problem)
@@ -312,18 +362,18 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     RequestIdMiddleware, so they get the header automatically.
     """
     request_id = _resolve_request_id(request)
-    # ``exc_message`` is added (alongside ``exc_type``) so dev-mode
-    # ConsoleRenderer logs and JSON-mode bucket-by-message both have
-    # the message at the structured-log layer without parsing the
-    # nested ``dict_tracebacks`` payload. The message is not echoed
-    # into the response body — only ``InternalError``'s rendered detail
-    # ships to the consumer, preserving the no-PII / no-stack-trace-leak
-    # contract on the wire.
+    structlog.contextvars.bind_contextvars(error_code=InternalError.code)
+    # ``exc_message`` is truncated to 200 chars so the structured log
+    # layer captures enough actionable signal for triage without
+    # unboundedly serializing input-value snippets that can leak PII via
+    # log aggregation. The message is not echoed into the response body —
+    # only ``InternalError``'s rendered detail ships to the consumer,
+    # preserving the no-PII / no-stack-trace-leak contract on the wire.
     logger.exception(
         "unhandled_exception",
         request_id=request_id,
         exc_type=type(exc).__name__,
-        exc_message=str(exc),
+        exc_message=str(exc)[:200],
         method=request.method,
         path=request.url.path,
     )

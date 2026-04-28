@@ -5,7 +5,7 @@ Read `CLAUDE.md` for all rules and forbidden patterns. Read [docs/disambigued-id
 for the full project specification and [graphs/LIP/](../graphs/LIP/) for the Project +
 Epic + Feature tree.
 
-## Backend — What's Built (post-bootstrap, pre-feature-dev)
+## Backend — What's Built
 
 **Core infrastructure** is in place: app factory ([apps/backend/app/main.py](../apps/backend/app/main.py)),
 configuration via pydantic-settings ([app/core/config.py](../apps/backend/app/core/config.py)),
@@ -21,25 +21,30 @@ milestone.
 **Error handling** is fully implemented via the code-generated system. Error codes live
 in [packages/error-contracts/errors.yaml](../packages/error-contracts/errors.yaml) — a
 codegen script produces one Python exception class per error code in
-`app/exceptions/_generated/`. A single exception handler in
-[app/api/errors.py](../apps/backend/app/api/errors.py) maps all `DomainError` subclasses
-to a consistent JSON response shape: `{error: {code, params, details, request_id}}`.
+`app/exceptions/_generated/`. Four handlers in
+[app/api/errors.py](../apps/backend/app/api/errors.py) map `DomainError`,
+`RequestValidationError`, `StarletteHTTPException`, and unhandled `Exception` into a
+unified RFC 7807 `application/problem+json` ProblemDetails envelope (LIP-E004-F004).
 
 **Health endpoint** is at root level (outside `/v1/`):
 [app/api/health_router.py](../apps/backend/app/api/health_router.py) provides `/health`
 for liveness. Readiness will be added by LIP-E006-F001 when the warm-up signal from
 LIP-E005-F001 is wired.
 
-**Architecture enforcement** is mechanical: import-linter has three forbidden contracts
-that work even before the LIP feature is scaffolded — `app.core` cannot import features,
-`app.exceptions` cannot import features, `app.schemas` cannot import features. Feature-internal
-layering and feature-isolation contracts are added during feature-dev when the LIP feature
-lands.
+**Architecture enforcement** is mechanical: import-linter has eleven contracts (eight
+cross-cutting layer rules plus three inference-feature-internal rules) — see
+[apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini)
+for the full list. Each cross-cutting layer (`app.core`, `app.exceptions`, `app.schemas`)
+cannot import features and cannot import each other; the inference feature's `model/`,
+`repository/`, and `schemas/` are mutually constrained per the layer flow.
 
 ## What's NOT Built — feature-dev work
 
-The Local Inference Provider feature itself does not yet exist in code. The project's
-seven epics (see [graphs/LIP/](../graphs/LIP/)) describe what feature-dev will build:
+Three LIP feature nodes have already landed (LIP-E001-F001 inference envelopes,
+LIP-E003-F001 lifespan-managed OllamaClient, LIP-E003-F002 envelope↔Ollama translation,
+LIP-E004-F004 problem+json, LIP-E005-F003 launchd plist). `service/` and `router/`
+arrive with LIP-E001-F002. The project's seven epics (see [graphs/LIP/](../graphs/LIP/))
+describe what feature-dev will build next:
 
 - **LIP-E001 — Inference Contract & Happy Path:** envelope schemas, inference endpoint,
   service-layer orchestration.

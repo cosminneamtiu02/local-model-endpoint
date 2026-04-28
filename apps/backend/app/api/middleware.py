@@ -55,23 +55,34 @@ class RequestIdMiddleware:
             return
 
         # Accept client-provided request ID only if it's a valid UUID;
-        # otherwise generate a new one. Prevents log injection.
-        headers = dict(scope.get("headers", []))
-        client_id = headers.get(b"x-request-id", b"").decode("latin-1", errors="ignore")
-        if client_id and not _UUID_PATTERN.match(client_id):
-            # Surface the rejection at info level so a chronically
-            # misconfigured consumer (e.g. hard-coded ``req-12345``)
-            # is detectable from logs. Truncate the supplied value to
-            # bound the log-injection blast radius.
+        # otherwise generate a new one. Prevents log injection. Walk the
+        # ASGI headers iterable directly — they are an iterable of
+        # (bytes, bytes) tuples; building a full dict to fetch one key
+        # is per-request waste on the hot path.
+        client_id_raw = next(
+            (v for k, v in scope.get("headers", []) if k == b"x-request-id"),
+            b"",
+        )
+        client_id = client_id_raw.decode("latin-1", errors="ignore")
+        match_result = _UUID_PATTERN.match(client_id) if client_id else None
+
+        if client_id and match_result is None:
+            # A consumer sending a non-UUID X-Request-ID is a client-side
+            # configuration bug — recoverable but worth surfacing as a
+            # warning so it is visible in any "show me warnings" filter.
+            # Truncate the supplied value to bound the log-injection
+            # blast radius.
             preview = client_id[:32]
             request_id = str(uuid.uuid4())
-            logger.info(
+            logger.warning(
                 "request_id_rejected_client_value",
                 supplied_value_preview=preview,
                 generated_request_id=request_id,
             )
+        elif match_result is not None:
+            request_id = client_id
         else:
-            request_id = client_id if _UUID_PATTERN.match(client_id) else str(uuid.uuid4())
+            request_id = str(uuid.uuid4())
 
         # Park on scope["state"] so request.state.request_id reads it
         # via Starlette's State accessor inside route handlers and the
@@ -79,20 +90,30 @@ class RequestIdMiddleware:
         scope.setdefault("state", {})
         scope["state"]["request_id"] = request_id
 
-        # Capture status from the response-start message so we can log
-        # it after the body completes. Wrapped in a list so the inner
-        # closure can mutate it; mutability of an outer-scope int is
-        # the simplest pattern that survives refactor without nonlocal.
-        captured_status: list[int] = [0]
+        # `nonlocal` is the canonical construct for binding an int from
+        # the inner closure — using a 1-element list to fake mutability
+        # is an idiomatic anti-pattern (PEP 3104 added nonlocal precisely
+        # to avoid that workaround).
+        captured_status: int = 0
         method = str(scope.get("method", ""))
         path = str(scope.get("path", ""))
         start = time.perf_counter()
 
-        with structlog.contextvars.bound_contextvars(request_id=request_id):
+        # Bind request_id + method + path so every log line emitted within
+        # the request scope (handlers, services, repositories) carries the
+        # routing context. ``merge_contextvars`` injects them on emit;
+        # explicit kwargs at call sites would override the contextvar (and
+        # would be redundant for these three keys anyway).
+        with structlog.contextvars.bound_contextvars(
+            request_id=request_id,
+            method=method,
+            path=path,
+        ):
 
             async def send_with_request_id(message: Message) -> None:
+                nonlocal captured_status
                 if message["type"] == "http.response.start":
-                    captured_status[0] = int(message.get("status", 0))
+                    captured_status = int(message.get("status", 0))
                     new_headers = list(message.get("headers", []))
                     new_headers.append((b"x-request-id", request_id.encode("latin-1")))
                     message = {**message, "headers": new_headers}
@@ -101,15 +122,17 @@ class RequestIdMiddleware:
             try:
                 await self.app(scope, receive, send_with_request_id)
             finally:
-                if path not in _ACCESS_LOG_SUPPRESSED_PATHS:
+                # Health-check pings are silenced unless degraded — a 4xx/5xx
+                # /health response is the case operators DO want to see.
+                suppress = (
+                    path in _ACCESS_LOG_SUPPRESSED_PATHS and 200 <= captured_status < 400  # noqa: PLR2004
+                )
+                if not suppress:
                     duration_ms = int((time.perf_counter() - start) * 1000)
                     client = scope.get("client")
                     logger.info(
                         "request_completed",
-                        request_id=request_id,
-                        method=method,
-                        path=path,
-                        status_code=captured_status[0],
+                        status_code=captured_status,
                         duration_ms=duration_ms,
                         client_host=client[0] if client else None,
                     )

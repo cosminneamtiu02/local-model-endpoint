@@ -81,3 +81,33 @@ def test_message_routes_dict_content_through_content_part_discriminator() -> Non
     assert isinstance(msg.content, list)
     assert isinstance(msg.content[0], TextContent)
     assert isinstance(msg.content[1], ImageContent)
+
+
+def test_message_rejects_empty_string_content() -> None:
+    # min_length=1 on the str arm rejects "" — caught at the union arm, not
+    # at the model_validator layer.
+    with pytest.raises(ValidationError):
+        Message(role="user", content="")
+
+
+def test_message_rejects_whitespace_only_string_content() -> None:
+    # str_strip_whitespace strips before length check.
+    with pytest.raises(ValidationError):
+        Message(role="user", content="   ")
+
+
+def test_message_rejects_empty_content_list() -> None:
+    # min_length=1 on the list arm rejects [].
+    with pytest.raises(ValidationError):
+        Message(role="user", content=[])
+
+
+def test_message_rejects_oversize_content_list() -> None:
+    # max_length=32 caps content-part cardinality (DoS axis).
+    with pytest.raises(ValidationError):
+        Message(role="user", content=[TextContent(text="x") for _ in range(33)])
+
+
+def test_message_rejects_oversize_string_content() -> None:
+    with pytest.raises(ValidationError):
+        Message(role="user", content="x" * 131073)
