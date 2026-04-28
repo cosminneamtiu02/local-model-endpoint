@@ -16,9 +16,9 @@ requires-python = ">=3.13,<3.14"
 # self-evident and removes the gap where ``uv sync`` (without ``--frozen``)
 # on a fresh clone could pull a newer version than CI.
 dependencies = [
-    "fastapi==0.135.3",
+    "fastapi==0.136.1",
     "starlette==1.0.0",
-    "uvicorn[standard]==0.44.0",
+    "uvicorn[standard]==0.46.0",
     "pydantic==2.13.3",
     "pydantic-settings==2.14.0",
     "structlog==25.5.0",
