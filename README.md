@@ -12,12 +12,15 @@ and [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 - **Backend**: Python 3.13, FastAPI, Pydantic v2, asyncio, httpx, structlog
 - **Inference backend**: Ollama running natively on macOS (Gemma 4 E2B in v1)
 - **Testing**: pytest + pytest-asyncio + Schemathesis
-- **Tooling**: Taskfile, Ruff, Pyright, import-linter, uv
+- **Tooling**: Taskfile, Ruff, Pyright, import-linter, uv, pre-commit, pytest-cov
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Python 3.13, uv, Ollama with gemma4:e2b pulled
+# Prerequisites: Python 3.13, uv, Task, Ollama with gemma4:e2b pulled
+
+# Install + start the always-on Ollama agent (one-time per machine)
+task ollama:install && ollama pull gemma4:e2b
 
 cd apps/backend
 uv sync --dev
@@ -33,7 +36,7 @@ task dev
 | Command | Description |
 |---|---|
 | `task dev` | Start backend with hot reload |
-| `task check` | Run all linters, type checkers, architecture, tests, error contracts |
+| `task check` | Run lint, format, types, architecture, tests, error contracts, plist, lockfile |
 | `task test` | Run all tests (unit + integration + contract) |
 | `task test:unit` | Run unit tests |
 | `task test:integration` | Run integration tests (in-process via ASGI transport) |
@@ -42,6 +45,10 @@ task dev
 | `task format` | Run ruff format |
 | `task errors:generate` | Generate Python error classes from errors.yaml |
 | `task check:errors` | Verify error contracts are up to date |
+| `task ollama:install` | Install + bootstrap the Ollama launchd agent |
+| `task ollama:uninstall` | Bootout + remove the Ollama launchd agent |
+| `task ollama:status` | Print launchctl state for the Ollama agent |
+| `task check:plist` | Validate the Ollama plist with `plutil -lint` (macOS) |
 
 ## Documentation
 
@@ -54,6 +61,7 @@ task dev
 - [AI guide](docs/ai-guide.md) — overview of the AI-assisted scaffold (skills, graphs, contracts)
 - [Testing](docs/testing.md) — three-level test strategy in v1
 - [Runbook](docs/runbook.md) — day-to-day operational commands
+- [Ollama launchd agent](docs/ollama-launchd.md) — one-time install + operator commands
 - [Auto-merge](docs/automerge.md) — Dependabot auto-merge architecture and runbook
 
 ## AI-Assisted Development

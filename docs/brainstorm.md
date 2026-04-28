@@ -1,3 +1,9 @@
+> **Historical brainstorm.** This document captures the pre-disambiguation
+> brief. The current authoritative specification is
+> [docs/disambigued-idea.md](disambigued-idea.md). Some details here
+> (e.g. KEEP_ALIVE=-1, open questions, deployment-shape uncertainty)
+> are intentionally superseded.
+
 Idea brief: Local Inference Provider service
 Concept. A FastAPI service running on my M4 Mac Mini (16GB) that wraps Ollama and exposes a stable inference contract to my other local backend projects. One model loaded at a time (Gemma 4 E2B initially), serial execution via asyncio.Semaphore(1), buffered HTTP responses, no streaming, no async jobs.
 Why this exists over calling Ollama directly. Stable internal contract decoupled from Ollama's API surface (forward compatibility for backend swaps — vLLM, MLX, cloud), per-model sampling defaults so consumer projects don't need model-specific knowledge, foundation for future per-project quotas and structured logging, single observability point for inference across projects.

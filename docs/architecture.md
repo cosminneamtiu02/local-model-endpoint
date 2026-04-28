@@ -25,18 +25,29 @@
 ## Backend Architecture: Vertical Slices
 
 ```
-app/
-├── core/               -- config, logging. Cross-cutting infrastructure.
-├── api/                -- middleware (request_id only), exception handler, health, shared deps.
-├── exceptions/         -- DomainError base (base.py) + generated subclasses (_generated/).
-├── schemas/            -- ErrorResponse, ErrorBody, ErrorDetail. Shared response shapes.
-└── features/
-    └── <feature>/      -- One folder per feature. Self-contained vertical slice.
-        ├── model/          -- Pydantic value-objects (Message, ModelParams, ModelInfo)
-        ├── repository/     -- Ollama HTTP client wrapper (the "data" boundary)
-        ├── service/        -- Inference orchestration (Semaphore, registry lookup)
-        ├── router/         -- FastAPI endpoints
-        └── schemas/        -- Wire schemas (request and response envelopes)
+apps/backend/
+├── app/
+│   ├── core/               -- config, logging. Cross-cutting infrastructure.
+│   ├── api/                -- middleware (request_id only), exception handler, health, shared deps.
+│   ├── exceptions/         -- DomainError base (base.py) + generated subclasses (_generated/).
+│   ├── schemas/            -- ErrorResponse, ErrorBody, ErrorDetail. Shared response shapes.
+│   └── features/
+│       └── <feature>/      -- One folder per feature. Self-contained vertical slice.
+│           ├── model/          -- Pydantic value-objects (Message, ModelParams, ModelInfo)
+│           ├── repository/     -- Ollama HTTP client wrapper (the "data" boundary)
+│           ├── service/        -- Inference orchestration (Semaphore, registry lookup)
+│           ├── router/         -- FastAPI endpoints
+│           └── schemas/        -- Wire schemas (request and response envelopes)
+├── architecture/
+│   └── import-linter-contracts.ini  -- Layer + feature-isolation contracts
+└── tests/
+    ├── unit/               -- Fast, no network. <10s.
+    ├── integration/        -- httpx.AsyncClient + ASGITransport in-process.
+    └── contract/           -- Schemathesis OpenAPI fuzz.
+
+infra/
+└── launchd/
+    └── com.lip.ollama.plist  -- User-scope launchd agent for the Ollama daemon.
 ```
 
 The LIP feature itself does not yet exist in code — it is scaffolded during feature-dev.
@@ -82,9 +93,24 @@ Exception handler serializes to JSON: {error: {code, params, details, request_id
 Consumer receives a structured error envelope it can program against
 ```
 
+## Lifecycle (on-demand)
+
+LIP's FastAPI service is on-demand, not always-on (G6 from
+[docs/disambigued-idea.md](disambigued-idea.md)). A consumer's first request
+through the local network triggers `task dev`-style wake-up; the service warms
+the model with a dummy inference (LIP-E005-F001) and starts serving. Once
+serving, an idle-shutdown timer (LIP-E005-F002) tears the FastAPI process down
+after 10 minutes without inbound requests, freeing RAM for desktop work.
+Ollama itself is the always-on substrate underneath — it stays bootstrapped
+through the user-scope `launchd` agent and unloads the model from RAM 5 min
+after the last request via `OLLAMA_KEEP_ALIVE=300s`. See
+[docs/disambigued-idea.md](disambigued-idea.md) for the full lifecycle spec
+and [docs/ollama-launchd.md](ollama-launchd.md) for the Ollama side.
+
 ## API Versioning
 
-- Inference endpoints: `/api/v1/...` (path TBD by LIP-E001-F002).
+- Inference endpoints: `/v1/...` (per LIP-E001-F002, "domain-language path,
+  not OpenAI-compat").
 - Health: `/health` (root, unversioned).
 
 ## Packages
@@ -96,5 +122,7 @@ Consumer receives a structured error envelope it can program against
 
 - Native deployment via `uv` and `launchd`. No Docker, no cloud.
 - Ollama runs as a `launchd`-managed always-on daemon (small idle footprint).
+  See [docs/ollama-launchd.md](ollama-launchd.md) for the plist, env-var
+  rationale, and operator commands.
 - The FastAPI service is on-demand: launched by consumers, self-shuts after 10 min idle
   (LIP-E005-F002 will implement the timer).

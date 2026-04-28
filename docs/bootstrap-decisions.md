@@ -45,7 +45,7 @@ This document records the decisions made during the `project-bootstrap` skill ru
 
 ## Execution steps
 
-1. **Bulk directory deletes:** `apps/frontend/`, `apps/backend/alembic/`, `apps/backend/app/features/widget/`, `apps/backend/app/shared/`, `apps/backend/app/types/`, `infra/docker/`, `infra/compose/`, `infra/terraform/`, `infra/` (parent), `packages/api-client/`.
+1. **Bulk directory deletes:** `apps/frontend/`, `apps/backend/alembic/`, `apps/backend/app/features/widget/`, `apps/backend/app/shared/`, `apps/backend/app/types/`, `infra/docker/`, `infra/compose/`, `infra/terraform/`, `infra/` (parent), `packages/api-client/`. Note: `infra/` was deleted at bootstrap and later re-created by LIP-E005-F003 (PR #9) with only `infra/launchd/` inside it (the Ollama plist), via [docs/ollama-launchd.md](ollama-launchd.md).
 2. **Single-file deletes:** `apps/backend/app/core/database.py`, `apps/backend/app/schemas/page.py`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.github/workflows/deploy.yml`, `.github/workflows/copilot-review.yml`, `.env.example` (later rewritten).
 3. **Widget _generated/ deletes:** 6 widget error class files (`widget_not_found_*`, `widget_name_conflict_*`, `widget_name_too_long_*`).
 4. **Test deletes:** widget tests (unit + integration), DB-coupled tests (`test_rollback_canary.py`, `tests/integration/shared/`), Money tests (`tests/unit/types/`), Page tests (`tests/unit/schemas/`), config DB-validator test (`tests/unit/core/`), empty parent test packages (`tests/unit/features/`, `tests/unit/shared/`).
@@ -90,11 +90,15 @@ These are tracked as feature-dev work, not bootstrap work:
 - `apps/backend/uv.lock` was preserved through the bootstrap. `uv sync --dev` reconciled
   it cleanly, but the commit will record the lock with whatever transitive resolutions
   uv chose during bootstrap. Future Dependabot PRs will refresh against fresh trees.
-- The `dependabot-lockfile-sync.yml` workflow on disk still contains pnpm-handling
-  branches that will never trigger (no `pnpm-lock.yaml` in the repo). Dead code, not
-  harmful, can be cleaned up when convenient.
 - `_app` and unused-test-function pyright hints in `tests/unit/exceptions/test_error_handler.py`
   are decorator-registered FastAPI route handlers that pyright thinks are unused. Pre-existing
   pattern; not introduced by bootstrap.
 - LIP feature work (LIP-E001 through LIP-E007) is the next pipeline step. Use
-  `feature-elicitation` per stub in `graphs/LIP/unthickened/`.
+  `feature-elicitation` per stub in `graphs/LIP/`.
+
+## Resolved follow-ups
+
+- *(2026-04-28)* `dependabot-lockfile-sync.yml` no longer contains pnpm-handling
+  branches — the pnpm path was removed entirely post-bootstrap. See
+  [TEMPLATE_FRICTION.md](../TEMPLATE_FRICTION.md) "Post-LIP-bootstrap (2026-04)"
+  note for context.

@@ -1,39 +1,34 @@
-"""Contract tests — validates OpenAPI spec compliance.
+"""Schemathesis fuzz of the auto-generated OpenAPI spec.
 
-The spec-shape test below always runs as the canary for "did the
-OpenAPI even generate correctly." A full Schemathesis fuzz test will
-be added once the LIP feature router (LIP-E001-F002) lands and there
-are operations to fuzz against.
+Loads the spec from a freshly-built ASGI app and parametrizes a single
+test function over every operation Schemathesis discovers. Pre-feature-
+dev, only /health is registered; once LIP-E001-F002 lands, /v1/inference
+becomes the primary fuzz target.
+
+The 4.x API uses `schema.parametrize()` as the operation-level
+parametrization decorator and `case.call_and_validate()` to call the
+ASGI app and validate the response against the schema in one step.
 """
 
-from starlette.testclient import TestClient
+from __future__ import annotations
 
-from app.main import app
+import schemathesis
 
+from app.main import create_app
 
-def test_openapi_spec_is_valid() -> None:
-    """The OpenAPI spec should be valid and contain the expected endpoints."""
-    client = TestClient(app, raise_server_exceptions=False)
-    response = client.get("/openapi.json")
-    assert response.status_code == 200
-
-    spec = response.json()
-    assert spec["openapi"].startswith("3.")
-    assert spec["info"]["title"] == "Local Inference Provider"
-
-    paths = spec["paths"]
-
-    # Health endpoint at root, outside /api/v1/
-    assert "/health" in paths
-
-    # The LIP feature router will add inference paths under /api/v1/
-    # when LIP-E001-F002 lands during feature-dev. Pre-feature-dev,
-    # /api/v1/ has no operations and is not present in the spec.
+# Build the app once at module import; from_asgi reads /openapi.json
+# through the ASGI transport (no real network).
+_app = create_app()
+schema = schemathesis.openapi.from_asgi("/openapi.json", _app)
 
 
-def test_health_endpoint_conforms_to_spec() -> None:
-    """Health endpoint should return the expected shape."""
-    client = TestClient(app, raise_server_exceptions=False)
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+@schema.parametrize()
+def test_openapi_operations_pass_default_checks(case: schemathesis.Case) -> None:
+    """Every discovered operation must round-trip and validate against the schema.
+
+    `call_and_validate` issues the request through Schemathesis's ASGI
+    transport (so no real network) and runs the default check set, which
+    includes status-code conformance, content-type conformance, and
+    response-schema conformance.
+    """
+    case.call_and_validate()

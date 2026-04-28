@@ -13,8 +13,13 @@ and [docs/conventions.md](docs/conventions.md) for coding conventions.
 
 ## Code Style
 
-- **Python**: Ruff (ALL rules), Pyright strict
-- **Commits**: [Conventional Commits](https://www.conventionalcommits.org/)
+- **Python**: Ruff (ALL rules), Pyright strict.
+- **Run `task check` before pushing.** This is the same suite CI runs (lint,
+  format, types, architecture, tests, error contracts, plist, lockfile).
+- **PR titles** use [Conventional Commits](https://www.conventionalcommits.org/)
+  because the squash-merge title becomes the commit on `main`. Individual
+  commit messages on a feature branch are not required to follow Conventional
+  Commits — the PR title is what lands.
 
 ## Pull Request Process
 
@@ -27,4 +32,5 @@ and [docs/conventions.md](docs/conventions.md) for coding conventions.
 
 ## Architecture
 
-Read [CLAUDE.md](CLAUDE.md) for the complete list of rules and forbidden patterns.
+Read [CLAUDE.md](CLAUDE.md) — **the discipline contract; read first.** It
+contains the complete list of rules and forbidden patterns.

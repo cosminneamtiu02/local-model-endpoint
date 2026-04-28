@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Final, Self
+from typing import TYPE_CHECKING, Any, Final, Self
 
 import httpx
 
-DEFAULT_TIMEOUT: Final = httpx.Timeout(connect=5.0, read=None, write=None, pool=None)
+if TYPE_CHECKING:
+    from types import TracebackType
+
+DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(connect=5.0, read=None, write=None, pool=None)
 
 
 class OllamaClient:
@@ -17,6 +20,10 @@ class OllamaClient:
     mapping) call the low-level _request method; direct _client access
     is permitted only when the wrapper genuinely needs more httpx
     surface than _request provides.
+
+    The class name keeps the "Client" suffix (not "Repository") because
+    the role is HTTP-client wrapping; CLAUDE.md's example of
+    `OllamaRepository` is a guide, not an absolute rule.
     """
 
     def __init__(
@@ -38,12 +45,21 @@ class OllamaClient:
         )
 
     async def close(self) -> None:
+        """Close the underlying httpx.AsyncClient. Idempotent."""
         await self._client.aclose()
 
     async def __aenter__(self) -> Self:
+        """Enter async context manager; returns self for `async with` binding."""
         return self
 
-    async def __aexit__(self, *_: object) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Exit async context manager; closes the underlying client."""
+        del exc_type, exc, tb  # exception state surfaced by close() / await chain
         await self.close()
 
     async def _request(
@@ -53,4 +69,5 @@ class OllamaClient:
         *,
         json: dict[str, Any] | None = None,
     ) -> httpx.Response:
+        """Low-level passthrough to httpx — used by sibling adapter features."""
         return await self._client.request(method, path, json=json)

@@ -1,5 +1,10 @@
 # Template Friction Log
 
+> **About this file.** Originally tracked friction observed when using the
+> template repo. Now repurposed for LIP-specific operational incidents and
+> template→LIP bootstrap notes. Keep entries grounded in actual events and
+> include the resolution.
+
 This file tracks friction points discovered when using this template on real projects.
 It is empty at template creation time and maintained on project #1 onward.
 

@@ -31,3 +31,9 @@ None. All three Epic-level questions raised at requirements-elicitation time wer
 - **Idle-shutdown timer mechanism** — resolved by F002: a polling background watchdog (`async def idle_watchdog`) that sleeps 60 s per iteration, checks `time.monotonic() - tracker.last_finish() >= idle_seconds`, and skips when `waiter_counter.current() > 0`. Simpler than per-request-reset + remaining-time-recompute; granularity (60 s on a 600 s default) is acceptable. `LastRequestTracker.record()` is called at both entry and `finally` of `InferenceService.run()` so all paths through the orchestrator update the timer.
 - **Warm-up dummy inference body** — resolved by F001: real registry-resolved path. Calls `client.chat()` with the `default-task` registry entry, `Message(role="user", content="ok")`, `ModelParams(max_tokens=1)`. Exercises the full registry → backend-tag resolution at startup, catching mis-wirings before the first user request. Bypasses the orchestrator's QoS layer (no semaphore/counter pollution).
 - **launchd plist location** — resolved by F003: `infra/launchd/com.lip.ollama.plist` with `docs/ollama-launchd.md` documenting install/uninstall/customize procedures. Validated by `plutil -lint` in `task check`. Plist installed to `~/Library/LaunchAgents/com.lip.ollama.plist` and bootstrapped via `launchctl bootstrap gui/$(id -u) …`.
+
+## Features
+
+- [LIP-E005-F001](LIP-E005-F001.md) — Startup warm-up dummy inference before /health signals ready (verifiable, p130)
+- [LIP-E005-F002](LIP-E005-F002.md) — Idle-shutdown timer at 10 minutes of no inference traffic (verifiable, p140)
+- [LIP-E005-F003](LIP-E005-F003.md) — Ollama launchd plist with v1 environment variables (implemented, p150)

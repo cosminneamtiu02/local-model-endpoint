@@ -1,10 +1,10 @@
 """Shared FastAPI dependencies."""
 
 from functools import lru_cache
-from typing import cast
 
 from fastapi import Request
 
+from app.api.state import AppState
 from app.core.config import Settings
 from app.features.inference.repository.ollama_client import OllamaClient
 
@@ -12,16 +12,22 @@ from app.features.inference.repository.ollama_client import OllamaClient
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return cached application settings."""
-    return Settings()  # pyright: ignore[reportCallIssue]  # pydantic-settings loads fields from env
+    # pydantic-settings loads required fields from env / .env at construction time;
+    # pyright doesn't see the BaseSettings dynamic init so we suppress the false call-issue.
+    return Settings()  # pyright: ignore[reportCallIssue]
+
+
+def get_app_state(request: Request) -> AppState:
+    """Return the lifespan-managed AppState attached at startup."""
+    state: AppState = request.app.state.context
+    return state
 
 
 def get_ollama_client(request: Request) -> OllamaClient:
-    """Return the lifespan-managed OllamaClient stored on app.state.
+    """Return the lifespan-managed OllamaClient.
 
-    The client is constructed in main.lifespan at startup and closed at
-    shutdown; the same instance is returned across all requests within
-    one app instance. cast() is required because Starlette's State is
-    typed as Any.
+    Reads off the typed AppState that lifespan_resources stores on
+    `app.state.context` so feature handlers don't need cast() and stay
+    pyright-strict.
     """
-    # ruff TC006 prefers the quoted form to avoid runtime type resolution
-    return cast("OllamaClient", request.app.state.ollama_client)
+    return get_app_state(request).ollama_client

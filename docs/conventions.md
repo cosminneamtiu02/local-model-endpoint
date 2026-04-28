@@ -10,7 +10,24 @@ enforcement version. This document provides rationale.
 | Python files | `snake_case.py` | `inference_service.py` |
 | Python classes | `PascalCase` + role suffix | `InferenceService`, `OllamaRepository` |
 | Python functions | `snake_case` verbs | `resolve_tag`, `merge_params` |
-| Feature folders | `kebab-case` | `features/inference/` |
+| Feature folders | `snake_case` | `features/inference/` (hyphens are not valid in Python package names) |
+
+The model directory is `model/` (singular), not `models/` — it holds value-objects
+for the feature, not a collection of ORM models.
+
+## Spec graph
+
+The requirements tree at `graphs/LIP/` is the source of truth for what
+the project must build. Each node has a frontmatter status:
+
+- `stub` — created by `requirements-elicitation`; one-line description.
+- `detailed` — thickened by `feature-elicitation` with full sections.
+- `verifiable` — test scenarios added by `test-generation`.
+- `implemented` — feature is in code (set by hand once code lands).
+
+Never write implementation before the corresponding feature reaches
+`verifiable` status, and never bump to `implemented` without code +
+tests + a passing `task check`.
 
 ## Test Naming
 
@@ -36,6 +53,10 @@ ModelInfo, OllamaChatResult) — `model/` in LIP holds project value-objects, no
 types, since the service has no database. Models never import schemas; that direction
 stays strict. See the Layer Rules in [CLAUDE.md](../CLAUDE.md) for the authoritative
 statement.
+
+Repositories cannot import from schemas (they are the data-access boundary). This
+matches the import-linter contract `inference-repository-no-schemas` in
+[apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini).
 
 ## Error System
 
