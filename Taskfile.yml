@@ -13,13 +13,14 @@ tasks:
 
   # ── Check (run before declaring work done) ───────────────────
   check:
-    desc: Run ALL checks — lint, types, arch, tests, error contracts
+    desc: Run ALL checks — lint, types, arch, tests, error contracts, plist
     cmds:
       - task: check:lint
       - task: check:types
       - task: check:arch
       - task: check:test
       - task: check:errors
+      - task: check:plist
 
   check:lint:
     desc: Run linter
@@ -56,6 +57,11 @@ tasks:
           echo "$UNTRACKED"
           exit 1
         fi
+
+  check:plist:
+    desc: Validate launchd plist schema with plutil -lint
+    cmds:
+      - plutil -lint infra/launchd/com.lip.ollama.plist
 
   # ── Testing ──────────────────────────────────────────────────
   test:
@@ -108,3 +114,23 @@ tasks:
         generate_python(p, Path('../../apps/backend/app/exceptions/_generated'));
         print('Generated Python error classes')
         "
+
+  # ── Ollama launchd agent (one-time per machine; see docs/ollama-launchd.md) ──
+  ollama:install:
+    desc: Install the Ollama launchd agent (copies plist + bootstraps under gui/$UID).
+    cmds:
+      - mkdir -p ~/Library/Logs/ollama
+      - mkdir -p ~/Library/LaunchAgents
+      - cp infra/launchd/com.lip.ollama.plist ~/Library/LaunchAgents/com.lip.ollama.plist
+      - launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lip.ollama.plist
+
+  ollama:uninstall:
+    desc: Remove the Ollama launchd agent (boots out + deletes the installed plist).
+    cmds:
+      - launchctl bootout gui/$(id -u)/com.lip.ollama
+      - rm -f ~/Library/LaunchAgents/com.lip.ollama.plist
+
+  ollama:status:
+    desc: Report the launchctl state of the Ollama agent in the gui/$UID domain.
+    cmds:
+      - launchctl print gui/$(id -u)/com.lip.ollama

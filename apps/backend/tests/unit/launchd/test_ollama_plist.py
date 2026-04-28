@@ -1,0 +1,130 @@
+"""Unit tests for the Ollama launchd plist (LIP-E005-F003).
+
+The plist is a repo-shipped configuration artifact at
+``infra/launchd/com.lip.ollama.plist``. These tests validate that the file
+exists, parses, lints under ``plutil``, and contains the five v1 env vars
+plus the structural keys (``Label``, ``ProgramArguments``, ``RunAtLoad``,
+``KeepAlive``, ``ProcessType``, ``StandardOutPath``, ``StandardErrorPath``).
+
+The accompanying ``docs/ollama-launchd.md`` is also asserted to exist and
+contain the operator-facing section anchors named in the spec.
+"""
+
+from __future__ import annotations
+
+import plistlib
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+EXPECTED_ENV: dict[str, str] = {
+    "OLLAMA_KEEP_ALIVE": "300s",
+    "OLLAMA_NUM_PARALLEL": "1",
+    "OLLAMA_MAX_LOADED_MODELS": "1",
+    "OLLAMA_FLASH_ATTENTION": "1",
+    "OLLAMA_KV_CACHE_TYPE": "q8_0",
+}
+
+REQUIRED_DOC_SECTIONS: tuple[str, ...] = (
+    "Install",
+    "Uninstall",
+    "Status check",
+    "Customizing",
+)
+
+
+def _repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "Taskfile.yml").exists():
+            return parent
+    msg = f"Could not find repo root walking up from {here}"
+    raise RuntimeError(msg)
+
+
+@pytest.fixture(scope="module")
+def repo_root() -> Path:
+    return _repo_root()
+
+
+@pytest.fixture(scope="module")
+def plist_path(repo_root: Path) -> Path:
+    return repo_root / "infra" / "launchd" / "com.lip.ollama.plist"
+
+
+@pytest.fixture(scope="module")
+def parsed_plist(plist_path: Path) -> dict[str, object]:
+    with plist_path.open("rb") as fh:
+        loaded = plistlib.load(fh)
+    assert isinstance(loaded, dict)
+    return loaded
+
+
+def test_plist_file_exists(plist_path: Path) -> None:
+    assert plist_path.is_file(), f"plist not found at {plist_path}"
+
+
+@pytest.mark.skipif(shutil.which("plutil") is None, reason="plutil only on macOS")
+def test_plutil_lint_exits_zero(plist_path: Path) -> None:
+    result = subprocess.run(  # noqa: S603
+        ["plutil", "-lint", str(plist_path)],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"plutil -lint failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+
+
+def test_label_is_canonical(parsed_plist: dict[str, object]) -> None:
+    assert parsed_plist["Label"] == "com.lip.ollama"
+
+
+def test_environment_variables_match_v1_calibration(
+    parsed_plist: dict[str, object],
+) -> None:
+    env = parsed_plist["EnvironmentVariables"]
+    assert isinstance(env, dict)
+    for key, expected_value in EXPECTED_ENV.items():
+        assert key in env, f"missing env var {key}"
+        assert env[key] == expected_value, f"{key} expected {expected_value!r}, got {env[key]!r}"
+
+
+def test_program_arguments_invoke_ollama_serve(
+    parsed_plist: dict[str, object],
+) -> None:
+    args = parsed_plist["ProgramArguments"]
+    assert isinstance(args, list)
+    assert len(args) >= 2, "ProgramArguments must have at least 2 entries"
+    assert isinstance(args[0], str)
+    assert args[0].endswith("ollama"), f"first arg should end with 'ollama', got {args[0]!r}"
+    assert args[1] == "serve"
+
+
+def test_run_at_load_and_keep_alive_are_true(parsed_plist: dict[str, object]) -> None:
+    assert parsed_plist["RunAtLoad"] is True
+    assert parsed_plist["KeepAlive"] is True
+
+
+def test_process_type_is_background(parsed_plist: dict[str, object]) -> None:
+    assert parsed_plist["ProcessType"] == "Background"
+
+
+def test_log_paths_end_with_dot_log(parsed_plist: dict[str, object]) -> None:
+    stdout_path = parsed_plist["StandardOutPath"]
+    stderr_path = parsed_plist["StandardErrorPath"]
+    assert isinstance(stdout_path, str)
+    assert isinstance(stderr_path, str)
+    assert stdout_path.endswith(".log"), stdout_path
+    assert stderr_path.endswith(".log"), stderr_path
+
+
+def test_docs_file_exists_with_required_sections(repo_root: Path) -> None:
+    doc_path = repo_root / "docs" / "ollama-launchd.md"
+    assert doc_path.is_file(), f"doc not found at {doc_path}"
+    body = doc_path.read_text(encoding="utf-8")
+    for section in REQUIRED_DOC_SECTIONS:
+        assert section in body, f"doc missing required section anchor: {section!r}"
