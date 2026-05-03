@@ -24,6 +24,15 @@ jobs:
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
+        with:
+          # Use the workflow's GITHUB_TOKEN to authenticate the Task
+          # binary download against the GitHub releases API. macOS
+          # runners share an outbound IP pool that frequently exhausts
+          # the unauthenticated 60/hr limit; authenticated requests get
+          # 5000/hr per token. Without this, ``darwin-checks`` (and any
+          # ubuntu job that lands on a hot IP) fails at the install step
+          # with ``API rate limit exceeded``.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
@@ -98,6 +107,15 @@ jobs:
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
+        with:
+          # Use the workflow's GITHUB_TOKEN to authenticate the Task
+          # binary download against the GitHub releases API. macOS
+          # runners share an outbound IP pool that frequently exhausts
+          # the unauthenticated 60/hr limit; authenticated requests get
+          # 5000/hr per token. Without this, ``darwin-checks`` (and any
+          # ubuntu job that lands on a hot IP) fails at the install step
+          # with ``API rate limit exceeded``.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
@@ -137,6 +155,15 @@ jobs:
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
+        with:
+          # Use the workflow's GITHUB_TOKEN to authenticate the Task
+          # binary download against the GitHub releases API. macOS
+          # runners share an outbound IP pool that frequently exhausts
+          # the unauthenticated 60/hr limit; authenticated requests get
+          # 5000/hr per token. Without this, ``darwin-checks`` (and any
+          # ubuntu job that lands on a hot IP) fails at the install step
+          # with ``API rate limit exceeded``.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: launchd plist syntax check
         run: task check:plist
