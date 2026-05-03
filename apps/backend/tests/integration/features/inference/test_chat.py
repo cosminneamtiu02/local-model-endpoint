@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import pytest
 
+from app.features.inference import OllamaClient
 from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
 from app.features.inference.model.text_content import TextContent
-from app.features.inference.repository.ollama_client import OllamaClient
 
 if TYPE_CHECKING:
     from app.features.inference.model.ollama_chat_result import OllamaChatResult

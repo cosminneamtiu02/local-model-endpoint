@@ -68,7 +68,7 @@ def test_get_app_state_when_context_wrong_type_raises_internal_error() -> None:
 
 def test_get_app_state_returns_lifespan_appstate_on_happy_path() -> None:
     """When ``app.state.context`` is a valid AppState, get_app_state returns it."""
-    from app.features.inference.repository.ollama_client import OllamaClient
+    from app.features.inference import OllamaClient
 
     app = FastAPI()
     client = OllamaClient(base_url="http://127.0.0.1:11434")
@@ -82,7 +82,7 @@ def test_get_app_state_returns_lifespan_appstate_on_happy_path() -> None:
 def test_get_ollama_client_delegates_through_get_app_state() -> None:
     """``get_ollama_client`` is a thin reader on top of ``get_app_state`` —
     test it returns the same client identity that AppState carries."""
-    from app.features.inference.repository.ollama_client import OllamaClient
+    from app.features.inference import OllamaClient
 
     app = FastAPI()
     client = OllamaClient(base_url="http://127.0.0.1:11434")

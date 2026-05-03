@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 
-from app.api.exception_handlers import PROBLEM_JSON_MEDIA_TYPE, register_exception_handlers
+from app.api.exception_handlers import register_exception_handlers
 from app.api.request_id_middleware import RequestIdMiddleware
 from app.exceptions import (
     AdapterConnectionFailureError,
@@ -22,6 +22,7 @@ from app.exceptions import (
     QueueFullError,
     RegistryNotFoundError,
 )
+from tests._helpers import assert_problem_json_envelope
 
 
 def _build_app() -> FastAPI:
@@ -81,24 +82,22 @@ async def asgi_client() -> AsyncGenerator[AsyncClient]:
 
 
 def _assert_problem_json(response: Response, *, status: int, code: str) -> dict[str, Any]:
-    """Assert the canonical RFC 7807 envelope on every error response.
+    """Thin wrapper over :func:`tests._helpers.assert_problem_json_envelope`.
 
-    Locks the four invariants every error path must honor:
-      1. Status line matches the body's ``status`` field (RFC 7807 §3.1 MUST).
-      2. Content-Type is ``application/problem+json; charset=utf-8`` (RFC 7807 §3).
-      3. Body's ``code`` matches the expected SCREAMING_SNAKE error code.
-      4. Body's ``request_id`` matches the ``X-Request-ID`` response header
-         (correlation contract — middleware ↔ handler).
+    Adds a fifth integration-tier invariant beyond the shared helper:
+      5. Body's ``status`` field equals the wire ``response.status_code``
+         (RFC 7807 §3.1 MUST). The handler is the source of truth for both,
+         so a divergence here pins a real handler bug.
+
     Returns the parsed body so the call site can make code-specific assertions.
     """
-    assert response.status_code == status
-    assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
-    body = response.json()
-    assert body["code"] == code
+    body = assert_problem_json_envelope(
+        response,
+        status=status,
+        code=code,
+        check_request_id_correlation=True,
+    )
     assert body["status"] == status
-    assert body["request_id"] == response.headers["X-Request-ID"]
-    # Content-Language is the v1 contract for "the response is English-only".
-    assert response.headers["content-language"] == "en"
     return body
 
 

@@ -82,3 +82,37 @@ def test_configure_logging_dev_mode_omits_dict_tracebacks() -> None:
     # dict_tracebacks (ConsoleRenderer formats exceptions itself, and
     # structlog warns when format_exc_info is layered on top of it).
     assert structlog.processors.dict_tracebacks not in processors, processors
+
+
+@pytest.mark.parametrize(
+    "sensitive_key",
+    ["messages", "content", "prompt", "tool_calls", "audios", "images"],
+)
+def test_redaction_processor_strips_sensitive_keys(sensitive_key: str) -> None:
+    """Defense-in-depth backstop for CLAUDE.md prompt-content log ban.
+
+    The redaction processor replaces values for known-sensitive keys with the
+    ``"<redacted>"`` sentinel regardless of caller discipline. Tested in
+    isolation against a synthetic event_dict because ``capture_logs()`` is
+    documented to short-circuit the processor chain — the actual chain
+    integration is verified by the membership check below
+    (``test_redaction_processor_is_in_shared_processors``).
+    """
+    from app.core.logging import _redact_sensitive_keys
+
+    event_dict = {sensitive_key: "secret-prompt-content", "event": "smoke"}
+    result = _redact_sensitive_keys(None, "info", event_dict)
+    assert result[sensitive_key] == "<redacted>"
+    # Untouched non-sensitive keys must pass through verbatim.
+    assert result["event"] == "smoke"
+
+
+def test_redaction_processor_is_in_shared_processors() -> None:
+    """The redaction processor MUST be in the configured chain or the
+    isolation test above is meaningless. Drops to a membership check on the
+    structlog config."""
+    from app.core.logging import _redact_sensitive_keys
+
+    configure_logging(log_level="info", json_output=False)
+    processors = structlog.get_config()["processors"]
+    assert _redact_sensitive_keys in processors, processors
