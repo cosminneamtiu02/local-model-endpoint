@@ -202,4 +202,17 @@ class Settings(BaseSettings):
                 "forward consumer prompts to a non-private host"
             )
             raise ValueError(msg)
+        # Reject URL-embedded userinfo on ollama_host. Without this, a
+        # misconfigured host that includes credentials in the URL would let
+        # httpx's HTTPStatusError ``str(exc)`` formatter surface them into
+        # the ``ollama_call_failed`` log line via the URL embedded in the
+        # exception message. AnyHttpUrl accepts userinfo by default; the
+        # rest of LIP has no auth model that uses it.
+        if self.ollama_host.username or self.ollama_host.password:
+            msg = (
+                "ollama_host must not embed URL userinfo; LIP has no auth model "
+                "that uses it and the credentials would surface in httpx exception "
+                "strings on failure paths."
+            )
+            raise ValueError(msg)
         return self

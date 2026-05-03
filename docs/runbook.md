@@ -15,8 +15,9 @@ ollama pull gemma4:e2b
 
 The Ollama daemon is configured to run as a `launchd` service via the plist
 template at `infra/launchd/com.lip.ollama.plist.tmpl` (added by PR #9 /
-LIP-E005-F003) with `KEEP_ALIVE=300s`, `NUM_PARALLEL=1`,
-`MAX_LOADED_MODELS=1`, `FLASH_ATTENTION=1`, `KV_CACHE_TYPE=q8_0`. Run
+LIP-E005-F003) with `OLLAMA_KEEP_ALIVE=300s`, `OLLAMA_NUM_PARALLEL=1`,
+`OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`,
+`OLLAMA_KV_CACHE_TYPE=q8_0`. Run
 `task ollama:install` to render `__HOME__` and install it; see
 [docs/ollama-launchd.md](ollama-launchd.md) for env-var rationale and
 customization.

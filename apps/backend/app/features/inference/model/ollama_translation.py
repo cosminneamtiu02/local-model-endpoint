@@ -57,13 +57,14 @@ _OLLAMA_TO_LIP_FINISH: Final[Mapping[str, FinishReason]] = MappingProxyType(
 def _flatten_content_parts(
     parts: "Sequence[ContentPart]",
 ) -> tuple[list[str], list[str], list[str]]:
-    """Walk a multimodal content list, splitting parts into (text, images, audios)
-    base64 buckets. URL-only image/audio parts raise NotImplementedError so an
-    upstream layer is forced to pre-encode them.
+    """Split a multimodal content list into (text, images, audios) base64 buckets.
 
-    Pyright strict + the closed Literal discriminator on ContentPart make the
-    match exhaustive: adding a fourth variant without extending this block fails
-    type checking, so no silent fallthrough.
+    URL-only image/audio parts raise NotImplementedError so an upstream
+    layer is forced to pre-encode them.
+
+    Pyright strict + the closed Literal discriminator on ContentPart make
+    the match exhaustive: adding a fourth variant without extending this
+    block fails type checking, so no silent fallthrough.
     """
     text_parts: list[str] = []
     images: list[str] = []
@@ -91,23 +92,23 @@ def _attach_media_to_message(
     images: list[str],
     audios: list[str],
 ) -> None:
-    """Attach images/audios arrays to an Ollama message dict in place. Ollama
-    /api/chat documents both arrays only on user/assistant turns; system-role
-    media raises so the failure is loud rather than silently dropped."""
-    if images:
+    """Attach images/audios arrays to an Ollama message dict in place.
+
+    Ollama /api/chat documents both arrays only on user/assistant turns;
+    system-role media raises so the failure is loud rather than silently
+    dropped. The two media kinds share an identical attach contract — a
+    tuple loop expresses the rule once so a future media-kind addition is
+    a single-line change.
+    """
+    for media, key in ((images, "images"), (audios, "audios")):
+        if not media:
+            continue
         if role == "system":
             error_message = (
-                "system-role messages with images are not supported by Ollama /api/chat."
+                f"system-role messages with {key} are not supported by Ollama /api/chat."
             )
             raise NotImplementedError(error_message)
-        ollama_msg["images"] = images
-    if audios:
-        if role == "system":
-            error_message = (
-                "system-role messages with audios are not supported by Ollama /api/chat."
-            )
-            raise NotImplementedError(error_message)
-        ollama_msg["audios"] = audios
+        ollama_msg[key] = media
 
 
 def translate_message(msg: "Message") -> dict[str, Any]:

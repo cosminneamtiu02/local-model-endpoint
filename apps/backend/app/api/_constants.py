@@ -1,7 +1,10 @@
 """Cross-module constants for the api/ package.
 
-Centralizes string and bytes constants that previously appeared in multiple
-sites (RFC 7807 media type, Content-Language, EXC_MESSAGE preview cap)."""
+Centralizes string constants used across api/ wire paths (RFC 7807 media
+type, Content-Language). The ``EXC_MESSAGE_PREVIEW_MAX_CHARS`` cap lives
+in ``app/core/logging.py`` because it is a structlog-side concern, not a
+wire-shape concern.
+"""
 
 from typing import Final
 

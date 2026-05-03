@@ -44,3 +44,9 @@ METADATA_VALUE_MAX_LENGTH: Final[int] = 4096
 # ceiling for any sensible attribution / project-tag key while bounding the
 # third orthogonal DoS axis (key length) on the metadata path.
 METADATA_KEY_MAX_LENGTH: Final[int] = 64
+
+# Cap on the logical ``model`` name string. Same logical name flows in
+# (``InferenceRequest.model``) and out (``ResponseMetadata.model``), so the
+# bound must be symmetric — keeping it here means a future cap bump on the
+# request side automatically tightens the response side too.
+MODEL_NAME_MAX_LENGTH: Final[int] = 128

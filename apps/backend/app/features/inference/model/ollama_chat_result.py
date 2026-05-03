@@ -17,13 +17,13 @@ class OllamaChatResult(BaseModel):
     does, when its `asyncio.wait_for` budget elapses around the call.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     content: str = Field(max_length=CONTENT_MAX_LENGTH)
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
     finish_reason: FinishReason = Field(
         description=(
-            "Stop=natural model halt; length=hit max_tokens; timeout=request budget exceeded."
+            "stop=natural model halt; length=hit max_tokens; timeout=request budget exceeded."
         ),
     )

@@ -54,7 +54,7 @@ _REQUEST_ID_LENGTH: Final[int] = 36
 class ProblemDetails(BaseModel):
     """RFC 7807 problem-details response body."""
 
-    model_config = ConfigDict(extra="allow", frozen=True)
+    model_config = ConfigDict(extra="allow", frozen=True, str_strip_whitespace=True)
 
     type: str = Field(
         description=(
@@ -72,18 +72,18 @@ class ProblemDetails(BaseModel):
         max_length=_TYPE_MAX_CHARS,
     )
     title: str = Field(
-        description="Short human-readable summary of the problem",
+        description="A short human-readable summary of the problem.",
         min_length=1,
         max_length=_TITLE_MAX_CHARS,
     )
-    status: int = Field(description="HTTP status code", ge=400, le=599)
+    status: int = Field(description="HTTP status code.", ge=400, le=599)
     detail: str = Field(
-        description="Per-instance human-readable explanation",
+        description="Per-instance human-readable explanation.",
         min_length=1,
         max_length=_DETAIL_MAX_CHARS,
     )
     instance: str = Field(
-        description="The request URL path that produced this problem",
+        description="The request URL path that produced this problem.",
         # Pin URL-path form: every handler populates this from
         # ``request.url.path`` which is Starlette-guaranteed to start with
         # ``/``. RFC 7807 §3.1 permits any URI reference, but LIP's wire
@@ -98,7 +98,7 @@ class ProblemDetails(BaseModel):
         pattern=r"^/",
     )
     code: str = Field(
-        description="LIP error code (SCREAMING_SNAKE)",
+        description="LIP error code (SCREAMING_SNAKE).",
         # Mirror the SCREAMING_SNAKE invariant the codegen validator
         # already enforces on errors.yaml — defense-in-depth so a future
         # contributor adding an HTTPException-status-to-code mapping with
@@ -110,7 +110,7 @@ class ProblemDetails(BaseModel):
         max_length=_CODE_MAX_CHARS,
     )
     request_id: str = Field(
-        description="Request UUID from the X-Request-ID middleware",
+        description="Request UUID from the X-Request-ID middleware.",
         # Mirror the UUID-shape invariant the middleware + handler both
         # enforce — defense-in-depth so a future code path that builds
         # ProblemDetails without going through ``_resolve_request_id``

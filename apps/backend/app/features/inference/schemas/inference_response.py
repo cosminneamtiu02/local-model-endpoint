@@ -13,7 +13,7 @@ class InferenceResponse(BaseModel):
     scope — every response is buffered in full before return.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     # ``CONTENT_MAX_LENGTH`` (1 MiB) mirrors ``OllamaChatResult.content``'s
     # cap — the orchestrator copies content from there into this envelope

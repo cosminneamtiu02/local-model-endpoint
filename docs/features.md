@@ -137,8 +137,11 @@ Run in well under 10 seconds. Cover:
 - **`tests/unit/core/`** — `test_config.py`: pydantic-settings parsing + clamps.
 - **`tests/unit/exceptions/`** — `test_base.py` (DomainError ergonomics),
   `test_domain_errors.py` (per-code construction), `test_registry.py`
-  (`ERROR_CLASSES` lookup invariants), `test_error_handler.py` (exception-handler
-  unit tests; mirrors `app/api/exception_handlers.py`).
+  (`ERROR_CLASSES` lookup invariants), `test_exception_handlers.py`
+  (exception-handler unit tests; mirrors `app/api/exception_handlers.py`),
+  plus `test_errors_yaml_invariants.py`, `test_params_frozen_invariant.py`,
+  and `test_problem_extras_drift_guard.py` for codegen and ProblemExtras
+  drift coverage.
 - **`tests/unit/schemas/`** — `test_problem_details.py`, `test_validation_error_detail.py`
   for the RFC 7807 wire shapes.
 - **`tests/unit/features/inference/`** — value-object and schema unit tests:

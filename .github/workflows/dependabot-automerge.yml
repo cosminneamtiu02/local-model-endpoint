@@ -6,8 +6,8 @@
 # with required status checks configured. To enable:
 #
 #   1. Create the `main-protection` branch ruleset with required status
-#      checks for backend-checks and error-contracts (plus CodeQL if/when
-#      it is added). See docs/automerge.md for ruleset rationale.
+#      checks for backend-checks, error-contracts, and darwin-checks. See
+#      docs/automerge.md for ruleset rationale.
 #   2. In repo settings, uncheck Allow merge commits / rebase merging
 #      and check Automatically delete head branches so squash is the
 #      single merge method.

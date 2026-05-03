@@ -13,6 +13,7 @@ import keyword
 import re
 import string
 from collections.abc import Mapping
+from operator import itemgetter
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Final, cast
@@ -233,7 +234,7 @@ def _validate_detail_template(code: str, template: str, params: _ParamsMap) -> N
             raise ValueError(msg)
         referenced.add(field_name)
 
-    declared = set(params.keys())
+    declared = set(params)
     missing = referenced - declared
     if missing:
         msg = (
@@ -427,10 +428,8 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
 
         # Validate http_status
         status = spec.get("http_status")
-        if (
-            not isinstance(status, int)
-            or status < HTTP_ERROR_STATUS_MIN
-            or status > HTTP_ERROR_STATUS_MAX
+        if not isinstance(status, int) or not (
+            HTTP_ERROR_STATUS_MIN <= status <= HTTP_ERROR_STATUS_MAX
         ):
             msg = f"Invalid HTTP status {status} for {code}. Must be 400-599."
             raise ValueError(msg)
@@ -718,7 +717,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
         registry_entries.append((code, error_class_name))
 
     # Generate __init__.py (sorted by name for deterministic output).
-    sorted_entries = sorted(init_entries, key=lambda pair: pair[0])
+    sorted_entries = sorted(init_entries, key=itemgetter(0))
     init_file = output_dir / "__init__.py"
     init_content = (
         '"""Generated error classes. Do not edit."""\n\n'
@@ -741,7 +740,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
     # subclasses that already pull the base class in transitively).
     registry_file = output_dir / "_registry.py"
     error_imports = sorted((name, imp) for name, imp in init_entries if name.endswith("Error"))
-    sorted_registry_entries = sorted(registry_entries, key=lambda pair: pair[0])
+    sorted_registry_entries = sorted(registry_entries, key=itemgetter(0))
     registry_content = (
         '"""Generated error registry. Do not edit."""\n\n'
         "from app.exceptions.base import DomainError\n"
