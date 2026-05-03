@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.features.inference.model.caps import TEXT_PART_MAX_CHARS
 from app.features.inference.model.text_content import TextContent
 
 
@@ -45,11 +46,12 @@ def test_text_content_rejects_whitespace_only_text() -> None:
 
 
 def test_text_content_rejects_oversize_text() -> None:
-    # max_length=131072 caps the per-part DoS surface; 131073 chars is one over.
+    # max_length caps the per-part DoS surface; one char over is rejected.
+    oversize = TEXT_PART_MAX_CHARS + 1
     with pytest.raises(ValidationError):
-        TextContent(text="x" * 131073)
+        TextContent(text="x" * oversize)
 
 
 def test_text_content_accepts_text_at_max_length() -> None:
-    part = TextContent(text="x" * 131072)
-    assert len(part.text) == 131072
+    part = TextContent(text="x" * TEXT_PART_MAX_CHARS)
+    assert len(part.text) == TEXT_PART_MAX_CHARS

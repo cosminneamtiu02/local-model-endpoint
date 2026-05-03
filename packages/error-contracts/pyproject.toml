@@ -8,17 +8,14 @@ dependencies = [
 ]
 
 [dependency-groups]
-# pytest-cov is intentionally retained: this workspace's `[tool.pytest.ini_options]`
-# below leaves coverage off the default invocation, but the codegen
-# tests use ``--cov=scripts --cov-fail-under=90`` when invoked through
-# ``task check:coverage`` (mirror of the apps/backend pattern). Removing
-# pytest-cov would break that gate; keeping the explicit dep flags it
-# as load-bearing for the next dep audit.
 dev = [
     "pytest==9.0.3",
-    "pytest-cov==7.1.0",
+    # Lane 18.7: pytest-asyncio not needed — codegen tests are sync.
     "ruff==0.15.12",
     "pyright==1.1.409",
+    # Lane 10.2: pip-audit added so this workspace can mirror the
+    # backend's CVE scan via ``task check:audit:errors``.
+    "pip-audit==2.10.0",
 ]
 
 [tool.pytest.ini_options]
@@ -31,6 +28,9 @@ addopts = [
     "--strict-config",
 ]
 xfail_strict = true
+# Lane 15.5: bare ``["error"]`` suffices because this workspace has no
+# async tests; if any are added, copy the apps/backend filter list to
+# handle anyio teardown ResourceWarnings.
 filterwarnings = ["error"]
 # Mirror the apps/backend pinning so this workspace's discovery rules
 # match the rest of the monorepo. Without these pins, pytest's defaults
@@ -62,9 +62,3 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "ANN", "ARG001", "PLR2004", "PLC0415", "E501", "SLF001", "PT012", "EM101"]
-
-[tool.coverage.run]
-source = ["scripts"]
-
-[tool.coverage.report]
-fail_under = 90

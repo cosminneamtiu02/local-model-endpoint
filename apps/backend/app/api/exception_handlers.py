@@ -60,47 +60,38 @@ content-negotiated; the ``title`` and ``detail`` strings (per RFC 7807 §3.1
 "SHOULD be localizable") become the i18n hook points.
 """
 
-from __future__ import annotations
-
 import re
 import uuid
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import Any, Final, cast
 
 import structlog
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
-from app.exceptions import DomainError, InternalError, NotFoundError, ValidationFailedError
+from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
+from app.exceptions import (
+    DomainError,
+    HttpError,
+    InternalError,
+    MethodNotAllowedError,
+    NotFoundError,
+    ValidationFailedError,
+)
 from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
+from app.schemas._constants import UUID_PATTERN_STR
 from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHARS
 
-if TYPE_CHECKING:
-    from fastapi import FastAPI, Request
-
 logger = structlog.get_logger(__name__)
-
-PROBLEM_JSON_MEDIA_TYPE: Final[str] = "application/problem+json; charset=utf-8"
-"""RFC 7807 §3 media type, with explicit UTF-8 charset.
-
-RFC 8259 makes UTF-8 implicit for ``application/json``-style payloads, but
-declaring it explicitly disambiguates against legacy proxies and intermediary
-caches that historically guessed the charset for unknown ``+json`` suffixes.
-"""
-
-_CONTENT_LANGUAGE: Final[str] = "en"
-"""RFC 7807 §3.1 advertises the language of ``title`` and ``detail``."""
 
 _ABOUT_BLANK: Final[str] = "about:blank"
 """RFC 7807 §4.2 ``type`` value for HTTP errors with no extra semantics."""
 
 
-_REQUEST_ID_UUID_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
+_REQUEST_ID_REGEX: Final[re.Pattern[str]] = re.compile(UUID_PATTERN_STR, re.IGNORECASE)
 
 
 def _resolve_request_id(request: Request) -> tuple[str, bool]:
@@ -126,7 +117,7 @@ def _resolve_request_id(request: Request) -> tuple[str, bool]:
     # for the UUID pattern, so the previous defensive ``and request_id``
     # truthiness clause was redundant. ``isinstance`` narrows ``str`` for
     # pyright; the pattern handles emptiness.
-    if isinstance(request_id, str) and _REQUEST_ID_UUID_PATTERN.match(request_id) is not None:
+    if isinstance(request_id, str) and _REQUEST_ID_REGEX.match(request_id) is not None:
         return request_id, False
     fallback = str(uuid.uuid4())
     # Bind request_id + method + path + a fallback-marker so every subsequent
@@ -166,13 +157,14 @@ def _stamp_request_id_header_if_missed(
         response.headers["X-Request-ID"] = request_id
 
 
-def _build_problem_payload(
+def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes typed args (exc + request + 4 wire-shape kwargs); all positional-or-keyword required for readability at every call site.
     exc: DomainError,
     request: Request,
     request_id: str,
     *,
     detail_override: str | None = None,
     extras: ProblemExtras | None = None,
+    suppress_typed_params: bool = False,
 ) -> ProblemDetails:
     """Assemble and validate the RFC 7807 :class:`ProblemDetails` for a DomainError.
 
@@ -185,14 +177,22 @@ def _build_problem_payload(
     Pydantic's JSON mode renders them as primitives, whereas the default
     ``mode="python"`` returns native objects that would fail JSON encoding
     downstream.
+
+    ``suppress_typed_params=True`` skips the root-level spread of
+    ``exc.params`` — used by the multi-error validation path where the
+    per-field ``field`` / ``reason`` keys would point at only the FIRST
+    error while ``detail`` says "see validation_errors[]".
     """
-    spread: dict[str, Any] = exc.params.model_dump(mode="json") if exc.params else {}
+    spread: dict[str, Any] = (
+        exc.params.model_dump(mode="json") if exc.params and not suppress_typed_params else {}
+    )
     # ProblemDetails uses ``extra='allow'`` at runtime for typed extension
-    # fields. ``dict(extras)`` materializes the TypedDict into a real
-    # ``dict[str, Any]`` so ``**`` unpacking and pyright are both happy
-    # without resorting to ``cast`` (which would be a runtime-unchecked
-    # assertion).
-    extras_widened: dict[str, Any] = dict(extras) if extras else {}
+    # fields. Pydantic-model ``extras`` is dumped (mode='python') so the
+    # ``**`` unpack carries the validated typed-extension values without
+    # round-tripping through JSON.
+    extras_widened: dict[str, Any] = (
+        extras.model_dump(mode="python", exclude_none=True) if extras else {}
+    )
     # Defense-in-depth: an extras key colliding with a typed spread key would
     # silently win on the ``**`` merge; log + raise loud so the bug surfaces
     # at the handler edge rather than as a confusing wire shape. The raise
@@ -260,7 +260,7 @@ def _problem_response(problem: ProblemDetails) -> Response:
         content=problem.model_dump_json(),
         status_code=problem.status,
         media_type=PROBLEM_JSON_MEDIA_TYPE,
-        headers={"Content-Language": _CONTENT_LANGUAGE},
+        headers={"Content-Language": CONTENT_LANGUAGE},
     )
 
 
@@ -338,6 +338,13 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     structlog.contextvars.bind_contextvars(error_code=ValidationFailedError.code)
     request_id, missed_middleware = _resolve_request_id(request)
 
+    # FastAPI's ``RequestValidationError.errors()`` returns the stored
+    # ``Sequence[Any]`` (dict-shaped per Pydantic ``ErrorDetails``); unlike
+    # the underlying ``pydantic.ValidationError.errors()``, it does not
+    # accept ``include_input`` / ``include_url`` / ``include_context``
+    # kwargs. Defense against prompt-content interpolation lives in the
+    # per-error truncation below (``[:REASON_MAX_CHARS]``) and in the
+    # ``ValidationErrorDetail`` schema cap.
     raw_errors = validation_exc.errors()
     # Pydantic's ``ValidationError.errors()[i]`` typed-dict contract guarantees
     # ``loc`` and ``msg`` are present (see Pydantic v2 ``ErrorDetails`` typed
@@ -370,13 +377,18 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         # triage payload so the operator can reproduce the upstream bug.
         # Include content-type / content-length so operators can distinguish
         # "Pydantic upstream bug" from "consumer sent unparseable JSON" or a
-        # content-type mismatch.
+        # content-type mismatch. ASCII-clean the header values via
+        # ``encode("ascii", "replace").decode("ascii")`` so a maliciously
+        # crafted non-ASCII header byte cannot inject control chars into
+        # the rendered ConsoleRenderer output.
+        raw_content_type = request.headers.get("content-type", "")
+        raw_content_length = request.headers.get("content-length", "")
         logger.warning(
             "validation_error_with_no_details",
             raw_error_count=len(raw_errors),
             raw_error_types=[type(e).__name__ for e in raw_errors][:5],
-            content_type=request.headers.get("content-type", ""),
-            content_length=request.headers.get("content-length", ""),
+            content_type=raw_content_type.encode("ascii", "replace").decode("ascii"),
+            content_length=raw_content_length.encode("ascii", "replace").decode("ascii"),
         )
 
     detail_override: str | None = None
@@ -393,12 +405,16 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
             "(upstream Pydantic emitted no errors)."
         )
 
+    # Suppress typed-params spread when there are multiple errors so the
+    # root-level ``field`` / ``reason`` keys (which point at only the first
+    # error) don't contradict ``detail``'s "see validation_errors[]" pointer.
     problem = _build_problem_payload(
         domain_err,
         request,
         request_id,
         detail_override=detail_override,
-        extras={"validation_errors": validation_errors},
+        extras=ProblemExtras(validation_errors=validation_errors),
+        suppress_typed_params=len(validation_errors) > 1,
     )
     response = _problem_response(problem)
     _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
@@ -419,17 +435,18 @@ def _http_status_phrase(status_code: int) -> str:
 def _http_code_for_status(status_code: int) -> str:
     """Map a raw HTTP status code into a SCREAMING_SNAKE LIP error code.
 
-    For statuses we already model in :mod:`app.exceptions` (404, 500), reuse
-    that DomainError's code so the consumer-visible contract stays consistent
-    whether the error is raised explicitly or surfaces through Starlette.
+    For statuses we already model in :mod:`app.exceptions` (404, 405, 500,
+    and the generic 4xx fallback), reuse that DomainError's class-bound code
+    so the consumer-visible contract stays consistent whether the error is
+    raised explicitly or surfaces through Starlette.
     """
     if status_code == HTTPStatus.NOT_FOUND:
         return NotFoundError.code
     if status_code == HTTPStatus.METHOD_NOT_ALLOWED:
-        return "METHOD_NOT_ALLOWED"
+        return MethodNotAllowedError.code
     if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
         return InternalError.code
-    return "HTTP_ERROR"
+    return HttpError.code
 
 
 async def _handle_http_exception(request: Request, exc: Exception) -> Response:
@@ -465,14 +482,14 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     # synthesis (rather than recursing to ``_handle_unhandled_exception``)
     # so the misconfigured-app path emits one log line and goes through
     # ``_resolve_request_id`` exactly once — recursing would emit
-    # ``http_exception_non_error_status`` followed by a misleading
+    # ``http_exception_invalid_status_raised`` followed by a misleading
     # ``unhandled_exception`` line referencing the original HTTPException
     # repr (which contains the original non-error status code) and would
     # double-resolve the request_id.
     if status_code < HTTPStatus.BAD_REQUEST:
         structlog.contextvars.bind_contextvars(error_code=InternalError.code)
         logger.warning(
-            "http_exception_non_error_status",
+            "http_exception_invalid_status_raised",
             status_code=status_code,
             detail=str(http_exc.detail) if http_exc.detail else None,
         )
@@ -503,7 +520,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # ``logger.exception`` because it is inside an except-block; here
         # there is no live exception to attach a traceback from).
         logger.error(
-            "http_exception_5xx",
+            "http_exception_5xx_raised",
             status_code=status_code,
             detail=detail_text,
         )
@@ -559,10 +576,6 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # diagnostic.
     structlog.contextvars.bind_contextvars(error_code=InternalError.code)
     request_id, _missed = _resolve_request_id(request)
-    # ``exc_message`` is truncated to 200 chars so triage gets actionable
-    # signal without unboundedly serializing input-value snippets. The
-    # message never ships to the consumer — only ``InternalError``'s
-    # rendered detail does — preserving the wire contract.
     # ``internal_error_raised`` (renamed from the prior ``unhandled_exception``)
     # so operator queries align with the typed-domain-error pattern: every
     # 5xx event in the codebase now reads ``*_raised``. Operators searching
@@ -570,16 +583,19 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # the same naming convention as ``domain_error_raised``.
     #
     # ``logger.exception`` (no explicit ``exc_info=True``): inside an
-    # ``except`` block, structlog auto-attaches the traceback. The
-    # codebase convention (used here, in ``_handle_domain_error``'s
-    # 5xx branch, and in ``ollama_client.chat``'s except) is bare
-    # ``logger.exception``; ``logger.critical(..., exc_info=True)`` is
-    # the alternative used in ``main.py`` only because operator paging
-    # keys on level=CRITICAL there.
+    # ``except`` block, structlog auto-attaches the traceback via
+    # ``dict_tracebacks``. The codebase convention (used here, in
+    # ``_handle_domain_error``'s 5xx branch, and in ``ollama_client.chat``'s
+    # except) is bare ``logger.exception``; ``logger.critical(..., exc_info=
+    # True)`` is the alternative used in ``main.py`` only because operator
+    # paging keys on level=CRITICAL there. ``exc_message`` is intentionally
+    # NOT serialized: ``str(exc)`` for an arbitrary unhandled exception can
+    # carry consumer-supplied prompt content (e.g. a Pydantic ValidationError
+    # that escaped the request-validation handler), and the traceback itself
+    # already carries the actionable signal for triage.
     logger.exception(
         "internal_error_raised",
         exc_type=type(exc).__name__,
-        exc_message=str(exc)[:200],
     )
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)

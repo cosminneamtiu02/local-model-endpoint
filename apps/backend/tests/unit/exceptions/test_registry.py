@@ -5,8 +5,10 @@ from app.exceptions import (
     AdapterConnectionFailureError,
     ConflictError,
     DomainError,
+    HttpError,
     InferenceTimeoutError,
     InternalError,
+    MethodNotAllowedError,
     ModelCapabilityNotSupportedError,
     NotFoundError,
     QueueFullError,
@@ -22,7 +24,9 @@ def test_registry_contains_all_canonical_error_codes() -> None:
     Five generic codes (NOT_FOUND, CONFLICT, VALIDATION_FAILED, INTERNAL_ERROR,
     RATE_LIMITED) plus five LIP-specific codes added by LIP-E004-F004
     (QUEUE_FULL, INFERENCE_TIMEOUT, ADAPTER_CONNECTION_FAILURE,
-    REGISTRY_NOT_FOUND, MODEL_CAPABILITY_NOT_SUPPORTED).
+    REGISTRY_NOT_FOUND, MODEL_CAPABILITY_NOT_SUPPORTED) plus two HTTP-status
+    codes added for ``_handle_http_exception`` source-of-truth alignment
+    (HTTP_ERROR, METHOD_NOT_ALLOWED).
     """
     expected = {
         "NOT_FOUND": NotFoundError,
@@ -35,6 +39,8 @@ def test_registry_contains_all_canonical_error_codes() -> None:
         "ADAPTER_CONNECTION_FAILURE": AdapterConnectionFailureError,
         "REGISTRY_NOT_FOUND": RegistryNotFoundError,
         "MODEL_CAPABILITY_NOT_SUPPORTED": ModelCapabilityNotSupportedError,
+        "HTTP_ERROR": HttpError,
+        "METHOD_NOT_ALLOWED": MethodNotAllowedError,
     }
     assert expected == ERROR_CLASSES
 

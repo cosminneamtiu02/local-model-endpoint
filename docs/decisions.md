@@ -73,12 +73,13 @@ before merge.
 
 ## ADR-010: Dependabot Auto-Merge Exception to Manual-Squash Rule
 
-**Status:** Accepted
+**Status:** Accepted (currently dormant — DEPENDABOT_AUTOMERGE_ENABLED not set)
 **Date:** 2026-04-12
 
 The "every merge uses the green Squash button manually" rule has exactly one exception:
-Dependabot PRs that arrive green may be auto-merged by a workflow. Every human or
-source-code PR still merges exclusively via the manual Squash button.
+Dependabot PRs that arrive green are automatically squash-merged when
+`DEPENDABOT_AUTOMERGE_ENABLED='true'`. Every human or source-code PR still merges
+exclusively via the manual Squash button.
 
 The mechanism is [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml),
 which runs on every `pull_request` event, short-circuits unless the PR's author is
@@ -230,3 +231,5 @@ the equivalent camelCase for whatever the wire path is named). A
 future contract test could assert every operation in the OpenAPI
 schema matches `^[a-z][a-zA-Z0-9]*$`; deferred until the second
 operation lands so the test has more than one input to verify.
+Future routes inheriting this rule: LIP-E001-F002 chat-completion +
+LIP-E006-F002 state-inspection set.

@@ -3,9 +3,15 @@
 import pytest
 from pydantic import ValidationError
 
+from app.features.inference.model.caps import TEXT_PART_MAX_CHARS
 from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.message import Message
 from app.features.inference.model.text_content import TextContent
+
+# max_length=32 caps content-part cardinality (DoS axis); kept symmetric
+# with the schema constant. Imported here because the cap lives on the
+# Pydantic Field, not in the shared caps module.
+_MESSAGE_CONTENT_LIST_MAX_PARTS = 32
 
 
 def test_message_constructs_with_simple_string_content() -> None:
@@ -22,7 +28,7 @@ def test_message_dump_with_string_content_returns_minimal_shape() -> None:
 def test_message_constructs_with_multipart_list_content() -> None:
     msg = Message(
         role="user",
-        content=[TextContent(text="A"), ImageContent(url="https://x")],
+        content=[TextContent(text="A"), ImageContent(base64="iV..")],
     )
     assert isinstance(msg.content, list)
     assert len(msg.content) == 2
@@ -33,7 +39,7 @@ def test_message_constructs_with_multipart_list_content() -> None:
 def test_message_dump_with_multipart_content_includes_type_discriminator() -> None:
     msg = Message(
         role="user",
-        content=[TextContent(text="A"), ImageContent(url="https://x")],
+        content=[TextContent(text="A"), ImageContent(base64="iV..")],
     )
     dumped = msg.model_dump()
     assert dumped["role"] == "user"
@@ -47,14 +53,11 @@ def test_message_rejects_invalid_role() -> None:
         Message.model_validate({"role": "invalid", "content": "x"})
 
 
-def test_message_accepts_assistant_role_with_string_content() -> None:
-    msg = Message(role="assistant", content="reply")
-    assert msg.role == "assistant"
-
-
-def test_message_accepts_system_role_with_string_content() -> None:
-    msg = Message(role="system", content="prompt")
-    assert msg.role == "system"
+@pytest.mark.parametrize("role", ["user", "assistant", "system"])
+def test_message_accepts_each_allowed_role_with_string_content(role: str) -> None:
+    """Lane 5.4 dedup — the three near-duplicate per-role tests collapsed."""
+    msg = Message(role=role, content="hi")
+    assert msg.role == role
 
 
 def test_message_accepts_assistant_role_with_multipart_content() -> None:
@@ -105,9 +108,34 @@ def test_message_rejects_empty_content_list() -> None:
 def test_message_rejects_oversize_content_list() -> None:
     # max_length=32 caps content-part cardinality (DoS axis).
     with pytest.raises(ValidationError):
-        Message(role="user", content=[TextContent(text="x") for _ in range(33)])
+        Message(
+            role="user",
+            content=[TextContent(text="x") for _ in range(_MESSAGE_CONTENT_LIST_MAX_PARTS + 1)],
+        )
 
 
 def test_message_rejects_oversize_string_content() -> None:
+    """Lane 5.3 — boundary computed from the shared cap (oversize = max + 1)."""
+    oversize = TEXT_PART_MAX_CHARS + 1
     with pytest.raises(ValidationError):
-        Message(role="user", content="x" * 131073)
+        Message(role="user", content="x" * oversize)
+
+
+# ── Lane 5.14: boundary-inclusive accept tests ─────────────────────────
+
+
+def test_message_accepts_string_content_at_max_length() -> None:
+    """Boundary-inclusive: TEXT_PART_MAX_CHARS chars is the largest legal content."""
+    msg = Message(role="user", content="x" * TEXT_PART_MAX_CHARS)
+    assert isinstance(msg.content, str)
+    assert len(msg.content) == TEXT_PART_MAX_CHARS
+
+
+def test_message_accepts_content_list_at_max_size() -> None:
+    """Boundary-inclusive: 32 parts is the largest legal multimodal content list."""
+    parts: list[TextContent | ImageContent] = [
+        TextContent(text="x") for _ in range(_MESSAGE_CONTENT_LIST_MAX_PARTS)
+    ]
+    msg = Message(role="user", content=parts)
+    assert isinstance(msg.content, list)
+    assert len(msg.content) == _MESSAGE_CONTENT_LIST_MAX_PARTS

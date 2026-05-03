@@ -18,15 +18,19 @@ def test_validation_error_detail_constructs_with_field_and_reason() -> None:
 def test_validation_error_detail_rejects_unknown_keys() -> None:
     """extra='forbid' on the validation array entries (input-side discipline)."""
     with pytest.raises(ValidationError):
-        ValidationErrorDetail(
-            field="x",
-            reason="y",
-            severity="critical",  # pyright: ignore[reportCallIssue]
+        ValidationErrorDetail.model_validate(
+            {"field": "x", "reason": "y", "severity": "critical"},
         )
 
 
-def test_validation_error_detail_requires_both_fields() -> None:
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"field": "x"}, id="missing-reason"),
+        pytest.param({"reason": "x"}, id="missing-field"),
+    ],
+)
+def test_validation_error_detail_requires_both_fields(kwargs: dict[str, str]) -> None:
+    """Both fields are required — neither alone validates."""
     with pytest.raises(ValidationError):
-        ValidationErrorDetail(field="x")  # pyright: ignore[reportCallIssue]
-    with pytest.raises(ValidationError):
-        ValidationErrorDetail(reason="x")  # pyright: ignore[reportCallIssue]
+        ValidationErrorDetail.model_validate(kwargs)

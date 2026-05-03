@@ -20,6 +20,14 @@ def main(*, reload: bool = False) -> None:
         host=settings.bind_host,
         port=settings.bind_port,
         reload=reload,
+        # ``log_config=None`` disables uvicorn's default ``dictConfig`` so
+        # the structlog stdlib bridge configured in
+        # :func:`app.core.logging.configure_logging` keeps ownership of the
+        # ``uvicorn`` / ``uvicorn.error`` / ``uvicorn.access`` loggers.
+        # Without this kwarg, uvicorn replaces the root handler chain at
+        # process start and every framework log line ships in uvicorn's
+        # plain-text format instead of our JSON pipeline.
+        log_config=None,
     )
 
 

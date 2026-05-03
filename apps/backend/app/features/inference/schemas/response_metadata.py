@@ -5,15 +5,7 @@ from typing import Final, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.inference.model.finish_reason import FinishReason
-
-# UUID pattern mirrored from ProblemDetails.request_id and the
-# RequestIdMiddleware UUID validator. Defense-in-depth so the response
-# envelope can never ship a malformed correlation ID even if a future
-# code path builds ResponseMetadata without going through the middleware-
-# stamped request_id.
-_REQUEST_ID_UUID_PATTERN: Final[str] = (
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
+from app.schemas._constants import UUID_PATTERN_STR
 
 # Mirror ``InferenceRequest.model``'s 128-char cap — same logical name flows
 # in (request) and out (response), so the bounds should be symmetric.
@@ -33,7 +25,11 @@ class ResponseMetadata(BaseModel):
     model: str = Field(min_length=1, max_length=_MODEL_NAME_MAX_LENGTH)
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
-    request_id: str = Field(pattern=_REQUEST_ID_UUID_PATTERN)
+    # ``UUID_PATTERN_STR`` is the shared correlation-ID pattern; mirrored
+    # here so the response envelope rejects a malformed request_id even
+    # if a future code path builds ResponseMetadata without going through
+    # the middleware-stamped request_id.
+    request_id: str = Field(pattern=UUID_PATTERN_STR)
     latency_ms: int = Field(ge=0)
     queue_wait_ms: int = Field(ge=0)
     finish_reason: FinishReason

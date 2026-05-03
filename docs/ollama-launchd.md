@@ -52,7 +52,9 @@ Behind the scenes this:
 2. Creates `~/Library/LaunchAgents/` if missing.
 3. Refuses to run as root (LaunchAgent must be in the user domain).
 4. Substitutes `__HOME__` with `$HOME` and writes the rendered plist to
-   `~/Library/LaunchAgents/com.lip.ollama.plist` via `sed`.
+   `~/Library/LaunchAgents/com.lip.ollama.plist` via Python's `str.replace`
+   (metacharacter-safe for `$HOME` containing `&` or `|`, which would
+   otherwise collide with sed's substitution-pattern metacharacters).
 5. Bootstraps the agent into the GUI session domain:
    `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lip.ollama.plist`.
 

@@ -7,12 +7,13 @@ from pydantic import ValidationError
 
 from app.api.deps import get_settings
 from app.core.config import Settings, is_private_host
+from tests._settings_factory import make_settings
 
 
 def test_ollama_host_defaults_to_localhost(monkeypatch: pytest.MonkeyPatch) -> None:
     """With LIP_OLLAMA_HOST unset, the default is the local Ollama port."""
     monkeypatch.delenv("LIP_OLLAMA_HOST", raising=False)
-    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]  # BaseSettings init not visible to pyright
+    settings = make_settings()
     # AnyHttpUrl normalizes to a trailing slash; compare via str().
     assert str(settings.ollama_host) == "http://localhost:11434/"
 
@@ -32,11 +33,22 @@ def test_ollama_host_env_var_overrides_default(
     RFC1918 / link-local) — `127.0.0.1` is the simplest legal value.
     """
     monkeypatch.setenv("LIP_OLLAMA_HOST", "http://127.0.0.1:11500")
-    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    settings = make_settings()
     assert str(settings.ollama_host) == "http://127.0.0.1:11500/"
 
 
-def test_settings_is_frozen_at_runtime() -> None:
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "app_env",
+        "log_level",
+        "ollama_host",
+        "allow_external_ollama",
+        "allow_public_bind",
+        "bind_host",
+    ],
+)
+def test_settings_is_frozen_at_runtime(field_name: str) -> None:
     """Settings is frozen — field assignment after construction must raise.
 
     The ``frozen=True`` invariant is load-bearing: the
@@ -47,19 +59,30 @@ def test_settings_is_frozen_at_runtime() -> None:
     raises) instead of the FLAG (model_config["frozen"] is True) catches
     both flag drift AND a future pydantic-settings change to what
     ``frozen=True`` means.
+
+    Parametrized over every field in Settings.model_fields so adding a new
+    field in the future automatically gets the immutability guarantee
+    asserted — no per-field test sweep needed.
     """
-    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    settings = make_settings()
     with pytest.raises(ValidationError):
-        settings.allow_public_bind = True  # type: ignore[misc]
+        # ``# pyright: ignore[reportAttributeAccessIssue]`` (not
+        # ``# type: ignore[misc]``): aligns dialect with the rest of the
+        # repo (12 sites use ``pyright: ignore``). frozen=True invariant
+        # test — assignment must raise at runtime, not get typed-out by
+        # pyright.
+        setattr(settings, field_name, "bogus")  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def test_settings_extra_forbid_rejects_unknown_kwarg() -> None:
     """extra='forbid' rejects unknown init kwargs (the kwarg-equivalent surface)."""
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, bogus_field="x")  # pyright: ignore[reportCallIssue]
+        make_settings(bogus_field="x")
 
 
-def test_settings_extra_forbid_silently_ignores_unknown_env_var() -> None:
+def test_settings_extra_forbid_silently_ignores_unknown_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """extra='forbid' is enforced on init kwargs ONLY — env vars are silent.
 
     pydantic-settings 2.14 explicitly does NOT honor ``extra='forbid'`` for
@@ -67,13 +90,8 @@ def test_settings_extra_forbid_silently_ignores_unknown_env_var() -> None:
     ignored rather than raising at import time. Pinning this surprise so the
     cache files / future docs cannot drift back to claiming env-var rejection.
     """
-    import os
-
-    os.environ["LIP_BOGUS_ENV_VAR"] = "x"
-    try:
-        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]  # must not raise
-    finally:
-        del os.environ["LIP_BOGUS_ENV_VAR"]
+    monkeypatch.setenv("LIP_BOGUS_ENV_VAR", "x")
+    make_settings()  # must not raise
 
 
 def test_settings_case_sensitive_default_off() -> None:
@@ -81,6 +99,16 @@ def test_settings_case_sensitive_default_off() -> None:
     upstream default flip surfaces here instead of silently breaking
     lowercase env vars in .env files."""
     assert Settings.model_config.get("case_sensitive") is False
+
+
+def test_settings_validate_default_is_true() -> None:
+    """validate_default=True ensures bad defaults fail at import time.
+
+    Pinned alongside ``test_settings_case_sensitive_default_off`` so a
+    future model_config edit that flips this to False (silently allowing
+    a bogus default URL through) surfaces here.
+    """
+    assert Settings.model_config.get("validate_default") is True
 
 
 @pytest.mark.parametrize(
@@ -103,7 +131,7 @@ def test_settings_literal_field_rejects_unknown_value(
     """
     monkeypatch.setenv(var, value)
     with pytest.raises(ValidationError):
-        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+        make_settings()
 
 
 # ── Bind-host clamp (Lane 19.9) ──────────────────────────────────────
@@ -122,7 +150,7 @@ def test_settings_bind_host_rejects_public_without_acknowledgement(
     """
     monkeypatch.setenv("LIP_BIND_HOST", public_host)
     with pytest.raises(ValidationError, match="ALLOW_PUBLIC_BIND"):
-        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+        make_settings()
 
 
 @pytest.mark.parametrize("public_host", ["0.0.0.0", "::"])  # noqa: S104
@@ -133,14 +161,39 @@ def test_settings_bind_host_accepts_public_with_acknowledgement(
     """LIP_ALLOW_PUBLIC_BIND=true unlocks the public-bind reject-list."""
     monkeypatch.setenv("LIP_BIND_HOST", public_host)
     monkeypatch.setenv("LIP_ALLOW_PUBLIC_BIND", "true")
-    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    settings = make_settings()
     assert settings.bind_host == public_host
 
 
 def test_settings_bind_host_accepts_loopback_default() -> None:
     """127.0.0.1 always succeeds — that is the safe default."""
-    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    settings = make_settings()
     assert settings.bind_host == "127.0.0.1"
+
+
+# ── Bind-port clamp (Lane 19.12) ─────────────────────────────────────
+
+
+@pytest.mark.parametrize("port", [1023, 65536])
+def test_settings_bind_port_rejects_out_of_range_values(
+    monkeypatch: pytest.MonkeyPatch,
+    port: int,
+) -> None:
+    """LIP_BIND_PORT outside [1024, 65535] must raise at validation time."""
+    monkeypatch.setenv("LIP_BIND_PORT", str(port))
+    with pytest.raises(ValidationError):
+        make_settings()
+
+
+@pytest.mark.parametrize("port", [1024, 8000, 65535])
+def test_settings_bind_port_accepts_valid_values(
+    monkeypatch: pytest.MonkeyPatch,
+    port: int,
+) -> None:
+    """LIP_BIND_PORT inside [1024, 65535] must validate cleanly."""
+    monkeypatch.setenv("LIP_BIND_PORT", str(port))
+    settings = make_settings()
+    assert settings.bind_port == port
 
 
 # ── SSRF clamp (Lane 19.10) ──────────────────────────────────────────
@@ -168,7 +221,7 @@ def test_settings_ollama_host_accepts_private_addresses(
 ) -> None:
     """Loopback / RFC1918 / mDNS hosts pass without opt-in."""
     monkeypatch.setenv("LIP_OLLAMA_HOST", private_host)
-    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    settings = make_settings()
     assert settings.ollama_host is not None
 
 
@@ -188,7 +241,7 @@ def test_settings_ollama_host_rejects_external_without_acknowledgement(
     """Non-private hosts must require LIP_ALLOW_EXTERNAL_OLLAMA=true."""
     monkeypatch.setenv("LIP_OLLAMA_HOST", external_host)
     with pytest.raises(ValidationError, match="ALLOW_EXTERNAL_OLLAMA"):
-        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+        make_settings()
 
 
 def test_settings_ollama_host_accepts_external_with_acknowledgement(
@@ -197,11 +250,11 @@ def test_settings_ollama_host_accepts_external_with_acknowledgement(
     """LIP_ALLOW_EXTERNAL_OLLAMA=true unlocks non-private hosts."""
     monkeypatch.setenv("LIP_OLLAMA_HOST", "http://example.com:11434")
     monkeypatch.setenv("LIP_ALLOW_EXTERNAL_OLLAMA", "true")
-    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    settings = make_settings()
     assert settings.allow_external_ollama is True
 
 
-def testis_private_host_classifier_covers_ipv6_and_ula() -> None:
+def test_is_private_host_classifier_covers_ipv6_and_ula() -> None:
     """The ipaddress-backed classifier catches IPv6 link-local + ULA cases.
 
     Note: ``ipaddress.is_private`` treats RFC 3849 documentation range
@@ -232,3 +285,19 @@ def test_get_settings_returns_cached_singleton() -> None:
     s1 = get_settings()
     s2 = get_settings()
     assert s1 is s2
+
+
+def test_get_settings_cache_clear_invalidates_singleton() -> None:
+    """``get_settings.cache_clear()`` produces a fresh instance on the next call.
+
+    Locks the test-time escape hatch: the autouse
+    ``_reset_settings_cache`` fixture in tests/conftest.py relies on this
+    behavior to give each test a hermetic Settings instance. A future
+    refactor that swaps lru_cache for a pre-construction-time singleton
+    (without cache-clear semantics) would silently break the per-test
+    isolation contract.
+    """
+    s1 = get_settings()
+    get_settings.cache_clear()
+    s2 = get_settings()
+    assert s1 is not s2

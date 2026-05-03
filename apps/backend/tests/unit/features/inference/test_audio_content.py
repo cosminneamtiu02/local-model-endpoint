@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.features.inference.model.audio_content import AudioContent
+from app.features.inference.model.caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
 
 
 def test_audio_content_accepts_url_only() -> None:
@@ -34,7 +35,12 @@ def test_audio_content_accepts_base64_only() -> None:
 
 def test_audio_content_rejects_both_url_and_base64() -> None:
     with pytest.raises(ValidationError, match="exactly one"):
-        AudioContent(url="https://example.com/clip.wav", base64="UklGRiQAAABXQVZF")
+        # ``model_validate`` (not direct kwargs) keeps pyright strict happy
+        # under the round-7 AnyHttpUrl tightening (kwargs would force a
+        # ``str`` literal through an ``AnyHttpUrl`` parameter).
+        AudioContent.model_validate(
+            {"url": "https://example.com/clip.wav", "base64": "UklGRiQAAABXQVZF"},
+        )
 
 
 def test_audio_content_rejects_neither_url_nor_base64() -> None:
@@ -44,7 +50,7 @@ def test_audio_content_rejects_neither_url_nor_base64() -> None:
 
 def test_audio_content_rejects_empty_url() -> None:
     with pytest.raises(ValidationError):
-        AudioContent(url="")
+        AudioContent.model_validate({"url": ""})
 
 
 def test_audio_content_rejects_empty_base64() -> None:
@@ -60,10 +66,14 @@ def test_audio_content_rejects_unknown_field() -> None:
 
 
 def test_audio_content_rejects_oversize_base64() -> None:
+    """Caps the inline-blob DoS surface; one char over the cap is rejected."""
+    oversize = BASE64_MEDIA_MAX_CHARS + 1
     with pytest.raises(ValidationError):
-        AudioContent(base64="A" * 20_971_521)
+        AudioContent(base64="A" * oversize)
 
 
 def test_audio_content_rejects_oversize_url() -> None:
+    """URL-length cap rejects a URL longer than ``URL_MAX_CHARS``."""
+    pad_len = (URL_MAX_CHARS + 1) - len("http://x/")
     with pytest.raises(ValidationError):
-        AudioContent(url="http://x/" + ("a" * 2050))
+        AudioContent.model_validate({"url": "http://x/" + ("a" * pad_len)})

@@ -6,41 +6,39 @@ from pydantic import ValidationError
 from app.features.inference.schemas.inference_response import InferenceResponse
 from app.features.inference.schemas.response_metadata import ResponseMetadata
 
-_VALID_REQUEST_ID = "00000000-0000-4000-8000-000000000abc"
+
+def _valid_metadata(kwargs: dict[str, object]) -> ResponseMetadata:
+    return ResponseMetadata.model_validate(kwargs)
 
 
-def _valid_metadata() -> ResponseMetadata:
-    return ResponseMetadata(
-        model="gemma-4-e2b",
-        prompt_tokens=12,
-        completion_tokens=34,
-        request_id=_VALID_REQUEST_ID,
-        latency_ms=250,
-        queue_wait_ms=5,
-        finish_reason="stop",
-        backend="ollama",
+def test_inference_response_constructs_with_content_and_metadata(
+    valid_response_metadata_kwargs: dict[str, object],
+) -> None:
+    resp = InferenceResponse(
+        content="hello world",
+        metadata=_valid_metadata(valid_response_metadata_kwargs),
     )
-
-
-def test_inference_response_constructs_with_content_and_metadata() -> None:
-    resp = InferenceResponse(content="hello world", metadata=_valid_metadata())
     assert resp.content == "hello world"
     assert resp.metadata.model == "gemma-4-e2b"
 
 
-def test_inference_response_rejects_unknown_top_level_field() -> None:
+def test_inference_response_rejects_unknown_top_level_field(
+    valid_response_metadata_kwargs: dict[str, object],
+) -> None:
     with pytest.raises(ValidationError, match="extra"):
         InferenceResponse.model_validate(
             {
                 "content": "x",
-                "metadata": _valid_metadata().model_dump(),
+                "metadata": _valid_metadata(valid_response_metadata_kwargs).model_dump(),
                 "stream": True,
             },
         )
 
 
-def test_inference_response_propagates_metadata_validation_errors() -> None:
-    valid = _valid_metadata().model_dump()
+def test_inference_response_propagates_metadata_validation_errors(
+    valid_response_metadata_kwargs: dict[str, object],
+) -> None:
+    valid = _valid_metadata(valid_response_metadata_kwargs).model_dump()
     valid["finish_reason"] = "bad"
     with pytest.raises(ValidationError, match="finish_reason"):
         InferenceResponse.model_validate({"content": "x", "metadata": valid})
@@ -51,9 +49,13 @@ def test_inference_response_requires_metadata() -> None:
         InferenceResponse.model_validate({"content": "x"})
 
 
-def test_inference_response_requires_content() -> None:
+def test_inference_response_requires_content(
+    valid_response_metadata_kwargs: dict[str, object],
+) -> None:
     with pytest.raises(ValidationError, match="content"):
-        InferenceResponse.model_validate({"metadata": _valid_metadata().model_dump()})
+        InferenceResponse.model_validate(
+            {"metadata": _valid_metadata(valid_response_metadata_kwargs).model_dump()},
+        )
 
 
 @pytest.mark.parametrize(
@@ -69,8 +71,11 @@ def test_inference_response_requires_content() -> None:
         "backend",
     ],
 )
-def test_inference_response_propagates_missing_metadata_field_errors(missing_field: str) -> None:
-    metadata = _valid_metadata().model_dump()
+def test_inference_response_propagates_missing_metadata_field_errors(
+    valid_response_metadata_kwargs: dict[str, object],
+    missing_field: str,
+) -> None:
+    metadata = _valid_metadata(valid_response_metadata_kwargs).model_dump()
     del metadata[missing_field]
     with pytest.raises(ValidationError, match=missing_field):
         InferenceResponse.model_validate({"content": "x", "metadata": metadata})

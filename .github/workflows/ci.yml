@@ -39,11 +39,18 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: apps/backend/uv.lock
+          # Lane 10.3: authenticated GitHub API requests pull uv interpreter
+          # downloads under the 5000/hr per-token rate limit instead of the
+          # shared 60/hr unauthenticated pool. Same rationale as the
+          # ``arduino/setup-task`` block above (macOS runners share an
+          # outbound IP pool and routinely exhaust the unauthenticated
+          # bucket).
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           # ``python-version`` on setup-uv reuses uv's interpreter cache
           # so the per-run download (~30s on cold cache) is amortized
           # across PRs that touch the same Python version. Replaces
           # the explicit ``uv python install`` step.
-          python-version: "3.13.3"
+          python-version: "3.13.13"
 
       - name: Install dependencies
         run: uv sync --frozen --dev
@@ -81,20 +88,24 @@ jobs:
         working-directory: .
         run: task check:test
 
-      # Dependency CVE scan (advisory). pip-audit is pinned in dev deps and
-      # the ``check:audit`` task already exists locally; running it here
-      # surfaces CVEs on currently-pinned production deps in CI output
-      # without blocking the merge. Hard-gating would block legitimate work
-      # on CVEs that don't yet have upstream fixes; advisory keeps the
-      # signal visible in the workflow summary so the maintainer can decide
-      # whether to bump now or accept the risk. Real CVE detection still
-      # exits non-zero (pip-audit only swallows the editable-install
-      # warning, not actual advisories) so ``continue-on-error`` is the
-      # gate that lets the workflow keep going after a finding.
-      - name: Dependency CVE scan (advisory)
+      # Lane 10.9: enforce the 90% coverage gate in CI. ``task
+      # check:coverage`` runs the same pytest invocation the local
+      # ``task check:coverage`` does, with ``--cov-fail-under=90``
+      # (Taskfile.yml). Without this step, the gate exists locally
+      # but CI cannot reject a coverage regression.
+      - name: Coverage gate
         working-directory: .
-        continue-on-error: true
-        run: task check:audit
+        run: task check:coverage
+
+      # Dependency CVE scan. Lane 16.6: ``continue-on-error`` is now
+      # ``false`` per user mandate ("fix everything, strict option"). A
+      # real CVE on a pinned production dep fails CI; the operator must
+      # bump or pin around it before merging. pip-audit's editable-skip
+      # warning is not a CVE finding (it exits 0), so the only failure
+      # mode here is an actual advisory.
+      - name: Dependency CVE scan
+        working-directory: .
+        run: task check:audit:backend
 
   error-contracts:
     runs-on: ubuntu-latest
@@ -122,12 +133,22 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: packages/error-contracts/uv.lock
+          # Lane 10.3: see backend-checks job for the github-token rationale.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           # Same setup-uv interpreter-cache reuse as the backend job —
           # see backend-checks comment for the rationale.
-          python-version: "3.13.3"
+          python-version: "3.13.13"
 
       - name: Install dependencies
         run: uv sync --frozen --dev
+
+      - name: Lint
+        working-directory: .
+        run: task check:lint:errors
+
+      - name: Format check
+        working-directory: .
+        run: task check:format:errors
 
       - name: Verify error contracts (codegen + diff)
         working-directory: .
@@ -140,6 +161,11 @@ jobs:
       - name: Codegen + validator tests
         working-directory: .
         run: task test:errors
+
+      # Lane 16.6: strict CVE gate, mirror of the backend job's policy.
+      - name: Dependency CVE scan
+        working-directory: .
+        run: task check:audit:errors
 
   # Darwin-only check for the launchd plist. ``ubuntu-latest`` cannot run
   # ``plutil``, so plist syntax regressions would otherwise only be caught

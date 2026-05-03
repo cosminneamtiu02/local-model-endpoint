@@ -13,7 +13,6 @@ Two concerns layered on the ASGI scope:
    (silenced in core/logging.py).
 """
 
-import json
 import re
 import time
 import uuid
@@ -23,11 +22,12 @@ import structlog
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
+from app.schemas import ProblemDetails
+from app.schemas._constants import UUID_PATTERN_STR
+
 # Valid UUID pattern for X-Request-ID header.
-_UUID_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
+_UUID_PATTERN: Final[re.Pattern[str]] = re.compile(UUID_PATTERN_STR, re.IGNORECASE)
 
 # Request paths that are too noisy to log per-request (health checks
 # fire on a tight poll loop and would dominate the log volume). The
@@ -67,8 +67,6 @@ _INSTANCE_PREVIEW_MAX_CHARS: Final[int] = 512
 # 64 MiB is well above any realistic single audio clip / multimodal prompt
 # and far below memory-pressure territory; not a configurable wire knob.
 _MAX_REQUEST_BODY_BYTES: Final[int] = 64 * 1024 * 1024
-_PROBLEM_JSON_MEDIA_TYPE: Final[bytes] = b"application/problem+json; charset=utf-8"
-_CONTENT_LANGUAGE: Final[bytes] = b"en"
 _REQUEST_ENTITY_TOO_LARGE: Final[int] = 413
 
 logger = structlog.get_logger(__name__)
@@ -97,31 +95,38 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     """Send a minimal RFC 7807 problem+json 413 response without invoking the
     exception handler chain (which lives below this middleware in the ASGI
     stack). The handler chain owns the typed-DomainError shape; this wire
-    body is built by hand to keep the middleware self-contained.
+    body is built by going through the same :class:`ProblemDetails` schema
+    so the wire shape stays in sync (no hand-rolled JSON literal that could
+    drift from the canonical schema).
+
+    ``code="REQUEST_TOO_LARGE"`` is a string literal — there is no
+    DomainError class for it because the middleware sits above the handler
+    chain and cannot raise typed exceptions. ProblemDetails' ``code`` field
+    is regex-validated (SCREAMING_SNAKE), not class-bound, so the literal
+    satisfies the wire contract.
 
     ``path`` is truncated symmetric with ``ValidationErrorDetail.field``'s
     512-char cap so a pathological consumer cannot amplify a single
     long-URL POST into a multi-KB error body.
     """
     bounded_path = path[:_INSTANCE_PREVIEW_MAX_CHARS]
-    body = json.dumps(
-        {
-            "type": "about:blank",
-            "title": "Payload Too Large",
-            "status": _REQUEST_ENTITY_TOO_LARGE,
-            "detail": (f"Request body exceeds the {_MAX_REQUEST_BODY_BYTES}-byte limit."),
-            "instance": bounded_path,
-            "code": "REQUEST_TOO_LARGE",
-            "request_id": request_id,
-        },
-    ).encode("utf-8")
+    problem = ProblemDetails(
+        type="about:blank",
+        title="Payload Too Large",
+        status=_REQUEST_ENTITY_TOO_LARGE,
+        code="REQUEST_TOO_LARGE",
+        detail=f"Request body exceeds the {_MAX_REQUEST_BODY_BYTES}-byte limit.",
+        request_id=request_id,
+        instance=bounded_path,
+    )
+    body = problem.model_dump_json(exclude_none=False).encode("utf-8")
     await send(
         {
             "type": "http.response.start",
             "status": _REQUEST_ENTITY_TOO_LARGE,
             "headers": [
-                (b"content-type", _PROBLEM_JSON_MEDIA_TYPE),
-                (b"content-language", _CONTENT_LANGUAGE),
+                (b"content-type", PROBLEM_JSON_MEDIA_TYPE.encode("ascii")),
+                (b"content-language", CONTENT_LANGUAGE.encode("ascii")),
                 (b"content-length", str(len(body)).encode("ascii")),
                 (b"x-request-id", request_id.encode("latin-1")),
             ],
@@ -136,7 +141,7 @@ class RequestIdMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: C901, PLR0915 — single-pass ASGI hot path: header validation, contextvar binding, body-size guard, send-wrapper, finally-block access log; splitting would require shared mutable state.
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -173,26 +178,52 @@ class RequestIdMiddleware:
         method = str(scope.get("method", ""))
         path = str(scope.get("path", ""))
 
-        if client_id and match_result is None:
+        rejected_client_id = client_id and match_result is None
+        if rejected_client_id:
             preview = client_id[:_REQUEST_ID_PREVIEW_MAX_CHARS]
             request_id = str(uuid.uuid4())
+            request_id_source = "generated"
+        elif match_result is not None:
+            preview = ""
+            request_id = client_id
+            request_id_source = "client"
+        else:
+            preview = ""
+            request_id = str(uuid.uuid4())
+            request_id_source = "generated"
+
+        # Bind request_id + method + path BEFORE any pre-yield log lines so
+        # ``request_id_rejected_client_value`` / ``request_body_too_large``
+        # both pick up the routing contextvars via ``merge_contextvars``
+        # without each call site re-passing them. ``phase="request"`` mirrors
+        # the lifespan binding (``phase="lifespan"`` in
+        # router_registry.lifespan_resources) so a jq filter ``select(.phase
+        # == "request")`` greps every per-request log line. Cleanup is
+        # guaranteed by the ``clear_contextvars()`` call at the start of the
+        # next request entry.
+        structlog.contextvars.bind_contextvars(
+            request_id=request_id,
+            method=method,
+            path=path,
+            phase="request",
+        )
+
+        if rejected_client_id:
             # rejected_reason / rejected_byte_total give triage-actionable
             # signal beyond the bare preview when a control-char rewrite
-            # collapsed the value to "<non-printable>".
+            # collapsed the value to "<non-printable>". ``request_id`` here
+            # is the freshly-minted UUID that replaced the rejected client
+            # value; ``request_id_source="generated"`` (kw merge from
+            # contextvars) discriminates this fallback path from the happy
+            # client-supplied case.
             had_control_chars = client_id == "<non-printable>"
             logger.warning(
                 "request_id_rejected_client_value",
-                method=method,
-                path=path,
                 supplied_value_preview=preview,
                 rejected_reason=("control_char" if had_control_chars else "format_mismatch"),
                 rejected_byte_total=len(client_id_raw),
-                generated_request_id=request_id,
+                request_id_source=request_id_source,
             )
-        elif match_result is not None:
-            request_id = client_id
-        else:
-            request_id = str(uuid.uuid4())
 
         # Park on scope["state"] so request.state.request_id reads it
         # via Starlette's State accessor inside route handlers and the
@@ -213,89 +244,69 @@ class RequestIdMiddleware:
         if content_length is not None and content_length > _MAX_REQUEST_BODY_BYTES:
             logger.warning(
                 "request_body_too_large",
-                request_id=request_id,
-                method=method,
-                path=path,
                 content_length=content_length,
                 limit=_MAX_REQUEST_BODY_BYTES,
             )
             await _send_413_problem_json(send, request_id, path)
             return
 
-        # Bind request_id + method + path so every log line emitted within
-        # the request scope (handlers, services, repositories) carries the
-        # routing context. ``merge_contextvars`` injects them on emit;
-        # explicit kwargs at call sites would override the contextvar (and
-        # would be redundant for these three keys anyway).
-        with structlog.contextvars.bound_contextvars(
-            request_id=request_id,
-            method=method,
-            path=path,
-        ):
-            request_id_header = (b"x-request-id", request_id.encode("latin-1"))
+        request_id_header = (b"x-request-id", request_id.encode("latin-1"))
 
-            async def send_with_request_id(message: Message) -> None:
-                nonlocal captured_status
-                if message["type"] == "http.response.start":
-                    captured_status = int(message.get("status", 0))
-                    # Unpack the existing headers iterable into a fresh list
-                    # with the request-id tuple appended; one allocation, no
-                    # imperative ``append`` step on the hot per-response path.
-                    message = {
-                        **message,
-                        "headers": [*message.get("headers", []), request_id_header],
-                    }
-                await send(message)
+        async def send_with_request_id(message: Message) -> None:
+            nonlocal captured_status
+            if message["type"] == "http.response.start":
+                captured_status = int(message.get("status", 0))
+                # Unpack the existing headers iterable into a fresh list
+                # with the request-id tuple appended; one allocation, no
+                # imperative ``append`` step on the hot per-response path.
+                message = {
+                    **message,
+                    "headers": [*message.get("headers", []), request_id_header],
+                }
+            await send(message)
 
-            unhandled_exc: BaseException | None = None
-            try:
-                await self.app(scope, receive, send_with_request_id)
-            except BaseException as exc:
-                # Capture and re-raise so Starlette's outer ServerErrorMiddleware
-                # still serializes the response, but the access-log line below
-                # gets the real status (500) instead of the 0 sentinel that
-                # would silently fall outside operator log filters.
-                unhandled_exc = exc
-                raise
-            finally:
-                effective_status = (
-                    _STATUS_ON_UNCAUGHT_EXCEPTION
-                    if captured_status == 0 and unhandled_exc is not None
-                    else captured_status
+        unhandled_exc: BaseException | None = None
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        except BaseException as exc:
+            # Capture and re-raise so Starlette's outer ServerErrorMiddleware
+            # still serializes the response, but the access-log line below
+            # gets the real status (500) instead of the 0 sentinel that
+            # would silently fall outside operator log filters.
+            unhandled_exc = exc
+            raise
+        finally:
+            effective_status = (
+                _STATUS_ON_UNCAUGHT_EXCEPTION
+                if captured_status == 0 and unhandled_exc is not None
+                else captured_status
+            )
+            # Health-check pings are silenced unless degraded — a 4xx/5xx
+            # /health response is the case operators DO want to see.
+            suppress = (
+                path in _ACCESS_LOG_SUPPRESSED_PATHS
+                and _HTTP_STATUS_OK_FLOOR <= effective_status < _HTTP_STATUS_REDIRECT_CEILING
+            )
+            if not suppress:
+                duration_ms = int((time.perf_counter() - start) * 1000)
+                client = scope.get("client")
+                # ``method`` / ``path`` flow through ``merge_contextvars`` from
+                # the bind above; not re-passed here. ``client_ip`` (renamed
+                # from the prior ``client_host``) matches the industry
+                # "remote IP" convention used by uvicorn access / RFC 7239 /
+                # common log format and disambiguates against the DNS-style
+                # ``ollama_host`` field on other log lines. ``client_port``
+                # is the ephemeral peer port — needed to disambiguate two
+                # simultaneous LAN connections from the same consumer.
+                # Both are fine to log unconditionally for this
+                # single-developer LAN profile (consumers are self-owned).
+                logger.info(
+                    "request_completed",
+                    status_code=effective_status,
+                    duration_ms=duration_ms,
+                    client_ip=client[0] if client else None,
+                    client_port=client[1] if client else None,
                 )
-                # Health-check pings are silenced unless degraded — a 4xx/5xx
-                # /health response is the case operators DO want to see.
-                suppress = (
-                    path in _ACCESS_LOG_SUPPRESSED_PATHS
-                    and _HTTP_STATUS_OK_FLOOR <= effective_status < _HTTP_STATUS_REDIRECT_CEILING
-                )
-                if not suppress:
-                    duration_ms = int((time.perf_counter() - start) * 1000)
-                    client = scope.get("client")
-                    # Explicit method=/path= kwargs are belt-and-suspenders
-                    # alongside merge_contextvars: a future regression that
-                    # drops the contextvar processor would otherwise silently
-                    # strip routing context from the access log.
-                    # ``client_ip`` (renamed from the prior ``client_host``)
-                    # matches the industry "remote IP" convention used by
-                    # uvicorn access / RFC 7239 / common log format and
-                    # disambiguates against the DNS-style ``ollama_host``
-                    # field on other log lines. ``client_port`` is the
-                    # ephemeral peer port — needed to disambiguate two
-                    # simultaneous LAN connections from the same consumer.
-                    # Both are fine to log unconditionally for this
-                    # single-developer LAN profile (consumers are
-                    # self-owned). TODO(future-non-LAN-deploy): wire to a
-                    # Settings.log_client_ip toggle when the topology widens.
-                    logger.info(
-                        "request_completed",
-                        method=method,
-                        path=path,
-                        status_code=effective_status,
-                        duration_ms=duration_ms,
-                        client_ip=client[0] if client else None,
-                        client_port=client[1] if client else None,
-                    )
 
 
 def configure_middleware(app: FastAPI) -> None:

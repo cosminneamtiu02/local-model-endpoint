@@ -9,16 +9,20 @@ Three module-level functions form the entire translation surface:
 They are deliberately framework-free (no httpx, no async): unit tests
 exercise them directly without transport mocking, and the
 `OllamaClient.chat` method composes them around the wire I/O.
+
+Lives under ``model/`` (not ``repository/``) since it is pure value-object
+construction — the layering rule "repository -> model" applies one way:
+``OllamaClient.chat`` imports these helpers, never the inverse.
 """
 
-from __future__ import annotations
-
+from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 
 from app.features.inference.model.audio_content import AudioContent
+from app.features.inference.model.finish_reason import FinishReason
 from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.ollama_chat_result import OllamaChatResult
 from app.features.inference.model.text_content import TextContent
@@ -26,10 +30,9 @@ from app.features.inference.model.text_content import TextContent
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from app.features.inference.model.content_part import ContentPart
-    from app.features.inference.model.finish_reason import FinishReason
     from app.features.inference.model.message import Message
     from app.features.inference.model.model_params import ModelParams
 
@@ -52,7 +55,7 @@ _OLLAMA_TO_LIP_FINISH: Final[Mapping[str, FinishReason]] = MappingProxyType(
 
 
 def _flatten_content_parts(
-    parts: Sequence[ContentPart],
+    parts: "Sequence[ContentPart]",
 ) -> tuple[list[str], list[str], list[str]]:
     """Walk a multimodal content list, splitting parts into (text, images, audios)
     base64 buckets. URL-only image/audio parts raise NotImplementedError so an
@@ -107,7 +110,7 @@ def _attach_media_to_message(
         ollama_msg["audios"] = audios
 
 
-def translate_message(msg: Message) -> dict[str, Any]:
+def translate_message(msg: "Message") -> dict[str, Any]:
     """Service Message -> Ollama /api/chat message dict.
 
     String-content messages pass through unchanged. List-content
@@ -130,7 +133,7 @@ def translate_message(msg: Message) -> dict[str, Any]:
     return ollama_msg
 
 
-def translate_params(params: ModelParams) -> dict[str, Any]:
+def translate_params(params: "ModelParams") -> dict[str, Any]:
     """ModelParams -> Ollama options dict.
 
     Only consumer-set fields are forwarded; registry defaults are merged

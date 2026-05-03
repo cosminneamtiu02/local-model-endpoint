@@ -4,7 +4,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
 
-from app.features.inference.model._caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
+from app.features.inference.model._validators import ensure_exactly_one_url_or_base64
+from app.features.inference.model.caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
 
 
 class AudioContent(BaseModel):
@@ -25,7 +26,5 @@ class AudioContent(BaseModel):
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> Self:
-        if (self.url is None) == (self.base64 is None):
-            msg = "AudioContent requires exactly one of `url` or `base64`"
-            raise ValueError(msg)
+        ensure_exactly_one_url_or_base64(self, "AudioContent")
         return self

@@ -7,6 +7,33 @@ version: 1
 #                     responses per RFC 7807 extension convention.
 #
 # type_uri (urn:lip:error:<kebab-code>) is derived in codegen, not declared here.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Code naming → class naming (lane 8.9)
+# ──────────────────────────────────────────────────────────────────────────────
+# Codes here are SCREAMING_SNAKE_CASE strings. The codegen
+# (``packages/error-contracts/scripts/generate.py:_code_to_class_name``)
+# converts each code to PascalCase for the generated Python exception class:
+#
+#   1. Lower-case the code, split on underscores, capitalize each word, join.
+#      ``ADAPTER_CONNECTION_FAILURE`` -> ``AdapterConnectionFailure``
+#      ``INTERNAL_ERROR``             -> ``InternalError``
+#      ``METHOD_NOT_ALLOWED``         -> ``MethodNotAllowed``
+#   2. If the resulting PascalCase name does NOT already end with ``Error``,
+#      append ``Error``. If it DOES end with ``Error`` (because the code
+#      itself ended in ``_ERROR``), the suffix is left as-is — no double-
+#      ``ErrorError`` and no asymmetric stripping. Worked examples:
+#        - ``ADAPTER_CONNECTION_FAILURE`` -> ``AdapterConnectionFailureError``
+#        - ``INTERNAL_ERROR``             -> ``InternalError`` (not InternalErrorError)
+#        - ``METHOD_NOT_ALLOWED``         -> ``MethodNotAllowedError``
+#        - ``HTTP_ERROR``                 -> ``HttpError`` (not HttpErrorError)
+#
+# Practical guidance: prefer codes that DO NOT end in ``_ERROR`` so the
+# generated class name reads naturally with the appended ``Error`` suffix.
+# Reserve ``_ERROR``-suffixed codes for cases where the unsuffixed form
+# would read awkwardly (``INTERNAL`` -> ``InternalError`` is the canonical
+# example).
+# ──────────────────────────────────────────────────────────────────────────────
 
 errors:
   # ── Generic codes (apply across domains) ─────────────────────────────────
@@ -38,6 +65,20 @@ errors:
     description: Unhandled server error; details are logged with request_id
     title: Internal Server Error
     detail_template: An unexpected error occurred. Use the request_id to correlate with server logs.
+    params: {}
+
+  METHOD_NOT_ALLOWED:
+    http_status: 405
+    description: Request used an HTTP method the route does not accept
+    title: Method Not Allowed
+    detail_template: The HTTP method used is not allowed for this route.
+    params: {}
+
+  HTTP_ERROR:
+    http_status: 400
+    description: Generic HTTP-level error raised through the StarletteHTTPException path
+    title: HTTP Error
+    detail_template: An HTTP-level error occurred while processing the request.
     params: {}
 
   RATE_LIMITED:

@@ -101,25 +101,31 @@ validation problem+json; `HealthResponse` is the liveness payload.
 ## Backend — Architecture Enforcement
 
 ### Import-Linter Contracts ([apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini))
-Ten contracts protect the layer boundaries (six cross-cutting + four inference-internal):
+Thirteen contracts protect the layer boundaries:
 
-- `core-is-leaf`, `exceptions-is-leaf`, `schemas-is-leaf` — none of the three
-  cross-cutting layers may reach into other layers (including features); layering
-  stays acyclic.
-- `no-direct-generated-error-imports` — only `app.exceptions/__init__` may
-  import from `app.exceptions._generated`; everything else uses the public
-  re-exports per CLAUDE.md.
-- `api-exception-handlers-feature-agnostic` — the api-exception-handlers
-  layer cannot reach into any feature, keeping the RFC 7807 envelope
-  decoupled from inference specifics.
-- `features-are-independent` — features cannot import each other (no-op while
-  only one feature exists; one-line edit when the second lands).
-- `inference-model-no-schemas`, `inference-repository-no-schemas`,
-  `inference-model-no-repository`, `inference-schemas-no-repository` — within
-  the inference slice, lower layers cannot reach into wire schemas, and
+- **1 generated-error gate** — `no-direct-generated-error-imports`: only
+  `app.exceptions/__init__` may import from `app.exceptions._generated`;
+  everything else uses the public re-exports per CLAUDE.md.
+- **4 leaf rules** — `core-is-leaf`, `exceptions-is-leaf`, `schemas-is-leaf`,
+  and `inference-model-is-leaf`: each layer is forbidden from importing
+  any of the others, so layering stays acyclic.
+- **1 cross-feature isolation** — `features-are-independent`: features cannot
+  import each other (vacuously kept while only one feature exists; the
+  next feature added must be appended to the contract's `modules =` list).
+- **5 inference-internal layering** — `inference-model-no-schemas`,
+  `inference-repository-no-schemas`, `inference-model-no-repository`,
+  `inference-schemas-no-repository`, and `inference-model-is-leaf` (also
+  counted in the leaf-rules bullet above for completeness). Within the
+  inference slice, lower layers cannot reach into wire schemas, and
   `model/` is the bottom of the layering. The full router → service →
   repository → model layering is added per-layer as the feature router and
   service land.
+- **3 api-cross-cutting** — `api-exception-handlers-feature-agnostic`,
+  `api-request-id-middleware-feature-agnostic`, and
+  `api-uses-inference-feature-root`: the global error path, request-id
+  middleware, and the api ↔ inference boundary are all feature-agnostic
+  (or feature-root-only) by contract, so a drift where a handler sniffs
+  feature-specific shape is mechanically caught.
 
 ---
 
@@ -176,9 +182,11 @@ to fuzz.
 ## CI/CD
 
 ### CI Workflow ([.github/workflows/ci.yml](../.github/workflows/ci.yml))
-Two jobs: `backend-checks` (ruff + pyright + import-linter + pytest unit/integration/
-contract) and `error-contracts` (Python codegen + tests + diff verification). Both are
-hard gates on the `main-protection` ruleset.
+Three jobs: `backend-checks` (ruff + pyright + import-linter + pytest unit/integration/
+contract + coverage gate + pip-audit), `error-contracts` (Python codegen + tests + diff
+verification + lint/format/audit), and `darwin-checks` (macOS-only `plutil` validation
+of the launchd plist template). All three are hard gates on the `main-protection`
+ruleset.
 
 ### Dependabot ([.github/dependabot.yml](../.github/dependabot.yml))
 Four update blocks: `pip` for `apps/backend`, `pip` for `packages/error-contracts`,
