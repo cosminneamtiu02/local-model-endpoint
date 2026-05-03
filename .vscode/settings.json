@@ -15,5 +15,11 @@
     "**/.pytest_cache": true,
     "**/.ruff_cache": true
   },
+  "files.watcherExclude": {
+    "**/.claude/worktrees/**": true,
+    "**/.venv/**": true
+  },
+  "git.autoRepositoryDetection": "openEditors",
+  "git.repositoryScanIgnoredFolders": [".claude"],
   "files.eol": "\n"
 }
