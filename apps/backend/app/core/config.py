@@ -7,7 +7,7 @@ from pydantic import AnyHttpUrl, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def _is_private_host(host: str) -> bool:
+def is_private_host(host: str) -> bool:
     """Return True if ``host`` is loopback / RFC1918 / link-local / ULA / mDNS."""
     if not host:
         return False
@@ -84,9 +84,18 @@ class Settings(BaseSettings):
     bind_host: str = Field(
         default="127.0.0.1",
         description="Interface to bind uvicorn to (loopback / private LAN).",
-        min_length=1,
+        # min_length=1 dropped: an empty bind_host is already rejected by
+        # ``_check_safety_invariants`` (``is_private_host("")`` returns
+        # False) with the more actionable error "bind_host='' is not
+        # loopback / private LAN..." than Pydantic's generic "String
+        # should have at least 1 character". One way to do each thing —
+        # the safety-invariant validator owns the "is this a usable
+        # bind target" call.
         max_length=253,
     )
+    # ``ge=1024`` forbids privileged ports — running LIP as root is out
+    # of project scope. Raise the lower bound only if a future macOS
+    # launchd handoff is added that drops privileges after binding 80/443.
     bind_port: int = Field(default=8000, ge=1024, le=65535)
 
     @model_validator(mode="after")
@@ -97,7 +106,7 @@ class Settings(BaseSettings):
         # etc.) — the original membership check on a 2-element set let
         # everything outside the loopback/RFC1918 families slip past the
         # validator unless it was literally one of two strings.
-        if not _is_private_host(self.bind_host) and not self.allow_public_bind:
+        if not is_private_host(self.bind_host) and not self.allow_public_bind:
             msg = (
                 f"bind_host={self.bind_host!r} is not loopback / private LAN / link-local; "
                 "set LIP_ALLOW_PUBLIC_BIND=true explicitly to acknowledge "
@@ -106,7 +115,7 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         # SSRF clamp: don't let a typo turn LIP into a forwarding proxy.
         host = self.ollama_host.host or ""
-        if not _is_private_host(host) and not self.allow_external_ollama:
+        if not is_private_host(host) and not self.allow_external_ollama:
             msg = (
                 f"ollama_host host={host!r} is not localhost / private LAN / link-local; "
                 "set LIP_ALLOW_EXTERNAL_OLLAMA=true explicitly to acknowledge that LIP will "

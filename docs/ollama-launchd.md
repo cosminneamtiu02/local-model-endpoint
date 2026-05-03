@@ -53,7 +53,7 @@ Behind the scenes this:
 3. Refuses to run as root (LaunchAgent must be in the user domain).
 4. Substitutes `__HOME__` with `$HOME` and writes the rendered plist to
    `~/Library/LaunchAgents/com.lip.ollama.plist` via `sed`.
-4. Bootstraps the agent into the GUI session domain:
+5. Bootstraps the agent into the GUI session domain:
    `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lip.ollama.plist`.
 
 After `task ollama:install`, Ollama is running and `task ollama:status` should
@@ -115,7 +115,7 @@ the right posture for the local-network-only trust model. Setting
 something v1 wants.
 
 Calibrated memory footprints from the disambiguated idea
-(`docs/disambigued-idea.md`): idle Ollama ≈ <200 MB, active with Gemma 4
+(`docs/disambiguated-idea.md`): idle Ollama ≈ <200 MB, active with Gemma 4
 E2B loaded ≈ 7.5 GB. These are operator-observed targets via Activity
 Monitor / `ps`, not pytest-asserted (see `LIP-E005-F003`'s "Out of scope"
 section for why memory assertions aren't in CI).
@@ -152,11 +152,12 @@ task ollama:install
 ```
 
 The same procedure applies if you want to redirect the log paths
-(`StandardOutPath`/`StandardErrorPath`) — those hardcode
-`/Users/cosminneamtiu/Library/Logs/ollama/` because this plist ships as the
-deployment artifact for *this* machine. Edit those two `<string>` values to
-your home directory's `Logs/ollama/` if you adopt this repo on a different
-account.
+(`StandardOutPath`/`StandardErrorPath`) elsewhere. The plist template
+uses the `__HOME__` placeholder for these paths and `task ollama:install`
+substitutes it with `$HOME` at install time, so logs land under each
+operator's home directory automatically — no per-account editing of
+the template is required for the default location. Edit them only if
+you want logs somewhere other than `~/Library/Logs/ollama/`.
 
 > ⚠️ **Heads-up on log-path edits.** `task ollama:install` always runs
 > `mkdir -p ~/Library/Logs/ollama` regardless of what `StandardOutPath` /

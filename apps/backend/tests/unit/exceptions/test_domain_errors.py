@@ -60,7 +60,7 @@ def test_adapter_connection_failure_renders_backend_and_reason() -> None:
 
 
 def test_registry_not_found_renders_model_in_detail() -> None:
-    err = RegistryNotFoundError(model="phantom")
+    err = RegistryNotFoundError(model_name="phantom")
     assert err.code == "REGISTRY_NOT_FOUND"
     assert err.http_status == 404
     assert err.type_uri == "urn:lip:error:registry-not-found"
@@ -68,7 +68,7 @@ def test_registry_not_found_renders_model_in_detail() -> None:
 
 
 def test_model_capability_not_supported_renders_model_and_capability() -> None:
-    err = ModelCapabilityNotSupportedError(model="text-only", requested_capability="audio")
+    err = ModelCapabilityNotSupportedError(model_name="text-only", requested_capability="audio")
     assert err.code == "MODEL_CAPABILITY_NOT_SUPPORTED"
     assert err.http_status == 422
     assert err.type_uri == "urn:lip:error:model-capability-not-supported"

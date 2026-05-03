@@ -20,7 +20,7 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     # exc_info tuple in production logs. In dev mode we omit the processor
     # because ConsoleRenderer already pretty-prints exceptions itself
     # (and structlog warns when `format_exc_info` is added on top of it).
-    shared_processors: list[structlog.types.Processor] = [
+    shared_processors: list[structlog.typing.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
@@ -35,7 +35,7 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     shared_processors.append(structlog.processors.UnicodeDecoder())
 
     if json_output:
-        renderer: structlog.types.Processor = structlog.processors.JSONRenderer()
+        renderer: structlog.typing.Processor = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer()
 

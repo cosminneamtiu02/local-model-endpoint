@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.deps import get_settings
-from app.core.config import Settings, _is_private_host
+from app.core.config import Settings, is_private_host
 
 
 def test_ollama_host_defaults_to_localhost(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,22 +182,22 @@ def test_settings_ollama_host_accepts_external_with_acknowledgement(
     assert settings.allow_external_ollama is True
 
 
-def test_is_private_host_classifier_covers_ipv6_and_ula() -> None:
+def testis_private_host_classifier_covers_ipv6_and_ula() -> None:
     """The ipaddress-backed classifier catches IPv6 link-local + ULA cases.
 
     Note: ``ipaddress.is_private`` treats RFC 3849 documentation range
     (``2001:db8::/32``) as private, so we use a real public IPv6 (Cloudflare
     DNS ``2606:4700:4700::1111``) for the negative case.
     """
-    assert _is_private_host("127.0.0.1")
-    assert _is_private_host("::1")
-    assert _is_private_host("fe80::1")  # link-local
-    assert _is_private_host("fd00::1")  # ULA
-    assert _is_private_host("localhost")
-    assert _is_private_host("gemma.local")
-    assert not _is_private_host("8.8.8.8")
-    assert not _is_private_host("2606:4700:4700::1111")  # public IPv6
-    assert not _is_private_host("")
+    assert is_private_host("127.0.0.1")
+    assert is_private_host("::1")
+    assert is_private_host("fe80::1")  # link-local
+    assert is_private_host("fd00::1")  # ULA
+    assert is_private_host("localhost")
+    assert is_private_host("gemma.local")
+    assert not is_private_host("8.8.8.8")
+    assert not is_private_host("2606:4700:4700::1111")  # public IPv6
+    assert not is_private_host("")
 
 
 # ── lru_cache singleton (Lane 19.6) ──────────────────────────────────

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 
 from app.api.deps import get_settings
 from app.api.exception_handlers import register_exception_handlers
-from app.api.middleware import configure_middleware
+from app.api.request_id_middleware import configure_middleware
 from app.api.router_registry import lifespan_resources, register_routers
 from app.core.logging import configure_logging
 

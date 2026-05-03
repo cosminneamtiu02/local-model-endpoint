@@ -54,7 +54,7 @@ will not find a `.env`; always launch via `task dev` (or `cd apps/backend` first
 | `LIP_LOG_LEVEL` | `info` | One of `debug` / `info` / `warning` / `error` / `critical`. |
 | `LIP_OLLAMA_HOST` | `http://localhost:11434` | The local Ollama daemon URL. The `LIP_` prefix avoids colliding with Ollama's own `OLLAMA_HOST`. Validator rejects non-private hosts unless `LIP_ALLOW_EXTERNAL_OLLAMA=true`. |
 | `LIP_ALLOW_EXTERNAL_OLLAMA` | `false` | Escape hatch acknowledging that LIP will forward consumer prompts to a non-private host. |
-| `LIP_BIND_HOST` | `127.0.0.1` | Interface for `task dev` / `python -m app`. Validator rejects `0.0.0.0` / `::` unless `LIP_ALLOW_PUBLIC_BIND=true` because LIP has no auth. |
+| `LIP_BIND_HOST` | `127.0.0.1` | Interface for `task dev` / `python -m app`. Validator rejects any non-loopback / non-private host (catches `0.0.0.0`, `::`, public DNS, typos like `8.8.8.8`) unless `LIP_ALLOW_PUBLIC_BIND=true` because LIP has no auth. |
 | `LIP_BIND_PORT` | `8000` | Port (1024–65535). |
 | `LIP_ALLOW_PUBLIC_BIND` | `false` | Escape hatch for binding all interfaces. Required to acknowledge the no-auth posture before LAN-exposing. |
 

@@ -13,16 +13,23 @@ tasks:
 
   # ── Check (run before declaring work done) ───────────────────
   check:
-    desc: Run ALL checks — lint, format, types, arch, tests, error contracts, plist, lockfile
+    desc: Run ALL checks — lint, format, types, arch, tests, error contracts, plist, lockfile, audit
+    # ``check:lockfile`` runs before the slow test suite so a manifest/lockfile
+    # mismatch fails fast (seconds) instead of after ~minutes of test runtime.
+    # ``check:audit`` runs last because it depends on a synced env and surfaces
+    # CVE advisories — included so ``task check`` is the local mirror of the
+    # CI gate, per CLAUDE.md sacred rule #4 ("run task check before declaring
+    # any work done").
     cmds:
       - task: check:lint
       - task: check:format
+      - task: check:lockfile
       - task: check:types
       - task: check:arch
       - task: check:test
       - task: check:errors
       - task: check:plist
-      - task: check:lockfile
+      - task: check:audit
 
   check:lint:
     desc: Run linter
@@ -95,10 +102,22 @@ tasks:
       - plutil -lint infra/launchd/com.lip.ollama.plist.tmpl
 
   check:lockfile:
-    desc: Verify lockfiles are in sync with pyproject.toml
+    desc: Verify lockfiles are in sync with pyproject.toml (both workspaces)
     cmds:
-      - cd apps/backend && uv lock --check
-      - cd packages/error-contracts && uv lock --check
+      - task: check:lockfile:backend
+      - task: check:lockfile:errors
+
+  check:lockfile:backend:
+    desc: Verify backend lockfile
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - uv lock --check
+
+  check:lockfile:errors:
+    desc: Verify error-contracts lockfile
+    dir: packages/error-contracts
+    cmds:
+      - uv lock --check
 
   check:audit:
     desc: Run pip-audit on backend deps (advisory; surfaces known CVEs)

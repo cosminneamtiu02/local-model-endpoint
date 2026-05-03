@@ -6,7 +6,7 @@ from app.features.inference.model.audio_content import AudioContent
 # classes — kept out of __all__. Type annotations elsewhere can still
 # `from app.features.inference.model import ContentPart` (or
 # `FinishReason`) because the import lines below bind the names;
-# __all__ only governs `from ... import *` behaviour.
+# __all__ only governs `from ... import *` behavior.
 from app.features.inference.model.content_part import ContentPart as ContentPart
 from app.features.inference.model.finish_reason import FinishReason as FinishReason
 from app.features.inference.model.image_content import ImageContent

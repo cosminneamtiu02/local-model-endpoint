@@ -13,11 +13,11 @@ class RegistryNotFoundError(DomainError):
     http_status: ClassVar[int] = 404
     type_uri: ClassVar[str] = "urn:lip:error:registry-not-found"
     title: ClassVar[str] = "Model Not Found in Registry"
-    detail_template: ClassVar[str] = "Model '{model}' is not registered with this provider."
+    detail_template: ClassVar[str] = "Model '{model_name}' is not registered with this provider."
 
     @override
-    def __init__(self, *, model: str) -> None:
-        super().__init__(params=RegistryNotFoundParams(model=model))
+    def __init__(self, *, model_name: str) -> None:
+        super().__init__(params=RegistryNotFoundParams(model_name=model_name))
 
     @override
     def detail(self) -> str:

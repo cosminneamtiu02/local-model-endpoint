@@ -181,3 +181,52 @@ the work.
   the dataclass with slots gives the typing benefit without runtime cost.
 - *Module-level singleton + `get_app_state()` factory.* Service-locator
   pattern, forbidden by CLAUDE.md, breaks per-test app isolation.
+
+
+## ADR-013: OpenAPI `operation_id` Casing — camelCase
+
+**Date:** 2026-05-03
+
+**Status:** Accepted (round-7 review sweep — lane 11 follow-up).
+
+**Context.** The single existing route (`GET /health`) declares
+`operation_id="getHealth"` — camelCase. CLAUDE.md naming convention
+("Python functions: `snake_case` verbs") covers Python identifiers,
+not OpenAPI operation identifiers, so the casing decision was
+unanchored. When LIP-E001-F002 adds the inference router, two options
+exist for the next operation_id: `chat_completion` (snake_case,
+matches the Python function name) or `chatCompletion` (camelCase,
+matches every popular OpenAPI client-SDK generator's default
+`operationName` convention).
+
+**Decision.** Pin **camelCase** as the operation_id casing for every
+route. Existing `getHealth` stays; future routes follow.
+
+**Why.**
+- Once consumers generate SDKs from `/openapi.json`, the operation
+  becomes a method name on the generated client. `getHealth()` /
+  `chatCompletion()` is the idiomatic call shape in JS / TS / Java /
+  Go / Swift. Snake_case here would give consumers `get_health()` in
+  every language, which only feels native in Python.
+- camelCase is the de facto OpenAPI convention; OpenAPI
+  Generator, NSwag, openapi-typescript-codegen all default to
+  camelCase operation names regardless of source casing.
+- The Python function name is a separate handle (`get_health`,
+  `chat_completion`); the operation_id is the wire-contract handle.
+  Matching them character-for-character was never a goal.
+
+**Rejected alternatives.**
+- *snake_case operation_id.* Aligns with the Python function name
+  but produces non-idiomatic SDK method names for every non-Python
+  consumer; LIP's consumer set today is multi-language (the
+  consumer-side backends include Node and Python).
+- *Leave undocumented.* The single-route status quo. A second route
+  picked by drift instead of policy is exactly the "two ways to do
+  each thing" CLAUDE.md sacred rule forbids.
+
+**Mechanical pin.** When LIP-E001-F002 lands the inference router,
+its FastAPI decorator MUST set `operation_id="chatCompletion"` (or
+the equivalent camelCase for whatever the wire path is named). A
+future contract test could assert every operation in the OpenAPI
+schema matches `^[a-z][a-zA-Z0-9]*$`; deferred until the second
+operation lands so the test has more than one input to verify.

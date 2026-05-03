@@ -4,7 +4,7 @@ A FastAPI service on a 16 GB M4 Mac Mini base that wraps a local Ollama daemon a
 exposes a stable backend-agnostic inference contract to up to four locally-networked
 consumer backend projects.
 
-See [docs/disambigued-idea.md](docs/disambigued-idea.md) for the full project description
+See [docs/disambiguated-idea.md](docs/disambiguated-idea.md) for the full project description
 and [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 
 ## Tech Stack
@@ -32,6 +32,10 @@ task ollama:install && ollama pull gemma4:e2b
 cd apps/backend
 uv sync --dev
 
+# Also sync the codegen workspace so `task check:errors` / `task errors:generate`
+# can run from the repo root without an "environment not found" error.
+cd ../../packages/error-contracts && uv sync --dev && cd -
+
 # Run the service
 task dev
 ```
@@ -47,7 +51,7 @@ task dev
 | `task test` | Run all tests (unit + integration + contract) |
 | `task test:unit` | Run unit tests |
 | `task test:integration` | Run integration tests (in-process via ASGI transport) |
-| `task test:contract` | Run contract tests (Schemathesis) |
+| `task test:contract` | Run contract tests (OpenAPI canary + RFC 7807 wire shape; full Schemathesis fuzz arrives with LIP-E001-F002) |
 | `task lint` | Run ruff lint |
 | `task format` | Run ruff format |
 | `task errors:generate` | Generate Python error classes from errors.yaml |
@@ -59,7 +63,7 @@ task dev
 
 ## Documentation
 
-- [Disambiguated idea](docs/disambigued-idea.md) — full project description
+- [Disambiguated idea](docs/disambiguated-idea.md) — full project description
 - [Features](docs/features.md) — catalog of features in the box
 - [Architecture](docs/architecture.md) — vertical-slice layout and layer rules
 - [Conventions](docs/conventions.md) — naming, schemas, and other code-style rules

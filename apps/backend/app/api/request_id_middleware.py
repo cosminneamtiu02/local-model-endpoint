@@ -302,7 +302,7 @@ def configure_middleware(app: FastAPI) -> None:
     """Attach middleware to the FastAPI app.
 
     No CORS, no trusted-hosts, no auth — local-network-only service per
-    docs/disambigued-idea.md (Security boundary). Add CORS scaffolding
+    docs/disambiguated-idea.md (Security boundary). Add CORS scaffolding
     only when a non-server-to-server consumer (e.g., browser dev tool)
     needs it.
     """

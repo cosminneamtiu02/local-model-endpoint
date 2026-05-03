@@ -16,14 +16,14 @@ class ModelCapabilityNotSupportedError(DomainError):
     type_uri: ClassVar[str] = "urn:lip:error:model-capability-not-supported"
     title: ClassVar[str] = "Model Capability Not Supported"
     detail_template: ClassVar[str] = (
-        "Model '{model}' does not support requested capability '{requested_capability}'."
+        "Model '{model_name}' does not support requested capability '{requested_capability}'."
     )
 
     @override
-    def __init__(self, *, model: str, requested_capability: str) -> None:
+    def __init__(self, *, model_name: str, requested_capability: str) -> None:
         super().__init__(
             params=ModelCapabilityNotSupportedParams(
-                model=model,
+                model_name=model_name,
                 requested_capability=requested_capability,
             ),
         )

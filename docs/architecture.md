@@ -43,7 +43,7 @@ apps/backend/
 └── tests/
     ├── unit/               -- Fast, no network. <10s.
     ├── integration/        -- httpx.AsyncClient + ASGITransport in-process.
-    └── contract/           -- Schemathesis OpenAPI fuzz.
+    └── contract/           -- OpenAPI canary + RFC 7807 wire-shape (Schemathesis fuzz arrives with LIP-E001-F002).
 
 infra/
 └── launchd/
@@ -100,7 +100,7 @@ Consumer receives a structured error envelope it can program against
 ## Lifecycle (on-demand)
 
 LIP's FastAPI service is on-demand, not always-on (G6 from
-[docs/disambigued-idea.md](disambigued-idea.md)). A consumer's first request
+[docs/disambiguated-idea.md](disambiguated-idea.md)). A consumer's first request
 through the local network triggers `task dev`-style wake-up; the service warms
 the model with a dummy inference (LIP-E005-F001) and starts serving. Once
 serving, an idle-shutdown timer (LIP-E005-F002) tears the FastAPI process down
@@ -108,7 +108,7 @@ after 10 minutes without inbound requests, freeing RAM for desktop work.
 Ollama itself is the always-on substrate underneath — it stays bootstrapped
 through the user-scope `launchd` agent and unloads the model from RAM 5 min
 after the last request via `OLLAMA_KEEP_ALIVE=300s`. See
-[docs/disambigued-idea.md](disambigued-idea.md) for the full lifecycle spec
+[docs/disambiguated-idea.md](disambiguated-idea.md) for the full lifecycle spec
 and [docs/ollama-launchd.md](ollama-launchd.md) for the Ollama side.
 
 ## API Versioning

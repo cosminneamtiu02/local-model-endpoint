@@ -29,8 +29,8 @@ _ErrorSpec = dict[str, Any]
 _ErrorsFile = dict[str, Any]
 
 # Module-level constants are ``Final`` to mirror the discipline in
-# ``apps/backend/app/api/middleware.py``, ``exception_handlers.py``, and
-# ``ollama_translation.py``: the rebind-immutable annotation lets pyright
+# ``apps/backend/app/api/request_id_middleware.py``, ``exception_handlers.py``,
+# and ``ollama_translation.py``: the rebind-immutable annotation lets pyright
 # catch accidental reassignment and keeps the codegen package idiomatically
 # consistent with the backend it generates into.
 VALID_PARAM_TYPES: Final[frozenset[str]] = frozenset({"string", "integer", "number", "boolean"})
@@ -45,9 +45,9 @@ PARAM_TYPE_TO_PYTHON: Final[Mapping[str, str]] = MappingProxyType(
 
 # RFC 7807 standard fields plus LIP project extensions plus the validation_errors
 # extension array name. errors.yaml MUST NOT declare a param with any of these
-# names — the response handler in apps/backend/app/api/errors.py spreads typed
-# params at root level alongside these explicit kwargs, and a collision raises
-# TypeError at request time, masking the real error as a 500.
+# names — the response handler in apps/backend/app/api/exception_handlers.py
+# spreads typed params at root level alongside these explicit kwargs, and a
+# collision raises TypeError at request time, masking the real error as a 500.
 RESERVED_PARAM_NAMES: Final[frozenset[str]] = frozenset(
     {
         "type",

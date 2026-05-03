@@ -42,12 +42,14 @@ router lands and there is end-to-end behavior worth covering against the real ba
 
 The canonical pattern for testing FastAPI lifespan code (startup warm-up,
 shutdown timer, etc.) against Ollama without hitting the network is
-`httpx.MockTransport` injected into the integration `conftest.py`'s ASGI client.
-See [tests/integration/features/inference/test_lifecycle.py](../apps/backend/tests/integration/features/inference/test_lifecycle.py)
-for the working example. The mock transport intercepts all outbound httpx
-calls within the lifespan window, so the test asserts on the orchestration
-shape (request order, payload, error mapping) without any real Ollama
-process running.
+`httpx.MockTransport` injected directly into an `OllamaClient` constructor
+inside each test (NOT through the integration `conftest.py`'s shared ASGI
+client — that fixture targets `app.main.app`, which uses the production
+lifespan). See [tests/integration/features/inference/test_lifecycle.py](../apps/backend/tests/integration/features/inference/test_lifecycle.py)
+for the working example: the test builds its own `OllamaClient(...,
+transport=httpx.MockTransport(...))`, drives it through `__aenter__` /
+`chat` / `__aexit__`, and asserts on the orchestration shape (request
+order, payload, error mapping) without any real Ollama process running.
 
 ## Type-Driven Discipline
 

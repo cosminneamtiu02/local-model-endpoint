@@ -23,12 +23,22 @@ _PROBLEM_RESPONSE: dict[str, Any] = {
     status_code=status.HTTP_200_OK,
     responses={"default": _PROBLEM_RESPONSE},
 )
-async def health() -> HealthResponse:
+async def get_health() -> HealthResponse:
     """Liveness probe. Returns 200 if the process is alive.
+
+    Verb-form name (``get_health``) per CLAUDE.md "Python functions:
+    snake_case verbs". The OpenAPI ``operation_id="getHealth"`` is the
+    consumer-facing handle; matching the Python function name to it
+    keeps the convention legible.
 
     The return type annotation is FastAPI's source of the response model
     (FastAPI 0.100+ infers ``response_model`` from the annotation and the
     explicit kwarg is now redundant — the FAST001 ruff rule enforces
     this).
+
+    The route is silent on the 2xx happy path (RequestIdMiddleware
+    suppresses ``request_completed`` for /health 2xx/3xx) and only the
+    middleware logs on degraded responses; no body-side log line is
+    needed today.
     """
     return HealthResponse()

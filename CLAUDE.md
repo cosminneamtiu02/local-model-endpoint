@@ -11,7 +11,7 @@ a local Ollama daemon and exposes a stable backend-agnostic inference contract t
 to four locally-networked consumer backend projects. Single-developer project, native
 deployment, no Docker, no database.
 
-See [docs/disambigued-idea.md](docs/disambigued-idea.md) for the full project
+See [docs/disambiguated-idea.md](docs/disambiguated-idea.md) for the full project
 specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 
 ## Stack (do not deviate)
@@ -96,6 +96,11 @@ preserved but with redefined semantics for a no-DB feature:
 - Never import from `exceptions._generated` directly. Import from `exceptions`.
 - Never add a feature without adding its slice to `architecture/import-linter-contracts.ini`.
 - Never use `# type: ignore` without a comment explaining why.
+- Never log message content (`messages[].content`, prompt text, model output,
+  tool-call arguments). LIP is a relay for multi-consumer prompts; logging
+  prompt body would land every consumer's prompts in stdout/JSON logs. Log
+  message counts, durations, model IDs, finish reasons only. (See
+  `OllamaClient.chat` for the canonical kw-set.)
 
 ## Forbidden Patterns -- Cross-cutting
 
