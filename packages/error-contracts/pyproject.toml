@@ -8,6 +8,12 @@ dependencies = [
 ]
 
 [dependency-groups]
+# pytest-cov is intentionally retained: this workspace's `[tool.pytest.ini_options]`
+# below leaves coverage off the default invocation, but the codegen
+# tests use ``--cov=scripts --cov-fail-under=90`` when invoked through
+# ``task check:coverage`` (mirror of the apps/backend pattern). Removing
+# pytest-cov would break that gate; keeping the explicit dep flags it
+# as load-bearing for the next dep audit.
 dev = [
     "pytest==9.0.3",
     "pytest-cov==7.1.0",
@@ -26,7 +32,13 @@ addopts = [
 ]
 xfail_strict = true
 filterwarnings = ["error"]
+# Mirror the apps/backend pinning so this workspace's discovery rules
+# match the rest of the monorepo. Without these pins, pytest's defaults
+# allow ``*_test.py`` filenames which would let a contributor land a
+# misnamed test silently.
 python_classes = ["NoTestClassesAllowed"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
 
 [tool.pyright]
 pythonVersion = "3.13"

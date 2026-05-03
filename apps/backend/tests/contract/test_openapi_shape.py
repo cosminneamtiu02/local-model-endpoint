@@ -1,12 +1,12 @@
 """Contract-level OpenAPI shape assertions.
 
 These run as the canary for "did the OpenAPI even generate correctly."
-Schemathesis fuzz lives in `test_schemathesis.py`; this file exercises
+The full Schemathesis fuzz across endpoints arrives with LIP-E001-F002; this file exercises
 the spec endpoints directly so mis-shaped output is caught before fuzz
 attempts to load it.
 """
 
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from app.main import app
 

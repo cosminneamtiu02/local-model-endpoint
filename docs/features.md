@@ -37,7 +37,7 @@ per-request timeout, idle-shutdown interval) will be added during feature-dev.
 Structlog pipeline with contextvar merging, ISO timestamps, and JSON output in production
 / console output in dev. Noisy loggers are silenced at WARNING.
 
-### Request ID Middleware ([app/api/middleware.py](../apps/backend/app/api/middleware.py))
+### Request ID Middleware ([app/api/request_id_middleware.py](../apps/backend/app/api/request_id_middleware.py))
 Validates incoming `X-Request-ID` headers against a UUID regex, generates a fresh UUID4
 if missing or malformed, and binds it into structlog contextvars so every log line in
 the request scope is correlatable. The ID is echoed back in the response header and

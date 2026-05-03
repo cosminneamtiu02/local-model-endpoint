@@ -39,7 +39,10 @@ dev = [
     # Pyright minor releases ship new strict-mode checks; pinning to == means
     # a strict-mode semantic change requires a deliberate Dependabot PR.
     "pyright==1.1.409",
-    "schemathesis==4.16.1",
+    # Used by tests/contract once LIP-E001-F002 lands a fuzzable inference
+    # router. Currently pinned ahead of consumption so the lockfile already
+    # carries a vetted Schemathesis transitive set when the fuzz tests land.
+    "schemathesis==4.17.0",
     "pip-audit==2.10.0",
 ]
 
@@ -111,6 +114,13 @@ filterwarnings = [
     # asyncio-teardown so it does not silence "coroutine was never awaited"
     # bugs across the rest of the suite.
     "ignore::pytest.PytestUnraisableExceptionWarning:_pytest.unraisableexception",
+    # Narrow to the specific anyio teardown ResourceWarning category. A
+    # plain ``ignore::ResourceWarning:anyio`` would silence every
+    # anyio-module ResourceWarning — including a future bug like an
+    # unclosed AsyncClient that leaks into anyio's stream-management
+    # code. Today the only anyio ResourceWarning we tolerate is the
+    # teardown-time GC sweep on memory streams.
+    "ignore:.*memory[ _]stream.*:ResourceWarning:anyio",
     "ignore::ResourceWarning:anyio",
 ]
 # No ``markers = [...]`` block — empty list is a no-op under

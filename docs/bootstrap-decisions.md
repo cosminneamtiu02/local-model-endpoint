@@ -26,10 +26,10 @@ This document records the decisions made during the `project-bootstrap` skill ru
 | `pnpm-lock.yaml` + `pnpm-workspace.yaml` | STRIP | No Node | autonomous |
 | Health endpoint (`/health`) | KEEP | LIP-E006-F001 | autonomous |
 | `/ready` endpoint (DB-dependent in template) | STRIP | DB gone; LIP-E006-F001 will reintroduce with warm-up gating | autonomous |
-| `app/api/middleware.py` Request ID | KEEP | Q1 user-answered (delegated). Powers `request_id` field in error envelope; G3 architectural foundation | user-answered |
-| `app/api/middleware.py` Access Log | STRIP | Q2 user-answered (delegated). Structured-log emission out of v1 scope per Project Boundary | user-answered |
-| `app/api/middleware.py` Security Headers | STRIP | Q3 user-answered (delegated). Local-network only, no internet exposure, no UI | user-answered |
-| `app/api/middleware.py` CORS | STRIP | Q4 user-answered. Server-to-server httpx, not browsers | user-answered |
+| `app/api/request_id_middleware.py` Request ID | KEEP | Q1 user-answered (delegated). Powers `request_id` field in error envelope; G3 architectural foundation | user-answered |
+| `app/api/request_id_middleware.py` Access Log | STRIP | Q2 user-answered (delegated). Structured-log emission out of v1 scope per Project Boundary | user-answered |
+| `app/api/request_id_middleware.py` Security Headers | STRIP | Q3 user-answered (delegated). Local-network only, no internet exposure, no UI | user-answered |
+| `app/api/request_id_middleware.py` CORS | STRIP | Q4 user-answered. Server-to-server httpx, not browsers | user-answered |
 | Pre-commit / pre-push hooks | PARTIAL KEEP | Q5 user-answered (delegated). Backend hooks (ruff + format + pytest unit) kept; biome + vitest stripped | user-answered |
 | Dependabot | PARTIAL KEEP | Q6 user-answered (delegated). pip × 2 + github-actions kept; npm × 2 + terraform stripped. SQLAlchemy-stack group removed (no SQLAlchemy) | user-answered |
 | Copilot PR review | STRIP | Q7 user-answered. Solo-dev project, no PR-review team | user-answered |
@@ -50,7 +50,7 @@ This document records the decisions made during the `project-bootstrap` skill ru
 3. **Widget _generated/ deletes:** 6 widget error class files (`widget_not_found_*`, `widget_name_conflict_*`, `widget_name_too_long_*`).
 4. **Test deletes:** widget tests (unit + integration), DB-coupled tests (`test_rollback_canary.py`, `tests/integration/shared/`), Money tests (`tests/unit/types/`), Page tests (`tests/unit/schemas/`), config DB-validator test (`tests/unit/core/`), empty parent test packages (`tests/unit/features/`, `tests/unit/shared/`).
 5. **Error-contracts deletes:** `packages/error-contracts/scripts/validate_translations.py`, `packages/error-contracts/tests/test_validate_translations.py`, `packages/error-contracts/src/`, `packages/error-contracts/package.json`.
-6. **Backend code rewrites:** `pyproject.toml` (drop SQLAlchemy/asyncpg/alembic/testcontainers + alembic ignore), `app/main.py` (drop widget router + dispose_engine), `app/core/config.py` (drop database_url/cors_origins, add ollama_host), `app/api/middleware.py` (request_id only), `app/api/health_router.py` (liveness only), `app/exceptions/__init__.py` (drop widget exports), `app/exceptions/_generated/__init__.py` (drop widget imports), `app/exceptions/_generated/_registry.py` (drop widget entries), `architecture/import-linter-contracts.ini` (rewrite for layer-level forbidden contracts).
+6. **Backend code rewrites:** `pyproject.toml` (drop SQLAlchemy/asyncpg/alembic/testcontainers + alembic ignore), `app/main.py` (drop widget router + dispose_engine), `app/core/config.py` (drop database_url/cors_origins, add ollama_host), `app/api/request_id_middleware.py` (request_id only), `app/api/health_router.py` (liveness only), `app/exceptions/__init__.py` (drop widget exports), `app/exceptions/_generated/__init__.py` (drop widget imports), `app/exceptions/_generated/_registry.py` (drop widget entries), `architecture/import-linter-contracts.ini` (rewrite for layer-level forbidden contracts).
 7. **Test rewrites:** `tests/integration/conftest.py` (no DB, ASGI transport client), `tests/integration/test_health.py` (just /health + request-id), `tests/contract/test_schemathesis.py` (drop DB env, drop widget endpoint assertions), `tests/unit/exceptions/test_domain_errors.py` (substitute RateLimitedError for widget), `tests/unit/exceptions/test_error_handler.py` (substitute RateLimitedError for widget).
 8. **Error-contracts edits:** `errors.yaml` (drop widget codes block).
 9. **Config rewrites:** `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.pre-commit-config.yaml`, `Taskfile.yml`.

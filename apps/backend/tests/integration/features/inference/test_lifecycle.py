@@ -5,7 +5,7 @@ Covers LIP-E003-F001 integration scenarios:
   + the MockTransport injection pattern other features will reuse).
 - Lifespan-managed singleton: exactly one OllamaClient is constructed
   at app startup and exactly one close() at shutdown.
-- app.state.ollama_client identity survives across multiple requests.
+- app.state.context.ollama_client identity (per ADR-012 typed AppState container) survives across multiple requests.
 - AC8: shutdown calls close() from finally even when the app body raises.
 - AC11: connection failures raise httpx.ConnectError uncaught from _request.
 """

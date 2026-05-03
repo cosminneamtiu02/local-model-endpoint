@@ -104,18 +104,21 @@ def test_problem_details_model_dump_json_produces_valid_json() -> None:
     assert parsed["validation_errors"] == [{"field": "x", "reason": "y"}]
 
 
-def test_problem_extras_typed_dict_describes_validation_errors_extension() -> None:
-    """ProblemExtras (TypedDict) documents the allowed extension keys.
+def test_problem_extras_typed_dict_validation_errors_key_is_typed_correctly() -> None:
+    """ProblemExtras (TypedDict) carries ``validation_errors`` typed as a list.
 
-    A TypedDict is a typing surface; it doesn't validate at runtime in vanilla
-    Python. The most we can assert is that it's importable and that
-    constructing one with the documented key shape doesn't raise.
+    The previous test re-asserted on the literal it just constructed, which
+    was tautological — ``{"validation_errors": []}["validation_errors"] == []``
+    is true regardless of the schema. Inspect the raw ``__annotations__``
+    string-form so the assertion exercises the TypedDict declaration itself;
+    if a future refactor drops or renames the key, or widens the value type
+    to something other than a list of ValidationErrorDetail, this test
+    fails for a real reason. The string form is used (instead of
+    ``get_type_hints``) because ``ValidationErrorDetail`` is imported under
+    ``TYPE_CHECKING`` in problem_extras.py — runtime resolution would fail.
     """
-    extras: ProblemExtras = {
-        "validation_errors": [
-            # ValidationErrorDetail-shaped dicts (TypedDict accepts the model
-            # at the type-check level; the runtime payload is just a list).
-        ],
-    }
-    assert "validation_errors" in extras
-    assert extras["validation_errors"] == []
+    annotations = ProblemExtras.__annotations__
+    assert "validation_errors" in annotations
+    annotation_repr = str(annotations["validation_errors"])
+    assert "list[" in annotation_repr
+    assert "ValidationErrorDetail" in annotation_repr

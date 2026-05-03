@@ -24,10 +24,12 @@ def main(*, reload: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    # `python -m app` runs without reload; `task dev` toggles reload by
-    # passing --reload on the command line, which uvicorn picks up via
-    # its own argv parsing when invoked as a script. Keeping reload as a
-    # function kwarg means the production launch path stays clean.
+    # ``--reload`` is the ONLY CLI knob this entry point honors;
+    # everything else (host, port, log_level, etc.) is Settings-driven
+    # so the SSRF / public-bind validators have a single source of
+    # truth. Adding a second CLI knob requires an ADR — the temptation
+    # to add ``--port`` here is exactly the paradigm-drift seed
+    # CLAUDE.md sacred rule #3 ("one way to do each thing") forbids.
     import sys
 
     main(reload="--reload" in sys.argv)

@@ -43,3 +43,12 @@ def test_registry_classes_are_domain_error_subclasses() -> None:
     """Every class in the registry is a DomainError subclass."""
     for code, cls in ERROR_CLASSES.items():
         assert issubclass(cls, DomainError), f"{code} -> {cls} is not a DomainError"
+
+
+def test_registry_lookup_for_unknown_code_returns_none() -> None:
+    """``ERROR_CLASSES.get(unknown_code)`` returns None — the documented
+    contract for the consumer-fallback pattern. Pinning the contract so a
+    future maintainer who consolidates ``_http_code_for_status`` against
+    this lookup has a stable behavior to lean on."""
+    assert ERROR_CLASSES.get("NEVER_DECLARED_CODE") is None
+    assert ERROR_CLASSES.get("") is None

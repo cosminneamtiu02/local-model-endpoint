@@ -106,7 +106,9 @@ updates:
           - "actions/*"
           - "astral-sh/*"
           - "arduino/*"
-        update-types: ["minor", "patch"]
+        # No ``update-types`` filter: action majors are infrequent but
+        # arrive ungrouped if filtered, which would re-open the
+        # cascade-conflict surface this group is here to close.
 
   # Pre-commit hooks pin upstream by `rev:` SHA; without this ecosystem
   # entry the pinned versions silently age out (ruff and detect-secrets
@@ -114,12 +116,15 @@ updates:
   - package-ecosystem: "pre-commit"
     directory: "/"
     target-branch: "main"
-    # Daily because the local hook `rev:` SHAs go stale fast — ruff-pre-commit
-    # ships point releases between weekly Dependabot runs, leaving the local
-    # hook fighting the manifest version.
+    # Daily + group=all + small open-PR limit: ruff-pre-commit ships point
+    # releases between weekly Dependabot runs, so the daily cadence keeps
+    # the local hook from fighting the manifest version. The group means
+    # there's typically only one open pre-commit PR at a time anyway, so
+    # capping at 2 prevents pre-commit from saturating the PR queue and
+    # starving other ecosystems' weekly slots.
     schedule:
       interval: "daily"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     rebase-strategy: "auto"
     commit-message:
       prefix: "chore(deps)"

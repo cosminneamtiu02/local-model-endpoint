@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.deps import get_settings
-from app.core.config import Settings, _is_private_host
+from app.core.config import Settings, is_private_host
 
 
 def test_ollama_host_defaults_to_localhost(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,32 +36,51 @@ def test_ollama_host_env_var_overrides_default(
     assert str(settings.ollama_host) == "http://127.0.0.1:11500/"
 
 
-def test_settings_is_frozen() -> None:
+def test_settings_is_frozen_at_runtime() -> None:
     """Settings is frozen — field assignment after construction must raise.
 
     The ``frozen=True`` invariant is load-bearing: the
     ``_check_safety_invariants`` model_validator runs only on construction,
     so allowing post-construction assignment would let a caller bypass the
     SSRF and public-bind clamps by mutating ``ollama_host`` or
-    ``allow_public_bind`` after the fact.
+    ``allow_public_bind`` after the fact. Asserting the BEHAVIOR (assignment
+    raises) instead of the FLAG (model_config["frozen"] is True) catches
+    both flag drift AND a future pydantic-settings change to what
+    ``frozen=True`` means.
     """
-    assert Settings.model_config.get("frozen") is True
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValidationError):
+        settings.allow_public_bind = True  # type: ignore[misc]
 
 
 def test_settings_extra_forbid_rejects_unknown_kwarg() -> None:
-    """extra='forbid' rejects unknown init kwargs (the kwarg-equivalent surface).
-
-    Note: pydantic-settings silently ignores unknown LIP_*-prefixed env vars
-    rather than raising — extra='forbid' is enforced on kwargs only. The
-    pin asserts the config flag stays on so future refactors don't relax it.
-    """
+    """extra='forbid' rejects unknown init kwargs (the kwarg-equivalent surface)."""
     with pytest.raises(ValidationError):
         Settings(_env_file=None, bogus_field="x")  # pyright: ignore[reportCallIssue]
 
 
-def test_settings_extra_forbid_in_model_config() -> None:
-    """Pin extra='forbid' so a future refactor cannot silently relax it."""
-    assert Settings.model_config.get("extra") == "forbid"
+def test_settings_extra_forbid_silently_ignores_unknown_env_var() -> None:
+    """extra='forbid' is enforced on init kwargs ONLY — env vars are silent.
+
+    pydantic-settings 2.14 explicitly does NOT honor ``extra='forbid'`` for
+    env-var sources. A typo like ``LIP_OLLMA_HOST=...`` in .env is silently
+    ignored rather than raising at import time. Pinning this surprise so the
+    cache files / future docs cannot drift back to claiming env-var rejection.
+    """
+    import os
+
+    os.environ["LIP_BOGUS_ENV_VAR"] = "x"
+    try:
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]  # must not raise
+    finally:
+        del os.environ["LIP_BOGUS_ENV_VAR"]
+
+
+def test_settings_case_sensitive_default_off() -> None:
+    """case_sensitive is the pydantic-settings default; pin it so a future
+    upstream default flip surfaces here instead of silently breaking
+    lowercase env vars in .env files."""
+    assert Settings.model_config.get("case_sensitive") is False
 
 
 @pytest.mark.parametrize(
@@ -182,30 +201,34 @@ def test_settings_ollama_host_accepts_external_with_acknowledgement(
     assert settings.allow_external_ollama is True
 
 
-def test_is_private_host_classifier_covers_ipv6_and_ula() -> None:
+def testis_private_host_classifier_covers_ipv6_and_ula() -> None:
     """The ipaddress-backed classifier catches IPv6 link-local + ULA cases.
 
     Note: ``ipaddress.is_private`` treats RFC 3849 documentation range
     (``2001:db8::/32``) as private, so we use a real public IPv6 (Cloudflare
     DNS ``2606:4700:4700::1111``) for the negative case.
     """
-    assert _is_private_host("127.0.0.1")
-    assert _is_private_host("::1")
-    assert _is_private_host("fe80::1")  # link-local
-    assert _is_private_host("fd00::1")  # ULA
-    assert _is_private_host("localhost")
-    assert _is_private_host("gemma.local")
-    assert not _is_private_host("8.8.8.8")
-    assert not _is_private_host("2606:4700:4700::1111")  # public IPv6
-    assert not _is_private_host("")
+    assert is_private_host("127.0.0.1")
+    assert is_private_host("::1")
+    assert is_private_host("fe80::1")  # link-local
+    assert is_private_host("fd00::1")  # ULA
+    assert is_private_host("localhost")
+    assert is_private_host("gemma.local")
+    assert not is_private_host("8.8.8.8")
+    assert not is_private_host("2606:4700:4700::1111")  # public IPv6
+    assert not is_private_host("")
 
 
 # ── lru_cache singleton (Lane 19.6) ──────────────────────────────────
 
 
 def test_get_settings_returns_cached_singleton() -> None:
-    """get_settings() must return the same instance — Depends() relies on it."""
-    get_settings.cache_clear()
+    """get_settings() must return the same instance — Depends() relies on it.
+
+    No leading ``cache_clear()``: the autouse ``_reset_settings_cache``
+    fixture in tests/conftest.py already clears the cache before every
+    test, so a manual clear here would be dead defensive code.
+    """
     s1 = get_settings()
     s2 = get_settings()
     assert s1 is s2

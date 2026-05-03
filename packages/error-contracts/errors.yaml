@@ -79,15 +79,15 @@ errors:
     http_status: 404
     description: Logical model name not present in the model registry (LIP-E002-F001)
     title: Model Not Found in Registry
-    detail_template: "Model '{model}' is not registered with this provider."
+    detail_template: "Model '{model_name}' is not registered with this provider."
     params:
-      model: string
+      model_name: string
 
   MODEL_CAPABILITY_NOT_SUPPORTED:
     http_status: 422
     description: Request requires a capability the model does not advertise (LIP-E001-F002)
     title: Model Capability Not Supported
-    detail_template: "Model '{model}' does not support requested capability '{requested_capability}'."
+    detail_template: "Model '{model_name}' does not support requested capability '{requested_capability}'."
     params:
-      model: string
+      model_name: string
       requested_capability: string

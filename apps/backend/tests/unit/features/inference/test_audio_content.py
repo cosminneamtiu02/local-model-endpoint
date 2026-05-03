@@ -12,10 +12,17 @@ from app.features.inference.model.audio_content import AudioContent
 
 
 def test_audio_content_accepts_url_only() -> None:
-    part = AudioContent(url="https://example.com/clip.wav")
+    part = AudioContent.model_validate({"url": "https://example.com/clip.wav"})
     assert part.type == "audio"
-    assert part.url == "https://example.com/clip.wav"
+    # ``part.url`` is now AnyHttpUrl (round-7 lane-16 SSRF defense).
+    assert str(part.url) == "https://example.com/clip.wav"
     assert part.base64 is None
+
+
+def test_audio_content_rejects_non_http_scheme_url() -> None:
+    """Symmetric with ImageContent — non-http(s) schemes are rejected."""
+    with pytest.raises(ValidationError):
+        AudioContent.model_validate({"url": "file:///etc/passwd"})
 
 
 def test_audio_content_accepts_base64_only() -> None:
@@ -48,7 +55,7 @@ def test_audio_content_rejects_empty_base64() -> None:
 def test_audio_content_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError, match="extra"):
         AudioContent.model_validate(
-            {"type": "audio", "url": "https://x", "bogus": 1},
+            {"type": "audio", "url": "https://example.com/x", "bogus": 1},
         )
 
 

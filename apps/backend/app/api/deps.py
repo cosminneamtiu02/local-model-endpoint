@@ -7,7 +7,7 @@ from fastapi import Request
 from app.api.app_state import AppState
 from app.core.config import Settings
 from app.exceptions import InternalError
-from app.features.inference.repository import OllamaClient
+from app.features.inference import OllamaClient
 
 
 @lru_cache(maxsize=1)

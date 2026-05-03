@@ -86,7 +86,10 @@ def test_translate_message_passes_through_each_allowed_role(role: str) -> None:
 
 
 def test_translate_message_url_only_image_raises_not_implemented() -> None:
-    msg = Message(role="user", content=[ImageContent(url="https://x/cat.png")])
+    msg = Message(
+        role="user",
+        content=[ImageContent.model_validate({"url": "https://x.example/cat.png"})],
+    )
     with pytest.raises(NotImplementedError, match="base64"):
         translate_message(msg)
 
@@ -118,7 +121,10 @@ def test_translate_message_no_audios_key_when_only_text_parts() -> None:
 
 def test_translate_message_url_only_audio_raises_not_implemented() -> None:
     """Symmetric with ImageContent: URL-only audio must be pre-encoded by an upstream layer."""
-    msg = Message(role="user", content=[AudioContent(url="https://x/a.mp3")])
+    msg = Message(
+        role="user",
+        content=[AudioContent.model_validate({"url": "https://x.example/a.mp3"})],
+    )
     with pytest.raises(NotImplementedError, match="base64"):
         translate_message(msg)
 
@@ -287,15 +293,35 @@ def test_build_chat_result_defaults_token_counts_when_missing() -> None:
     assert result.completion_tokens == 0
 
 
-def test_build_chat_result_raises_key_error_on_missing_message() -> None:
-    """F003 catches at a higher layer; F002 lets the failure surface."""
-    with pytest.raises(KeyError):
+def test_build_chat_result_raises_value_error_on_missing_message() -> None:
+    """F003 catches at a higher layer; F002 lets the failure surface.
+
+    ValueError (not KeyError) per round-7 lane-1 — Python reserves KeyError
+    for genuine mapping-key misses and the failure-mapping layer needs one
+    unified exception type for the malformed-Ollama-frame category.
+    """
+    with pytest.raises(ValueError, match="missing 'message'"):
         build_chat_result({})
 
 
-def test_build_chat_result_raises_key_error_on_missing_message_content() -> None:
-    with pytest.raises(KeyError):
+def test_build_chat_result_raises_value_error_on_missing_message_content() -> None:
+    with pytest.raises(ValueError, match="missing 'content'"):
         build_chat_result({"message": {}})
+
+
+def test_build_chat_result_raises_value_error_on_non_object_message() -> None:
+    """Round-7 lane-14: a future Ollama protocol drift (``message`` as
+    null/list/string) must surface as the same typed ValueError instead
+    of a TypeError that the failure-mapping layer would not recognize."""
+    with pytest.raises(ValueError, match="non-object"):
+        build_chat_result({"message": None})
+
+
+def test_build_chat_result_raises_value_error_on_non_terminal_frame() -> None:
+    """``stream=False`` requires a terminal ``done=True`` frame; anything
+    else is a malformed-Ollama-frame signal."""
+    with pytest.raises(ValueError, match="done=False"):
+        build_chat_result({"message": {"content": "x"}, "done": False})
 
 
 def test_build_chat_result_ignores_tool_calls_when_content_present() -> None:

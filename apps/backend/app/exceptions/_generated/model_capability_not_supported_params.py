@@ -8,5 +8,5 @@ class ModelCapabilityNotSupportedParams(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    model: str
+    model_name: str
     requested_capability: str

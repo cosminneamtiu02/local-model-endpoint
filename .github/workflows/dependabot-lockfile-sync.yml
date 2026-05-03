@@ -20,7 +20,7 @@
 # The push back to the PR branch emits a pull_request.synchronize
 # event, which re-triggers both this workflow (which no-ops because
 # the lockfile is now correct) and dependabot-automerge.yml (which
-# re-calls `gh pr merge --auto --squash`, harmless idempotent). CI
+# re-calls `gh pr merge --auto --squash`, harmlessly idempotent). CI
 # then re-runs on the new head commit with the regenerated lockfile,
 # passes, and GitHub's merge queue executes the squash-merge.
 #
@@ -165,10 +165,16 @@ jobs:
           NEEDS_UV_BACKEND=false
           NEEDS_UV_ERROR_CONTRACTS=false
 
-          if echo "$CHANGED" | grep -qE 'apps/backend/pyproject\.toml$'; then
+          # Workspace-aware detection. The two ``if`` branches are kept
+          # explicit (rather than a single glob) so the detector also
+          # acts as the canonical list of workspaces — when a third
+          # workspace lands, this block surfaces in PR review and the
+          # contributor knows to add it. Add a sibling regenerate step
+          # below at the same time.
+          if echo "$CHANGED" | grep -qE '^apps/backend/pyproject\.toml$'; then
             NEEDS_UV_BACKEND=true
           fi
-          if echo "$CHANGED" | grep -qE 'packages/error-contracts/pyproject\.toml$'; then
+          if echo "$CHANGED" | grep -qE '^packages/error-contracts/pyproject\.toml$'; then
             NEEDS_UV_ERROR_CONTRACTS=true
           fi
 

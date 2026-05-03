@@ -6,13 +6,15 @@ from pydantic import ValidationError
 from app.features.inference.schemas.inference_response import InferenceResponse
 from app.features.inference.schemas.response_metadata import ResponseMetadata
 
+_VALID_REQUEST_ID = "00000000-0000-4000-8000-000000000abc"
+
 
 def _valid_metadata() -> ResponseMetadata:
     return ResponseMetadata(
         model="gemma-4-e2b",
         prompt_tokens=12,
         completion_tokens=34,
-        request_id="req-abc",
+        request_id=_VALID_REQUEST_ID,
         latency_ms=250,
         queue_wait_ms=5,
         finish_reason="stop",

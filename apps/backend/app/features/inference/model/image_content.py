@@ -1,8 +1,10 @@
 """Image variant of a multimodal Message content part."""
 
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
+
+from app.features.inference.model._caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
 
 
 class ImageContent(BaseModel):
@@ -16,10 +18,13 @@ class ImageContent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     type: Literal["image"] = "image"
-    # max_length on url bounds long-link DoS; max_length on base64 bounds the
+    # ``AnyHttpUrl`` clamps the scheme to http/https and rejects ``file://``,
+    # ``javascript:``, etc. — defense-in-depth vs SSRF / scheme-confusion when
+    # the URL-fetching adapter path lands. The max_length still applies (as a
+    # belt-and-suspenders bound on the string form). ``base64`` cap bounds the
     # per-part inline-blob DoS at ~15 MB binary (20 MiB of base64 ≈ 15 MB raw).
-    url: str | None = Field(default=None, min_length=1, max_length=2048)
-    base64: str | None = Field(default=None, min_length=1, max_length=20_971_520)
+    url: Annotated[AnyHttpUrl, Field(max_length=URL_MAX_CHARS)] | None = None
+    base64: str | None = Field(default=None, min_length=1, max_length=BASE64_MEDIA_MAX_CHARS)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> Self:

@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.exception_handlers import PROBLEM_JSON_MEDIA_TYPE, register_exception_handlers
-from app.api.middleware import RequestIdMiddleware
+from app.api.request_id_middleware import RequestIdMiddleware
 from app.exceptions import (
     AdapterConnectionFailureError,
     InferenceTimeoutError,
@@ -42,11 +42,11 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
 
     @test_app.get("/trigger-registry-not-found")
     async def trigger_registry_not_found() -> dict[str, str]:
-        raise RegistryNotFoundError(model="phantom-model")
+        raise RegistryNotFoundError(model_name="phantom-model")
 
     @test_app.get("/trigger-capability-missing")
     async def trigger_capability_missing() -> dict[str, str]:
-        raise ModelCapabilityNotSupportedError(model="text-only", requested_capability="audio")
+        raise ModelCapabilityNotSupportedError(model_name="text-only", requested_capability="audio")
 
     @test_app.get("/trigger-validation")
     async def trigger_validation(required_param: int) -> dict[str, int]:  # noqa: ARG001
@@ -164,7 +164,7 @@ def test_registry_not_found_maps_to_404(client: TestClient) -> None:
     assert response.status_code == 404
     body = response.json()
     assert body["code"] == "REGISTRY_NOT_FOUND"
-    assert body["model"] == "phantom-model"
+    assert body["model_name"] == "phantom-model"
 
 
 def test_model_capability_not_supported_maps_to_422(client: TestClient) -> None:
@@ -172,7 +172,7 @@ def test_model_capability_not_supported_maps_to_422(client: TestClient) -> None:
     assert response.status_code == 422
     body = response.json()
     assert body["code"] == "MODEL_CAPABILITY_NOT_SUPPORTED"
-    assert body["model"] == "text-only"
+    assert body["model_name"] == "text-only"
     assert body["requested_capability"] == "audio"
 
 

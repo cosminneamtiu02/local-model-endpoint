@@ -18,20 +18,21 @@ def test_content_part_routes_text_dict_to_text_content() -> None:
 
 
 def test_content_part_routes_image_dict_to_image_content() -> None:
-    part = _ADAPTER.validate_python({"type": "image", "url": "https://x"})
+    part = _ADAPTER.validate_python({"type": "image", "url": "https://example.com/x"})
     assert isinstance(part, ImageContent)
-    assert part.url == "https://x"
+    # ``part.url`` is AnyHttpUrl after the round-7 lane-16 SSRF defense.
+    assert str(part.url) == "https://example.com/x"
 
 
 def test_content_part_routes_audio_dict_to_audio_content() -> None:
-    part = _ADAPTER.validate_python({"type": "audio", "url": "https://x"})
+    part = _ADAPTER.validate_python({"type": "audio", "url": "https://example.com/x"})
     assert isinstance(part, AudioContent)
-    assert part.url == "https://x"
+    assert str(part.url) == "https://example.com/x"
 
 
 def test_content_part_rejects_unknown_discriminator_value() -> None:
     with pytest.raises(ValidationError, match=r"(does not match|expected tag|discriminator)"):
-        _ADAPTER.validate_python({"type": "video", "url": "https://x"})
+        _ADAPTER.validate_python({"type": "video", "url": "https://example.com/x"})
 
 
 def test_content_part_rejects_missing_discriminator() -> None:

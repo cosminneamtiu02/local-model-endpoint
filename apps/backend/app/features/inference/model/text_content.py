@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.features.inference.model._caps import TEXT_PART_MAX_CHARS
+
 
 class TextContent(BaseModel):
     """Text content part of a Message.
@@ -15,8 +17,8 @@ class TextContent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     type: Literal["text"] = "text"
-    # max_length=131072 (128 KiB) bounds the per-part DoS surface; comfortably
-    # above any realistic single-turn prompt within Gemma's 128K-token context
-    # at ~4 chars/token. str_strip_whitespace prevents min_length=1 from being
-    # bypassed with whitespace-only input.
-    text: str = Field(min_length=1, max_length=131072)
+    # ``TEXT_PART_MAX_CHARS`` (128 KiB) bounds the per-part DoS surface;
+    # see app.features.inference.model._caps for the rationale.
+    # str_strip_whitespace prevents min_length=1 from being bypassed with
+    # whitespace-only input.
+    text: str = Field(min_length=1, max_length=TEXT_PART_MAX_CHARS)

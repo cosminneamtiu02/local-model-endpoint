@@ -166,7 +166,7 @@ def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Pat
             pytest.fail(f"Generated file {py_file.name} has syntax error: {e}")
 
 
-def test_codegen_rejects_duplicate_codes(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_duplicate_codes(tmp_path: Path) -> None:
     """Codegen should reject YAML with duplicate error codes."""
     # YAML spec merges duplicate keys silently, so we detect via custom loader
     path = tmp_path / "errors.yaml"
@@ -178,7 +178,7 @@ def test_codegen_rejects_duplicate_codes(tmp_path: Path, output_dir: Path) -> No
         load_and_validate(path)
 
 
-def test_codegen_rejects_invalid_http_status(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_invalid_http_status(tmp_path: Path) -> None:
     """Codegen should reject error codes with non-error HTTP status."""
     path = tmp_path / "errors.yaml"
     path.write_text(INVALID_STATUS_YAML)
@@ -191,7 +191,7 @@ def test_codegen_rejects_invalid_http_status(tmp_path: Path, output_dir: Path) -
         load_and_validate(path)
 
 
-def test_codegen_rejects_invalid_param_type(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_invalid_param_type(tmp_path: Path) -> None:
     """Codegen should reject params with unsupported types."""
     path = tmp_path / "errors.yaml"
     path.write_text(INVALID_PARAM_TYPE_YAML)
@@ -238,8 +238,11 @@ def test_codegen_emits_detail_method_with_template_substitution(
     content = (output_dir / "example_not_found_error.py").read_text()
     assert 'detail_template: ClassVar[str] = "Widget {widget_id} does not exist."' in content
     assert "def detail(self) -> str:" in content
-    # Parameterized branch type-narrows via cast (survives `python -O`) then formats.
-    assert 'cast("BaseModel", self.params)' in content
+    # Parameterized branch type-narrows via cast (survives `python -O`) then
+    # formats. Round-7 lane-3 fix: cast targets the CONCRETE *Params class
+    # so a future schema typo is a static error at the format-string call
+    # site, not a silent string-format failure at runtime.
+    assert 'cast("ExampleNotFoundParams", self.params)' in content
     assert "params.model_dump()" in content
 
 
@@ -355,8 +358,9 @@ def test_codegen_emits_template_format_call_for_parameterized_errors(
     generate_python(sample_errors_path, output_dir)
 
     content = (output_dir / "example_not_found_error.py").read_text()
-    # Body type-narrows via cast (survives `python -O`) then renders the template.
-    assert 'params = cast("BaseModel", self.params)' in content
+    # Body type-narrows via cast (survives `python -O`) then renders the
+    # template. Round-7 lane-3 fix: cast targets the CONCRETE *Params class.
+    assert 'params = cast("ExampleNotFoundParams", self.params)' in content
     assert "self.detail_template.format(**params.model_dump())" in content
 
 

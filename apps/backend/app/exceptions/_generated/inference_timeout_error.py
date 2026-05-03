@@ -1,12 +1,9 @@
 """Generated from errors.yaml. Do not edit."""
 
-from typing import TYPE_CHECKING, ClassVar, cast, override
+from typing import ClassVar, cast, override
 
 from app.exceptions._generated.inference_timeout_params import InferenceTimeoutParams
 from app.exceptions.base import DomainError
-
-if TYPE_CHECKING:
-    from pydantic import BaseModel
 
 
 class InferenceTimeoutError(DomainError):
@@ -25,5 +22,5 @@ class InferenceTimeoutError(DomainError):
     @override
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
-        params = cast("BaseModel", self.params)
+        params = cast("InferenceTimeoutParams", self.params)
         return self.detail_template.format(**params.model_dump())

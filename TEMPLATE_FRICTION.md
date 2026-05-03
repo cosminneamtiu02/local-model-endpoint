@@ -28,7 +28,7 @@ When the monorepo uses a single root `pnpm-lock.yaml` with per-workspace `packag
 
 **Template-level workaround we shipped first:** aggressive `groups:` in [.github/dependabot.yml](.github/dependabot.yml) so at least the N broken PRs become 1 broken PR instead of N. Also a runbook entry in [docs/automerge.md](docs/automerge.md) for the close-and-replace manual workflow.
 
-**Template-level fix we shipped next:** [.github/workflows/dependabot-lockfile-sync.yml](.github/workflows/dependabot-lockfile-sync.yml) — a new workflow that fires on every Dependabot PR, detects whether the PR modified `package.json` or `pyproject.toml` without the corresponding lockfile, runs the package manager in regeneration mode, and pushes the updated lockfile back to the PR branch as a follow-up commit. Composes naturally with the existing auto-merge workflow: sync fires → pushes lockfile fix → new `synchronize` event → auto-merge workflow re-fires (harmless idempotent) and CI re-runs on the fixed commit → checks pass → auto-merge queue executes the squash-merge. Net result: a Dependabot PR with the lockfile-gap bug goes from "stuck red indefinitely" to "auto-merges cleanly" within about 2–3 minutes, with zero human intervention.
+**Template-level fix we shipped next:** [.github/workflows/dependabot-lockfile-sync.yml](.github/workflows/dependabot-lockfile-sync.yml) — a new workflow that fires on every Dependabot PR, detects whether the PR modified `package.json` or `pyproject.toml` without the corresponding lockfile, runs the package manager in regeneration mode, and pushes the updated lockfile back to the PR branch as a follow-up commit. Composes naturally with the existing auto-merge workflow: sync fires → pushes lockfile fix → new `synchronize` event → auto-merge workflow re-fires (harmlessly idempotent) and CI re-runs on the fixed commit → checks pass → auto-merge queue executes the squash-merge. Net result: a Dependabot PR with the lockfile-gap bug goes from "stuck red indefinitely" to "auto-merges cleanly" within about 2–3 minutes, with zero human intervention.
 
 **Prerequisites for the sync workflow to function** (downstream project concern — historically documented under Phase 5b of the template's new-project setup checklist):
 1. A fine-grained PAT with `Contents: Read and write` + `Pull requests: Read and write` scoped to the project's one repo. Must be a PAT, not `GITHUB_TOKEN`, because `GITHUB_TOKEN`-authored pushes do not trigger subsequent workflow runs and CI would never re-run on the fixed commit.
@@ -111,7 +111,7 @@ The Local Inference Provider (LIP) project was bootstrapped from this template u
 - `docs/new-project-setup.md` (project setup checklist for a fresh template clone)
 
 **Rewritten:** `CLAUDE.md`, `README.md`, `.env.example`, all surviving `docs/*.md`,
-`apps/backend/pyproject.toml`, `app/main.py`, `app/core/config.py`, `app/api/middleware.py`,
+`apps/backend/pyproject.toml`, `app/main.py`, `app/core/config.py`, `app/api/request_id_middleware.py`,
 `app/api/health_router.py`, `architecture/import-linter-contracts.ini`, `errors.yaml`,
 `Taskfile.yml`, `ci.yml`, `dependabot.yml`. `TEMPLATE_FRICTION.md` preserved with this
 entry appended.

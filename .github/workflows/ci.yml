@@ -24,18 +24,42 @@ jobs:
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
+        with:
+          # Use the workflow's GITHUB_TOKEN to authenticate the Task
+          # binary download against the GitHub releases API. macOS
+          # runners share an outbound IP pool that frequently exhausts
+          # the unauthenticated 60/hr limit; authenticated requests get
+          # 5000/hr per token. Without this, ``darwin-checks`` (and any
+          # ubuntu job that lands on a hot IP) fails at the install step
+          # with ``API rate limit exceeded``.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
           enable-cache: true
           cache-dependency-glob: apps/backend/uv.lock
-
-      - name: Set up Python
-        run: uv python install 3.13.3
+          # ``python-version`` on setup-uv reuses uv's interpreter cache
+          # so the per-run download (~30s on cold cache) is amortized
+          # across PRs that touch the same Python version. Replaces
+          # the explicit ``uv python install`` step.
+          python-version: "3.13.3"
 
       - name: Install dependencies
         run: uv sync --frozen --dev
+
+      # Lockfile freshness: a manifest change without a corresponding
+      # ``uv lock`` regen would slip past the local-only ``task check``
+      # otherwise. Symmetric with the ``error-contracts`` job's
+      # ``check:errors`` gate. Runs early so a manifest mismatch fails
+      # in seconds (vs after the slow test suite) and the actionable
+      # error appears at the top of the workflow log. ``check:plist``
+      # is intentionally omitted — it is darwin-only (validates the
+      # launchd plist with ``plutil``) and the runner is ``ubuntu-latest``;
+      # the ``darwin-checks`` job below covers it.
+      - name: Lockfile freshness check
+        working-directory: .
+        run: task check:lockfile
 
       - name: Lint
         working-directory: .
@@ -56,16 +80,6 @@ jobs:
       - name: Tests (unit + integration + contract)
         working-directory: .
         run: task check:test
-
-      # Lockfile freshness: a manifest change without a corresponding
-      # ``uv lock`` regen would slip past the local-only ``task check``
-      # otherwise. Symmetric with the ``error-contracts`` job's
-      # ``check:errors`` gate. ``check:plist`` is intentionally omitted
-      # — it is darwin-only (validates the launchd plist with ``plutil``)
-      # and the runner is ``ubuntu-latest``.
-      - name: Lockfile freshness check
-        working-directory: .
-        run: task check:lockfile
 
       # Dependency CVE scan (advisory). pip-audit is pinned in dev deps and
       # the ``check:audit`` task already exists locally; running it here
@@ -93,15 +107,24 @@ jobs:
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
+        with:
+          # Use the workflow's GITHUB_TOKEN to authenticate the Task
+          # binary download against the GitHub releases API. macOS
+          # runners share an outbound IP pool that frequently exhausts
+          # the unauthenticated 60/hr limit; authenticated requests get
+          # 5000/hr per token. Without this, ``darwin-checks`` (and any
+          # ubuntu job that lands on a hot IP) fails at the install step
+          # with ``API rate limit exceeded``.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
           enable-cache: true
           cache-dependency-glob: packages/error-contracts/uv.lock
-
-      - name: Set up Python
-        run: uv python install 3.13.3
+          # Same setup-uv interpreter-cache reuse as the backend job —
+          # see backend-checks comment for the rationale.
+          python-version: "3.13.3"
 
       - name: Install dependencies
         run: uv sync --frozen --dev
@@ -115,4 +138,32 @@ jobs:
         run: task check:types:errors
 
       - name: Codegen + validator tests
-        run: uv run pytest tests/ -v
+        working-directory: .
+        run: task test:errors
+
+  # Darwin-only check for the launchd plist. ``ubuntu-latest`` cannot run
+  # ``plutil``, so plist syntax regressions would otherwise only be caught
+  # locally on the maintainer's Mac Mini — exactly the operational surface
+  # this repo targets. ~30 sec of macos-runner minutes per PR closes that
+  # gap. The job has no ``Install dependencies`` step because ``check:plist``
+  # only invokes ``plutil``, which ships in the macOS runner image.
+  darwin-checks:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
+        with:
+          # Use the workflow's GITHUB_TOKEN to authenticate the Task
+          # binary download against the GitHub releases API. macOS
+          # runners share an outbound IP pool that frequently exhausts
+          # the unauthenticated 60/hr limit; authenticated requests get
+          # 5000/hr per token. Without this, ``darwin-checks`` (and any
+          # ubuntu job that lands on a hot IP) fails at the install step
+          # with ``API rate limit exceeded``.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: launchd plist syntax check
+        run: task check:plist

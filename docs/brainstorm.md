@@ -1,6 +1,6 @@
 > **Historical brainstorm.** This document captures the pre-disambiguation
 > brief. The current authoritative specification is
-> [docs/disambigued-idea.md](disambigued-idea.md). Some details here
+> [docs/disambiguated-idea.md](disambiguated-idea.md). Some details here
 > (e.g. KEEP_ALIVE=-1, open questions, deployment-shape uncertainty)
 > are intentionally superseded.
 

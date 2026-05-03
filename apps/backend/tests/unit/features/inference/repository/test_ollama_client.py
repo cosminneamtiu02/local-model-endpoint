@@ -22,7 +22,7 @@ from app.features.inference.repository.ollama_client import (
 )
 
 
-def test_default_timeout_has_5s_connect_600s_read_unbounded_write_5s_pool() -> None:
+def test_default_timeout_constants_match_documented_v1_backstop() -> None:
     """``DEFAULT_TIMEOUT`` is the v1 backstop until LIP-E004-F003 lands.
 
     Connect is 5s (Ollama is local, so a stalled connect is a real failure).

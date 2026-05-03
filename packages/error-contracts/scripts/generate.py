@@ -29,8 +29,8 @@ _ErrorSpec = dict[str, Any]
 _ErrorsFile = dict[str, Any]
 
 # Module-level constants are ``Final`` to mirror the discipline in
-# ``apps/backend/app/api/middleware.py``, ``exception_handlers.py``, and
-# ``ollama_translation.py``: the rebind-immutable annotation lets pyright
+# ``apps/backend/app/api/request_id_middleware.py``, ``exception_handlers.py``,
+# and ``ollama_translation.py``: the rebind-immutable annotation lets pyright
 # catch accidental reassignment and keeps the codegen package idiomatically
 # consistent with the backend it generates into.
 VALID_PARAM_TYPES: Final[frozenset[str]] = frozenset({"string", "integer", "number", "boolean"})
@@ -45,9 +45,17 @@ PARAM_TYPE_TO_PYTHON: Final[Mapping[str, str]] = MappingProxyType(
 
 # RFC 7807 standard fields plus LIP project extensions plus the validation_errors
 # extension array name. errors.yaml MUST NOT declare a param with any of these
-# names — the response handler in apps/backend/app/api/errors.py spreads typed
-# params at root level alongside these explicit kwargs, and a collision raises
-# TypeError at request time, masking the real error as a 500.
+# names — the response handler in apps/backend/app/api/exception_handlers.py
+# spreads typed params at root level alongside these explicit kwargs, and a
+# collision raises TypeError at request time, masking the real error as a 500.
+#
+# MAINTENANCE: when a new ProblemExtras key is added in
+# apps/backend/app/schemas/problem_extras.py (e.g. a future
+# ``retry_after`` extension on rate-limited responses), it MUST be added
+# to this set in lockstep. The codegen package cannot import from
+# apps.backend (cross-workspace dep), so the two sources of truth must
+# be hand-synced — this comment is the only enforcement until a future
+# build-time validator catches the drift.
 RESERVED_PARAM_NAMES: Final[frozenset[str]] = frozenset(
     {
         "type",
@@ -87,7 +95,19 @@ def _code_to_class_name(code: str) -> str:
 
 
 def _class_to_snake(name: str) -> str:
-    """Convert PascalCase to snake_case. e.g. WidgetNotFoundError -> widget_not_found_error."""
+    """Convert PascalCase to snake_case.
+
+    e.g. ``WidgetNotFoundError`` -> ``widget_not_found_error``.
+
+    The regex inserts an underscore before EVERY uppercase letter and
+    relies on the caller's input being PascalCase derived from a
+    SCREAMING_SNAKE code (i.e., no consecutive uppercase letters in
+    practice — a code like ``HTTP_TIMEOUT`` becomes class
+    ``HttpTimeoutError`` then file stem ``http_timeout_error``, never
+    ``h_t_t_p_timeout_error``). Restricted to inputs derived from
+    ``_code_to_class_name``; do NOT use on arbitrary PascalCase strings
+    (``IOError`` would become ``i_o_error``).
+    """
     return re.sub(r"([A-Z])", r"_\1", name).lower().lstrip("_")
 
 
@@ -270,6 +290,92 @@ def _validate_params(code: str, params: _ParamsMap) -> None:
 SUPPORTED_SCHEMA_VERSION: Final[int] = 1
 
 
+_DESCRIPTION_MAX_CHARS: Final[int] = 512
+
+
+def _validate_description_safe_for_docstring(code: str, description: str) -> None:
+    """Reject characters that would corrupt the generated docstring.
+
+    Description ships into a single-line triple-quoted docstring in the
+    generated module. Pre-rejecting unsafe substrings at YAML-load time
+    keeps the codegen template simple — instead of escape-handling at
+    every render site (where a missed escape ships malformed Python
+    files into source control).
+
+    Length cap is also enforced here: a multi-paragraph description
+    bloats the generated file with no reader payoff (descriptions are
+    a one-line summary; the canonical detail goes in detail_template).
+    """
+    if len(description) > _DESCRIPTION_MAX_CHARS:
+        msg = (
+            f"Error {code} description exceeds {_DESCRIPTION_MAX_CHARS}-char cap "
+            f"({len(description)} chars). Trim to a one-line summary; the per-instance "
+            "human-readable detail belongs in detail_template, not the description."
+        )
+        raise ValueError(msg)
+    forbidden_substrings = ('"""', "\n", "\\")
+    for forbidden in forbidden_substrings:
+        if forbidden in description:
+            msg = (
+                f"Error {code} description contains forbidden substring "
+                f"{forbidden!r}; descriptions ship into the generated docstring "
+                "and must be a single-line string with no embedded triple-quotes "
+                "or backslashes."
+            )
+            raise ValueError(msg)
+
+
+# PII-safe string param names that may legitimately appear on 5xx errors.
+# These are enum-valued strings (drawn from a closed alphabet by the
+# raise site, not user-supplied free-form), so spreading them at root
+# level on the wire body cannot leak operator-private data. New 5xx
+# string params MUST be added to this allowlist with an in-yaml comment
+# justifying the closed-alphabet claim.
+_PII_SAFE_5XX_STRING_PARAMS: Final[frozenset[str]] = frozenset(
+    {
+        "backend",  # closed enum: only "ollama" today; LIP-internal label
+        "reason",  # closed enum: "timeout" / "connection_refused" / etc.
+    }
+)
+
+
+def _validate_no_5xx_string_params(code: str, http_status: int, params: _ParamsMap) -> None:
+    """Guard against PII leakage in 5xx response bodies.
+
+    The catch-all ``_handle_unhandled_exception`` path takes care to
+    avoid leaking user-supplied strings into the response body (it
+    truncates exc_message for logging only and uses the static
+    InternalError detail on the wire). A typed 5xx error with a
+    free-form string parameter would silently bypass that discipline —
+    its detail_template spreads the param at root level on the response
+    body, leaking whatever the caller passed (file paths, urls, prompt
+    fragments).
+
+    Allowlists ``_PII_SAFE_5XX_STRING_PARAMS`` for closed-enum strings
+    that are demonstrably PII-safe. New 5xx string params MUST extend
+    that allowlist with explicit justification.
+    """
+    if http_status < 500:  # noqa: PLR2004 — 500 is the HTTP 5xx floor; not a magic constant
+        return
+    forbidden = [
+        name
+        for name, ptype in params.items()
+        if ptype == "string" and name not in _PII_SAFE_5XX_STRING_PARAMS
+    ]
+    if forbidden:
+        allowlisted = sorted(_PII_SAFE_5XX_STRING_PARAMS)
+        msg = (
+            f"Error {code} is a {http_status} (5xx) with non-allowlisted string "
+            f"param(s) {sorted(forbidden)!r}; 5xx response bodies must not include "
+            "user-supplied free-form strings (PII discipline — see "
+            "exception_handlers.py _handle_unhandled_exception). Use integer "
+            f"params, restructure as a 4xx, or add the new param to "
+            f"_PII_SAFE_5XX_STRING_PARAMS (currently {allowlisted}) with "
+            "justification that it carries closed-enum values only."
+        )
+        raise ValueError(msg)
+
+
 def load_and_validate(errors_path: Path) -> _ErrorsFile:
     """Load errors.yaml and validate its contents."""
     raw_text = errors_path.read_text(encoding="utf-8")
@@ -329,6 +435,15 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
                 )
                 raise ValueError(msg)
 
+        # Description is emitted into a single-line triple-quoted docstring;
+        # the dedicated helper rejects unsafe substrings + over-cap length
+        # to keep the codegen template simple. Extracted to keep
+        # load_and_validate's complexity under ruff's C901 ceiling.
+        _validate_description_safe_for_docstring(code, spec["description"])
+
+        # PII guard for 5xx errors — see helper docstring.
+        _validate_no_5xx_string_params(code, spec["http_status"], params)
+
         # Validate detail_template placeholders are safe and match params.
         _validate_detail_template(code, spec["detail_template"], params)
 
@@ -357,6 +472,9 @@ def _render_params_module(
     fields = "\n".join(
         f"    {name}: {PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
     )
+    # ``description`` is validated upstream against ``"""``, backslash, and
+    # newline so the simple triple-quoted form below stays intact. Any
+    # unsafe char would have raised at YAML-load time.
     if description:
         docstring = f'"""Parameters for {code} error: {description}"""'
     else:
@@ -440,27 +558,35 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
         # and ``detail`` makes a future rename of the base method a static
         # error rather than a silent shadow — the generator and the runtime
         # invariant stay in lockstep.
-        # detail() body uses `cast` (not `assert`) so the type narrowing also
-        # holds under `python -O`, where `assert` is stripped. The codegen
-        # invariant guarantees self.params is non-None for parameterized
-        # errors; cast documents that invariant for type-checkers without
-        # adding a runtime no-op.
+        # detail() body uses ``cast`` to the CONCRETE ``*Params`` class
+        # (not the abstract ``BaseModel``) so the type-checker sees the
+        # real per-error parameter shape — a future schema typo
+        # (e.g. ``max_waiters`` -> ``maxWaiters`` in YAML) is then a
+        # static error at the format-string call site instead of a
+        # silent string-format failure at runtime. ``cast`` (not
+        # ``assert``) so the narrowing also holds under ``python -O``.
         detail_method = (
             "    @override\n"
             "    def detail(self) -> str:\n"
             '        """Render the human-readable detail for this error."""\n'
-            '        params = cast("BaseModel", self.params)\n'
+            f'        params = cast("{params_class_name}", self.params)\n'
             "        return self.detail_template.format(**params.model_dump())\n"
         )
+        # ``description`` is validated upstream to be free of ``"""``,
+        # backslashes, and newlines (see _validate_description_safe_for_docstring)
+        # so the simple triple-quote works without escape gymnastics.
+        # The params class is imported at module scope (used at runtime by
+        # ``__init__`` AND used by the typed ``cast`` in ``detail()``); the
+        # earlier TYPE_CHECKING-only ``from pydantic import BaseModel`` is
+        # gone now that ``cast`` targets the concrete params class instead.
+        parameterized_docstring = description or f"Error: {code}."
         return (
             '"""Generated from errors.yaml. Do not edit."""\n\n'
-            "from typing import TYPE_CHECKING, ClassVar, cast, override\n\n"
+            "from typing import ClassVar, cast, override\n\n"
             f"{params_import}\n"
-            "from app.exceptions.base import DomainError\n\n"
-            "if TYPE_CHECKING:\n"
-            "    from pydantic import BaseModel\n\n\n"
+            "from app.exceptions.base import DomainError\n\n\n"
             f"class {error_class_name}(DomainError):\n"
-            f'    """{description or f"Error: {code}."}"""\n\n'
+            f'    """{parameterized_docstring}"""\n\n'
             + classvars
             + "\n"
             + "    @override\n"

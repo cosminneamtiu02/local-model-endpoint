@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 
 from app.api.exception_handlers import PROBLEM_JSON_MEDIA_TYPE, register_exception_handlers
-from app.api.middleware import RequestIdMiddleware
+from app.api.request_id_middleware import RequestIdMiddleware
 from app.exceptions import (
     AdapterConnectionFailureError,
     InferenceTimeoutError,
@@ -42,12 +42,12 @@ def _build_app() -> FastAPI:
 
     @app.get("/raise/registry")
     async def raise_registry() -> dict[str, Any]:
-        raise RegistryNotFoundError(model="phantom-model")
+        raise RegistryNotFoundError(model_name="phantom-model")
 
     @app.get("/raise/capability")
     async def raise_capability() -> dict[str, Any]:
         raise ModelCapabilityNotSupportedError(
-            model="text-only",
+            model_name="text-only",
             requested_capability="audio",
         )
 
@@ -138,13 +138,13 @@ async def test_adapter_failure_full_envelope(asgi_client: AsyncClient) -> None:
 async def test_registry_not_found_full_envelope(asgi_client: AsyncClient) -> None:
     response = await asgi_client.get("/raise/registry")
     body = _assert_problem_json(response, status=404, code="REGISTRY_NOT_FOUND")
-    assert body["model"] == "phantom-model"
+    assert body["model_name"] == "phantom-model"
 
 
 async def test_capability_not_supported_full_envelope(asgi_client: AsyncClient) -> None:
     response = await asgi_client.get("/raise/capability")
     body = _assert_problem_json(response, status=422, code="MODEL_CAPABILITY_NOT_SUPPORTED")
-    assert body["model"] == "text-only"
+    assert body["model_name"] == "text-only"
     assert body["requested_capability"] == "audio"
 
 

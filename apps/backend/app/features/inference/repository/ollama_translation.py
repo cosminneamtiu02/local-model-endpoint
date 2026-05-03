@@ -14,7 +14,7 @@ exercise them directly without transport mocking, and the
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 
@@ -153,29 +153,74 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
 
     Defensive: with ``stream=False`` Ollama is contractually required to
     return a single terminal frame with ``done=True``. A non-terminal
-    frame (e.g. proxy hiccup) is surfaced as a typed KeyError so the
-    failure-mapping layer can convert it to malformed_response.
+    frame, missing ``message`` field, or non-dict ``message`` value is
+    surfaced as a typed ``ValueError`` so the failure-mapping layer can
+    convert it to ``malformed_response`` uniformly. ``ValueError`` (not
+    ``KeyError``) matches Python's data model convention — ``KeyError``
+    is reserved for genuine mapping-key misses, so collapsing real key
+    errors into the malformed-frame signal would be ambiguous.
+
+    Each malformed-frame branch also emits a named
+    ``ollama_response_malformed`` log event with a stable ``reason`` so
+    operators can grep by reason instead of parsing exception messages.
     """
     if not response_json.get("done", True):
+        logger.warning(
+            "ollama_response_malformed",
+            reason="non_terminal_frame",
+            done_value=response_json.get("done"),
+        )
         error_message = "Ollama returned done=False under stream=False; expected terminal frame."
-        raise KeyError(error_message)
+        raise ValueError(error_message)
     raw_finish = response_json.get("done_reason", "stop")
     finish_reason: FinishReason = _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop")
-    raw_message: dict[str, Any] = response_json["message"]
-    # ``raw_message["content"]`` (not ``.get``) surfaces the missing-key case
-    # as KeyError — that's the intended failure-mapping signal for malformed
-    # Ollama frames. ``isinstance`` coerces ``None`` / non-str values to an
-    # empty string so OllamaChatResult.content (typed ``str``) doesn't fail
-    # Pydantic validation outside the seam.
+    if "message" not in response_json:
+        logger.warning("ollama_response_malformed", reason="missing_message_field")
+        error_message = "Ollama response missing 'message' field."
+        raise ValueError(error_message)
+    raw_message_value: Any = response_json["message"]
+    # The annotation on ``response_json`` types this as Any; runtime-check the
+    # message is actually a dict so a future Ollama protocol drift (``message``
+    # as null/list/string) surfaces as a typed malformed-frame ValueError
+    # instead of a TypeError ("None is not subscriptable") that the
+    # failure-mapping layer would not recognize.
+    if not isinstance(raw_message_value, dict):
+        logger.warning(
+            "ollama_response_malformed",
+            reason="non_object_message",
+            message_type=type(raw_message_value).__name__,
+        )
+        error_message = (
+            f"Ollama 'message' field has non-object type {type(raw_message_value).__name__}."
+        )
+        # ``ValueError`` (not the TRY004-preferred ``TypeError``) keeps every
+        # malformed-Ollama-frame case routed through one exception type
+        # the failure-mapping layer (LIP-E003-F003) catches uniformly.
+        raise ValueError(error_message)  # noqa: TRY004 — unified malformed-frame signal
+    # ``cast`` (not a typed assignment) because ``raw_message_value`` came in
+    # as ``Any``; isinstance narrows to ``dict[Unknown, Unknown]`` which
+    # pyright strict still flags. The cast is safe (we just isinstance-checked
+    # ``dict`` and Ollama's wire format guarantees str keys); the dict entry
+    # accesses below preserve the per-key type discipline.
+    raw_message: dict[str, Any] = cast("dict[str, Any]", raw_message_value)
+    if "content" not in raw_message:
+        logger.warning("ollama_response_malformed", reason="missing_message_content")
+        error_message = "Ollama message missing 'content' field."
+        raise ValueError(error_message)
     raw_content = raw_message["content"]
+    # ``isinstance`` coerces ``None`` / non-str values to an empty string so
+    # OllamaChatResult.content (typed ``str``) doesn't fail Pydantic validation
+    # outside the seam.
     content = raw_content if isinstance(raw_content, str) else ""
     # Tool-calls land on a non-tools-aware model only via a registry update
     # to a tool-capable model. Today's models (Gemma 4 E2B) don't emit them,
     # but warning when the frame appears keeps the silent-drop observable
     # so an operator notices the model upgrade before puzzling over an
-    # empty content string.
+    # empty content string. Single ``.get`` then narrow — avoids the prior
+    # double-lookup pattern (LBYL via .get + EAFP via [...]).
+    candidate = raw_message.get("tool_calls")
     tool_calls: list[object] | None = (
-        raw_message["tool_calls"] if isinstance(raw_message.get("tool_calls"), list) else None
+        cast("list[object]", candidate) if isinstance(candidate, list) else None
     )
     if tool_calls:
         logger.warning("ollama_tool_calls_ignored", count=len(tool_calls))

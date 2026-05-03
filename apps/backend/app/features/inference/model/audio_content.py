@@ -1,8 +1,10 @@
 """Audio variant of a multimodal Message content part."""
 
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
+
+from app.features.inference.model._caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
 
 
 class AudioContent(BaseModel):
@@ -15,10 +17,11 @@ class AudioContent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     type: Literal["audio"] = "audio"
-    # Mirrors ImageContent caps. 20 MiB base64 ≈ 15 MB binary covers practical
+    # Mirrors ImageContent caps. ``AnyHttpUrl`` clamps URL schemes to http/https
+    # (defense-in-depth vs SSRF). 20 MiB base64 ≈ 15 MB binary covers practical
     # voice clips; longer audio belongs in a streaming-upload path, not this body.
-    url: str | None = Field(default=None, min_length=1, max_length=2048)
-    base64: str | None = Field(default=None, min_length=1, max_length=20_971_520)
+    url: Annotated[AnyHttpUrl, Field(max_length=URL_MAX_CHARS)] | None = None
+    base64: str | None = Field(default=None, min_length=1, max_length=BASE64_MEDIA_MAX_CHARS)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> Self:
