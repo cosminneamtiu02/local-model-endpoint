@@ -14,9 +14,13 @@ tasks:
 
   # ── Check (run before declaring work done) ───────────────────
   check:
-    desc: Run ALL checks — lint, format, types, arch, tests, error contracts, plist, lockfile, audit
+    desc: Run ALL checks — lint, format, types, arch, tests, coverage, error contracts, plist, lockfile, audit
     # ``check:lockfile`` runs before the slow test suite so a manifest/lockfile
     # mismatch fails fast (seconds) instead of after ~minutes of test runtime.
+    # ``check:coverage`` runs after the unit+integration+contract suite so the
+    # local check mirrors CI's coverage gate (CI's ``backend-checks`` job runs
+    # ``check:coverage`` directly; without it here, a developer could push a
+    # PR with a coverage regression that only surfaces at PR time).
     # ``check:audit`` runs last because it depends on a synced env and surfaces
     # CVE advisories — included so ``task check`` is the local mirror of the
     # CI gate, per CLAUDE.md sacred rule #4 ("run task check before declaring
@@ -28,6 +32,7 @@ tasks:
       - task: check:types
       - task: check:arch
       - task: check:test
+      - task: check:coverage
       - task: check:errors
       - task: check:plist
       - task: check:audit

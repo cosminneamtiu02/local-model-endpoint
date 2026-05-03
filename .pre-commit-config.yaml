@@ -49,13 +49,16 @@ repos:
         pass_filenames: false
         files: ^Taskfile\.yml$
 
-      # Pre-push: run unit tests before code leaves the machine.
-      # ``--frozen`` keeps resolution semantics aligned with CI (which runs
-      # ``uv sync --frozen --dev``); without it pre-push could pass against
-      # newer transient deps that CI's frozen sync would reject.
-      - id: pytest-unit
-        name: Backend + error-contracts unit tests
-        entry: bash -c "set -euo pipefail; cd apps/backend && uv run --frozen pytest tests/unit/ -q && cd ../../packages/error-contracts && uv run --frozen pytest tests/ -q"
+      # Pre-push: run the full test suite (unit + integration + contract)
+      # so pre-push catches what CI catches. The unit-only variant (round-9
+      # lane 10.4) gave a false sense of safety: integration regressions
+      # surfaced only at PR time. ``--frozen`` keeps resolution semantics
+      # aligned with CI (which runs ``uv sync --frozen --dev``); without it
+      # pre-push could pass against newer transient deps that CI's frozen
+      # sync would reject.
+      - id: pytest-all
+        name: Backend (unit + integration + contract) + error-contracts unit tests
+        entry: bash -c "set -euo pipefail; cd apps/backend && uv run --frozen pytest tests/ -q && cd ../../packages/error-contracts && uv run --frozen pytest tests/ -q"
         language: system
         pass_filenames: false
         stages: [pre-push]

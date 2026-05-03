@@ -5,7 +5,6 @@ from app.exceptions._generated.adapter_connection_failure_params import (
     AdapterConnectionFailureParams,
 )
 from app.exceptions._generated.conflict_error import ConflictError
-from app.exceptions._generated.http_error import HttpError
 from app.exceptions._generated.inference_timeout_error import InferenceTimeoutError
 from app.exceptions._generated.inference_timeout_params import InferenceTimeoutParams
 from app.exceptions._generated.internal_error import InternalError
@@ -30,7 +29,6 @@ __all__ = [
     "AdapterConnectionFailureError",
     "AdapterConnectionFailureParams",
     "ConflictError",
-    "HttpError",
     "InferenceTimeoutError",
     "InferenceTimeoutParams",
     "InternalError",

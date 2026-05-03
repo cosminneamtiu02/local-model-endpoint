@@ -26,7 +26,6 @@ version: 1
 #        - ``ADAPTER_CONNECTION_FAILURE`` -> ``AdapterConnectionFailureError``
 #        - ``INTERNAL_ERROR``             -> ``InternalError`` (not InternalErrorError)
 #        - ``METHOD_NOT_ALLOWED``         -> ``MethodNotAllowedError``
-#        - ``HTTP_ERROR``                 -> ``HttpError`` (not HttpErrorError)
 #
 # Practical guidance: prefer codes that DO NOT end in ``_ERROR`` so the
 # generated class name reads naturally with the appended ``Error`` suffix.
@@ -72,13 +71,6 @@ errors:
     description: Request used an HTTP method the route does not accept
     title: Method Not Allowed
     detail_template: The HTTP method used is not allowed for this route.
-    params: {}
-
-  HTTP_ERROR:
-    http_status: 400
-    description: Generic HTTP-level error raised through the StarletteHTTPException path
-    title: HTTP Error
-    detail_template: An HTTP-level error occurred while processing the request.
     params: {}
 
   RATE_LIMITED:
