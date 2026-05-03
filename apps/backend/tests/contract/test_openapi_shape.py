@@ -6,7 +6,7 @@ the spec endpoints directly so mis-shaped output is caught before fuzz
 attempts to load it.
 """
 
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from app.main import app
 

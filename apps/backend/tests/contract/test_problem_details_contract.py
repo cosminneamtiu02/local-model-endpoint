@@ -5,7 +5,7 @@ A real Schemathesis fuzz suite will land alongside the LIP feature router
 (LIP-E001-F002) when there are operations to fuzz against.
 """
 
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from app.main import app
 

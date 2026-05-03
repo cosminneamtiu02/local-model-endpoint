@@ -166,7 +166,7 @@ def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Pat
             pytest.fail(f"Generated file {py_file.name} has syntax error: {e}")
 
 
-def test_codegen_rejects_duplicate_codes(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_duplicate_codes(tmp_path: Path) -> None:
     """Codegen should reject YAML with duplicate error codes."""
     # YAML spec merges duplicate keys silently, so we detect via custom loader
     path = tmp_path / "errors.yaml"
@@ -178,7 +178,7 @@ def test_codegen_rejects_duplicate_codes(tmp_path: Path, output_dir: Path) -> No
         load_and_validate(path)
 
 
-def test_codegen_rejects_invalid_http_status(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_invalid_http_status(tmp_path: Path) -> None:
     """Codegen should reject error codes with non-error HTTP status."""
     path = tmp_path / "errors.yaml"
     path.write_text(INVALID_STATUS_YAML)
@@ -191,7 +191,7 @@ def test_codegen_rejects_invalid_http_status(tmp_path: Path, output_dir: Path) -
         load_and_validate(path)
 
 
-def test_codegen_rejects_invalid_param_type(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_invalid_param_type(tmp_path: Path) -> None:
     """Codegen should reject params with unsupported types."""
     path = tmp_path / "errors.yaml"
     path.write_text(INVALID_PARAM_TYPE_YAML)

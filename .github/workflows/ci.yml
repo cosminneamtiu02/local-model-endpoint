@@ -30,9 +30,11 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: apps/backend/uv.lock
-
-      - name: Set up Python
-        run: uv python install 3.13.3
+          # ``python-version`` on setup-uv reuses uv's interpreter cache
+          # so the per-run download (~30s on cold cache) is amortized
+          # across PRs that touch the same Python version. Replaces
+          # the explicit ``uv python install`` step.
+          python-version: "3.13.3"
 
       - name: Install dependencies
         run: uv sync --frozen --dev
@@ -102,9 +104,9 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: packages/error-contracts/uv.lock
-
-      - name: Set up Python
-        run: uv python install 3.13.3
+          # Same setup-uv interpreter-cache reuse as the backend job —
+          # see backend-checks comment for the rationale.
+          python-version: "3.13.3"
 
       - name: Install dependencies
         run: uv sync --frozen --dev

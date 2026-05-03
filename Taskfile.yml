@@ -206,8 +206,15 @@ tasks:
       # Refuse to run as root — LaunchAgent must be in user domain, not /Library/LaunchDaemons/.
       - test "$(id -u)" -ne 0 || { echo "Refuse to install as root — LaunchAgent only"; exit 1; }
       # Substitute __HOME__ with the operator's $HOME at install time
-      # (launchd does not expand env vars in plists).
-      - sed -e "s|__HOME__|$HOME|g" infra/launchd/com.lip.ollama.plist.tmpl > ~/Library/LaunchAgents/com.lip.ollama.plist
+      # (launchd does not expand env vars in plists). Use Python's
+      # str.replace (not sed) so a $HOME containing & or | doesn't
+      # collide with sed's substitution-pattern metacharacters
+      # (``$HOME=/Users/cosmin&laptop`` would corrupt the plist with
+      # sed; Python's literal replace is metacharacter-safe).
+      - >
+        python3 -c "import os, sys, pathlib;
+        src = pathlib.Path('infra/launchd/com.lip.ollama.plist.tmpl').read_text();
+        sys.stdout.write(src.replace('__HOME__', os.environ['HOME']))" > ~/Library/LaunchAgents/com.lip.ollama.plist
       - launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lip.ollama.plist
 
   ollama:uninstall:

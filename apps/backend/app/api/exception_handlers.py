@@ -1,5 +1,16 @@
 """Exception handlers — map errors to RFC 7807 ``application/problem+json``.
 
+structlog binding pattern: this module uses bare ``bind_contextvars`` (not
+the context-managed ``bound_contextvars``) for ``error_code`` so the bound
+key persists into the middleware's trailing ``request_completed`` log line
+— the operator gets one-line correlation between "what error fired" and
+"how the request completed" automatically. Cleanup is guaranteed by
+:class:`RequestIdMiddleware`'s ``clear_contextvars()`` at the next
+request boundary, so the asymmetry vs ``bound_contextvars`` (used in
+the middleware itself for ``request_id``/``method``/``path``) is by
+design rather than oversight.
+
+
 The handler chain (registered, in order, on the FastAPI app):
 
     DomainError                → typed RFC 7807 body with the error's typed
@@ -283,7 +294,16 @@ async def _handle_domain_error(request: Request, exc: Exception) -> Response:
     # (the catch-all unhandled-exception path is bypassed for typed errors).
     is_server_error = domain_exc.http_status >= HTTPStatus.INTERNAL_SERVER_ERROR
     if is_server_error:
-        logger.exception("domain_error_raised", code=domain_exc.code, status=domain_exc.http_status)
+        # Distinct event name for the 5xx branch so dashboards keying on
+        # ``event=domain_error_5xx_raised`` find typed-server-error events
+        # without a level-filter join. The 4xx branch keeps the generic
+        # ``domain_error_raised`` because client errors don't typically
+        # need a separate operator query path.
+        logger.exception(
+            "domain_error_5xx_raised",
+            code=domain_exc.code,
+            status=domain_exc.http_status,
+        )
     else:
         logger.warning("domain_error_raised", code=domain_exc.code, status=domain_exc.http_status)
     problem = _build_problem_payload(domain_exc, request, request_id)
@@ -543,8 +563,21 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # signal without unboundedly serializing input-value snippets. The
     # message never ships to the consumer — only ``InternalError``'s
     # rendered detail does — preserving the wire contract.
+    # ``internal_error_raised`` (renamed from the prior ``unhandled_exception``)
+    # so operator queries align with the typed-domain-error pattern: every
+    # 5xx event in the codebase now reads ``*_raised``. Operators searching
+    # ``error_code=INTERNAL_ERROR`` get the corresponding handler line via
+    # the same naming convention as ``domain_error_raised``.
+    #
+    # ``logger.exception`` (no explicit ``exc_info=True``): inside an
+    # ``except`` block, structlog auto-attaches the traceback. The
+    # codebase convention (used here, in ``_handle_domain_error``'s
+    # 5xx branch, and in ``ollama_client.chat``'s except) is bare
+    # ``logger.exception``; ``logger.critical(..., exc_info=True)`` is
+    # the alternative used in ``main.py`` only because operator paging
+    # keys on level=CRITICAL there.
     logger.exception(
-        "unhandled_exception",
+        "internal_error_raised",
         exc_type=type(exc).__name__,
         exc_message=str(exc)[:200],
     )

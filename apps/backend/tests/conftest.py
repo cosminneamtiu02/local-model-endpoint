@@ -13,7 +13,13 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 # Match ``class Test<word>`` at column 0. Catches both plain
-# ``class TestFoo:`` and ``class TestFoo(unittest.TestCase):`` forms.
+# ``class TestFoo:`` and ``class TestFoo(unittest.TestCase):`` forms;
+# does NOT catch ``class _TestFoo:`` (leading underscore is private
+# convention, and pytest skips them anyway under the ``Test`` prefix
+# rule). MUST stay in lockstep with the same regex in
+# ``packages/error-contracts/tests/conftest.py``; cross-workspace import
+# isn't installable so the duplication is intentional and the cross-
+# reference comment is the only enforcement.
 _TEST_CLASS_PATTERN = re.compile(r"^class Test[A-Za-z_]", re.MULTILINE)
 
 
@@ -79,3 +85,22 @@ def _clear_structlog_contextvars() -> Iterator[None]:
     structlog.contextvars.clear_contextvars()
     yield
     structlog.contextvars.clear_contextvars()
+
+
+@pytest.fixture(autouse=True)
+def _clean_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip ``LIP_*`` env vars so tests see only what they explicitly set.
+
+    Promoted from ``tests/unit/core/conftest.py`` to the root so integration
+    tests + the future contract suite also get hermetic Settings construction.
+    The unit/core scope was insufficient: a developer with ``LIP_APP_ENV=
+    production`` in their shell would silently flip ``is_prod`` for every
+    integration test that imports ``app.main.app``. Reading the prefix +
+    field-name set at import time means a new Settings field is auto-
+    covered — no per-test edit needed.
+    """
+    from app.core.config import Settings
+
+    env_prefix = Settings.model_config.get("env_prefix") or ""
+    for field_name in Settings.model_fields:
+        monkeypatch.delenv(env_prefix + field_name.upper(), raising=False)

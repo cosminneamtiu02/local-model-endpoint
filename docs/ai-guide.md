@@ -40,12 +40,13 @@ cannot import features and cannot import each other; the inference feature's `mo
 
 ## What's NOT Built — feature-dev work
 
-Five LIP feature nodes have already landed in code: LIP-E001-F001 inference envelopes,
+LIP feature nodes have landed in code as of round 7: LIP-E001-F001 inference envelopes,
 LIP-E003-F001 lifespan-managed OllamaClient, LIP-E003-F002 envelope↔Ollama translation,
-LIP-E004-F004 problem+json, and LIP-E005-F003 launchd plist. Of those, three carry
-`status: implemented` in graphs/LIP/ (E001-F001, E003-F001, E005-F003); the other two
-carry `status: verifiable`. `service/` and `router/` arrive with LIP-E001-F002. The
-project's seven epics (see [graphs/LIP/](../graphs/LIP/))
+LIP-E004-F004 problem+json, and LIP-E005-F003 launchd plist. The exact status set
+shifts as features advance from `verifiable` to `implemented` — `grep -n '^status:'
+graphs/LIP/LIP-*.md` reads the current source of truth so this paragraph cannot
+silently drift behind reality. `service/` and `router/` arrive with LIP-E001-F002.
+The project's seven epics (see [graphs/LIP/](../graphs/LIP/))
 describe what feature-dev will build next:
 
 - **LIP-E001 — Inference Contract & Happy Path:** envelope schemas, inference endpoint,

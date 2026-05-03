@@ -16,12 +16,26 @@ _PROBLEM_RESPONSE: dict[str, Any] = {
     "content": {"application/problem+json": {}},
 }
 
+# Explicit 200 entry so the OpenAPI spec advertises both the success
+# response (``application/json`` with HealthResponse) AND the default
+# error path symmetrically. FastAPI infers 200 from the return-type
+# annotation, but the inferred entry is content-typeless; declaring it
+# here makes the wire contract self-documenting in /openapi.json.
+_HEALTH_OK_RESPONSE: dict[str, Any] = {
+    "model": HealthResponse,
+    "description": "Liveness probe — process is alive",
+    "content": {"application/json": {}},
+}
+
 
 @router.get(
     "/health",
     operation_id="getHealth",
     status_code=status.HTTP_200_OK,
-    responses={"default": _PROBLEM_RESPONSE},
+    responses={
+        status.HTTP_200_OK: _HEALTH_OK_RESPONSE,
+        "default": _PROBLEM_RESPONSE,
+    },
 )
 async def get_health() -> HealthResponse:
     """Liveness probe. Returns 200 if the process is alive.

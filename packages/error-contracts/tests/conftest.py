@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 
 # Match ``class Test<word>`` at column 0. Catches both plain
-# ``class TestFoo:`` and ``class TestFoo(unittest.TestCase):`` forms.
+# ``class TestFoo:`` and ``class TestFoo(unittest.TestCase):`` forms;
+# does NOT catch ``class _TestFoo:``. MUST stay in lockstep with the
+# same regex in ``apps/backend/tests/conftest.py`` — cross-workspace
+# import isn't installable so the duplication is intentional.
 _TEST_CLASS_PATTERN = re.compile(r"^class Test[A-Za-z_]", re.MULTILINE)
 
 

@@ -57,8 +57,11 @@ def plist_path(repo_root: Path) -> Path:
     return repo_root / "infra" / "launchd" / "com.lip.ollama.plist.tmpl"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def parsed_plist(plist_path: Path) -> dict[str, object]:
+    """Parsed plist dict — function-scoped so a future test that mutates the
+    dict cannot leak state into siblings. The parse cost (sub-1ms
+    plistlib.load on the small template) doesn't justify module scope."""
     with plist_path.open("rb") as fh:
         loaded = plistlib.load(fh)
     assert isinstance(loaded, dict)

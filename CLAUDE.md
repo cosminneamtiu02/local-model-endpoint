@@ -90,7 +90,12 @@ preserved but with redefined semantics for a no-DB feature:
 - Never write a sync `def` route handler. All handlers are `async def`.
 - Never use `run_in_executor` or mix sync/async code paths.
 - Never use global singletons, service locators, or DI container libraries. Use
-  FastAPI Depends().
+  FastAPI Depends(). The single carve-out is ``get_settings`` in
+  ``app/api/deps.py`` — ``@lru_cache(maxsize=1)`` is the FastAPI-blessed
+  pattern for a Settings factory, and the cache_clear() escape hatch keeps
+  per-test isolation possible. Adding a second ``@lru_cache`` factory
+  requires an ADR documenting why the FastAPI Depends() machinery isn't
+  sufficient.
 - Never import services or repositories directly in handlers. Wire via Depends() factories.
 - Never import from one feature into another feature. Features are independent.
 - Never import from `exceptions._generated` directly. Import from `exceptions`.

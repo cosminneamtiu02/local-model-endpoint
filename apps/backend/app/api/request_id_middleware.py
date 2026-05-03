@@ -305,5 +305,12 @@ def configure_middleware(app: FastAPI) -> None:
     docs/disambiguated-idea.md (Security boundary). Add CORS scaffolding
     only when a non-server-to-server consumer (e.g., browser dev tool)
     needs it.
+
+    ``add_middleware`` appends in LIFO order — the LAST added is the
+    OUTERMOST wrapper. ``RequestIdMiddleware`` must stay last-added so
+    it stays outermost; that's what guarantees ``request_id`` is bound
+    BEFORE any nested middleware (compression, etc.) emits log lines.
+    A future second middleware (e.g. body-compression) MUST be added
+    BEFORE this line so it lands inside RequestIdMiddleware's wrapper.
     """
     app.add_middleware(RequestIdMiddleware)
