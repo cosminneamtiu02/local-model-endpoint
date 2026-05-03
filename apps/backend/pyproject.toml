@@ -1,5 +1,8 @@
 [build-system]
-requires = ["hatchling>=1.27.0"]
+# Pinned to ``==`` per CLAUDE.md "all deps pinned" rule. Build-system
+# requires count as deps in the policy sense — Dependabot's pip ecosystem
+# scans this line for updates only when it's a pin, not a range.
+requires = ["hatchling==1.29.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

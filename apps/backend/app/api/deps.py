@@ -37,7 +37,7 @@ def get_settings() -> Settings:
     # first ``get_settings()`` call (the @lru_cache ensures single-fire),
     # so a typo (``LIP_OLLMA_HOST``) is visible to the operator instead of
     # silently falling through to defaults.
-    declared = {f"{_LIP_ENV_PREFIX}{name.upper()}" for name in settings.model_fields}
+    declared = {f"{_LIP_ENV_PREFIX}{name.upper()}" for name in Settings.model_fields}
     actual = {name for name in os.environ if name.startswith(_LIP_ENV_PREFIX)}
     unknown = sorted(actual - declared)
     if unknown:
