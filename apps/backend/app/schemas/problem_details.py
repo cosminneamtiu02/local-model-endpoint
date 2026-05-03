@@ -5,6 +5,20 @@ Canonical wire shape for every error response in LIP. Implements RFC 7807
 extensions (``code``, ``request_id``) and per-error typed params spread at
 root level (RFC 7807 §3.2).
 
+LIP-specific narrowings vs RFC 7807 (the spec permits looser shapes; LIP
+narrows them for wire-contract clarity):
+
+- ``type``: restricted to ``about:blank`` or ``urn:lip:error:<code-kebab>``.
+  RFC 7807 §3.1 says "SHOULD be a URI" but permits any URI (including http
+  URLs). LIP's URN-only narrowing gives consumers a stable pattern to
+  match without coupling to a hosted-docs URL.
+- ``instance``: must start with ``/``. RFC 7807 §3.1 permits any URI
+  reference; LIP commits to the URL-path subset because every emitter
+  populates it from ``request.url.path``.
+- ``status``: 400-599 only (RFC 7807 §3.1 says SHOULD be the HTTP status,
+  but does not strictly forbid non-error codes; LIP forbids them since
+  problem+json is for error responses).
+
 Asymmetric ``extra`` policy: request envelopes use ``extra='forbid'`` to catch
 consumer bugs at the boundary; response envelopes use ``extra='allow'`` to
 permit per-error typed extensions. Per-field ``Field(description=...)`` strings
@@ -17,7 +31,16 @@ consumers MUST treat both as untrusted strings — escape on render, never
 interpolate into shells, queries, or HTML without sanitization.
 """
 
+from typing import Final
+
 from pydantic import BaseModel, ConfigDict, Field
+
+# Per-string length caps, symmetric with ValidationErrorDetail's
+# field=512 / reason=2048 caps. Bounds response amplification on the
+# error path: an upstream Ollama failure interpolated into ``detail``
+# could otherwise ship multi-KB problem+json bodies.
+_TITLE_MAX_CHARS: Final[int] = 128
+_DETAIL_MAX_CHARS: Final[int] = 4096
 
 
 class ProblemDetails(BaseModel):
@@ -39,9 +62,17 @@ class ProblemDetails(BaseModel):
         # violates the URN convention consumers pattern-match on.
         pattern=r"^(about:blank|urn:lip:error:[a-z0-9-]+)$",
     )
-    title: str = Field(description="Short human-readable summary of the problem", min_length=1)
+    title: str = Field(
+        description="Short human-readable summary of the problem",
+        min_length=1,
+        max_length=_TITLE_MAX_CHARS,
+    )
     status: int = Field(description="HTTP status code", ge=400, le=599)
-    detail: str = Field(description="Per-instance human-readable explanation", min_length=1)
+    detail: str = Field(
+        description="Per-instance human-readable explanation",
+        min_length=1,
+        max_length=_DETAIL_MAX_CHARS,
+    )
     instance: str = Field(
         description="The request URL path that produced this problem",
         # Pin URL-path form: every handler populates this from

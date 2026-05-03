@@ -6,7 +6,7 @@ land — main.py stays unchanged feature after feature.
 """
 
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from app.api.app_state import AppState
 from app.api.health_router import router as health_router
 from app.core.config import Settings
-from app.features.inference.repository import OllamaClient
+from app.features.inference import OllamaClient
 
 
 def register_routers(application: FastAPI) -> None:
@@ -35,23 +35,34 @@ async def lifespan_resources(settings: Settings) -> AsyncGenerator[AppState]:
 
     Centralizing this here means main.py's lifespan stays a one-liner
     even as features add resources (semaphore, idle watchdog, etc.).
-    Using OllamaClient as its own async context manager guarantees
-    __aexit__ runs even if construction of a future sibling resource
-    fails between client creation and the yield.
 
-    ``phase="lifespan"`` is bound on the contextvars stack ONLY during
-    the construction (__aenter__) and teardown (__aexit__) windows —
-    not across the yield — so request-handler tasks spawned during
-    normal operation do not inherit the sentinel. Without this binding,
-    ``OllamaClient.__aenter__`` / ``__aexit__`` log lines (emitted
-    inside the client itself) would be missing the ``phase`` key that
-    every other lifespan event carries, breaking grep-based correlation.
+    Resources are pushed onto an ``AsyncExitStack`` so any sibling
+    resource added later this lifespan is torn down in LIFO order even
+    if a downstream construction fails — and ``__aexit__`` receives the
+    live exc_info on body errors, instead of the manual ``(None, None,
+    None)`` triple a hand-rolled call site would pass. Without the
+    stack, a future sibling whose ``__aenter__`` raised between
+    OllamaClient construction and the yield would leak the httpx pool.
+
+    ``phase="lifespan"`` is bound on the contextvars stack across the
+    full lifespan window (construction, yield, and the AsyncExitStack
+    unwind teardown). The yield window is safe because
+    :class:`RequestIdMiddleware` calls ``clear_contextvars()`` at the
+    start of every HTTP request, so request-handler tasks do not inherit
+    the sentinel — request logs always carry only request-scope context.
+    Lifespan-internal logs (``OllamaClient.__aenter__`` / ``__aexit__``,
+    ``app_startup``, ``app_shutdown``) all see ``phase="lifespan"``,
+    keeping grep-based correlation intact.
     """
-    client = OllamaClient(base_url=str(settings.ollama_host))
-    with structlog.contextvars.bound_contextvars(phase="lifespan"):
-        await client.__aenter__()
-    try:
-        yield AppState(ollama_client=client)
-    finally:
-        with structlog.contextvars.bound_contextvars(phase="lifespan"):
-            await client.__aexit__(None, None, None)
+    async with AsyncExitStack() as stack:
+        # Push the contextvar binding onto the stack FIRST so it unwinds
+        # LAST (LIFO): subsequent resource __aexit__ calls — including
+        # OllamaClient's — fire while ``phase="lifespan"`` is still bound.
+        # ``bound_contextvars`` is a sync context manager; ``enter_context``
+        # (not ``enter_async_context``) is the correct method.
+        stack.enter_context(structlog.contextvars.bound_contextvars(phase="lifespan"))
+        client = await stack.enter_async_context(
+            OllamaClient(base_url=str(settings.ollama_host)),
+        )
+        state = AppState(ollama_client=client)
+        yield state

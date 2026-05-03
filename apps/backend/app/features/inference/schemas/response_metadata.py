@@ -1,10 +1,23 @@
 """ResponseMetadata wire schema — timing, token, and routing fields."""
 
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.inference.model.finish_reason import FinishReason
+
+# UUID pattern mirrored from ProblemDetails.request_id and the
+# RequestIdMiddleware UUID validator. Defense-in-depth so the response
+# envelope can never ship a malformed correlation ID even if a future
+# code path builds ResponseMetadata without going through the middleware-
+# stamped request_id.
+_REQUEST_ID_UUID_PATTERN: Final[str] = (
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+# Mirror ``InferenceRequest.model``'s 128-char cap — same logical name flows
+# in (request) and out (response), so the bounds should be symmetric.
+_MODEL_NAME_MAX_LENGTH: Final[int] = 128
 
 
 class ResponseMetadata(BaseModel):
@@ -17,10 +30,10 @@ class ResponseMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
-    model: str = Field(min_length=1)
+    model: str = Field(min_length=1, max_length=_MODEL_NAME_MAX_LENGTH)
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
-    request_id: str = Field(min_length=1)
+    request_id: str = Field(pattern=_REQUEST_ID_UUID_PATTERN)
     latency_ms: int = Field(ge=0)
     queue_wait_ms: int = Field(ge=0)
     finish_reason: FinishReason

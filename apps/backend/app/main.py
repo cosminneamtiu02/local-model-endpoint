@@ -46,9 +46,17 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     )
     start_monotonic = time.monotonic()
     shutdown_reason = "clean"
+    # Track whether we entered the resource-yield window so the outer
+    # except can distinguish a startup-time failure (resource construction
+    # threw) from a shutdown-time failure (resource teardown threw). Logging
+    # both as ``app_startup_failed`` would silently misroute operator pages
+    # — startup pages route to "is the daemon up?" while shutdown pages
+    # route to "did the daemon clean up?".
+    entered_yield = False
     try:
         async with lifespan_resources(settings) as state:
             application.state.context = state
+            entered_yield = True
             logger.info("lifespan_resources_ready", phase="lifespan", env=settings.app_env)
             try:
                 yield
@@ -75,8 +83,11 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # connect-time issue, etc.) would otherwise propagate as an opaque
         # uvicorn traceback. Logged at ``critical`` because no traffic can
         # be served — operator alerting keyed on level should page on this.
+        # ``entered_yield`` discriminates startup vs shutdown so the event
+        # name routes to the correct runbook.
+        event_name = "app_shutdown_failed" if entered_yield else "app_startup_failed"
         logger.critical(
-            "app_startup_failed",
+            event_name,
             phase="lifespan",
             env=settings.app_env,
             exc_info=True,

@@ -14,9 +14,11 @@ from app.features.inference.model.image_content import ImageContent
 
 
 def test_image_content_accepts_url_only() -> None:
-    part = ImageContent(url="https://example.com/cat.png")
+    part = ImageContent.model_validate({"url": "https://example.com/cat.png"})
     assert part.type == "image"
-    assert part.url == "https://example.com/cat.png"
+    # ``part.url`` is now a Pydantic AnyHttpUrl (round-7 lane-16 SSRF
+    # defense) so compare via ``str()`` to match the wire form.
+    assert str(part.url) == "https://example.com/cat.png"
     assert part.base64 is None
 
 
@@ -50,16 +52,25 @@ def test_image_content_rejects_empty_base64() -> None:
 def test_image_content_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError, match="extra"):
         ImageContent.model_validate(
-            {"type": "image", "url": "https://x", "bogus": 1},
+            {"type": "image", "url": "https://example.com/x", "bogus": 1},
         )
 
 
 def test_image_content_dump_excludes_unset_base64_when_url_supplied() -> None:
-    part = ImageContent(url="https://example.com/cat.png")
-    dumped = part.model_dump()
+    part = ImageContent.model_validate({"url": "https://example.com/cat.png"})
+    dumped = part.model_dump(mode="json")
     assert dumped["type"] == "image"
     assert dumped["url"] == "https://example.com/cat.png"
     assert dumped["base64"] is None
+
+
+def test_image_content_rejects_non_http_scheme_url() -> None:
+    """SSRF defense: the URL field is now AnyHttpUrl which accepts only
+    http/https. ``file://`` / ``javascript:`` are rejected at the schema
+    boundary so the URL-fetching adapter (when it lands) cannot reach
+    arbitrary schemes."""
+    with pytest.raises(ValidationError):
+        ImageContent.model_validate({"url": "file:///etc/passwd"})
 
 
 def test_image_content_rejects_oversize_base64() -> None:

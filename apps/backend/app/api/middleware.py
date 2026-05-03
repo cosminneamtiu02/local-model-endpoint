@@ -55,6 +55,12 @@ _STATUS_ON_UNCAUGHT_EXCEPTION: Final[int] = 500
 # checks are the primary defense; truncation is belt-and-suspenders).
 _REQUEST_ID_PREVIEW_MAX_CHARS: Final[int] = 32
 
+# Truncation cap on the rejected request path reflected into the 413
+# problem+json body's ``instance`` field. Symmetric with
+# ``ValidationErrorDetail.field``'s 512-char cap so a pathological consumer
+# cannot amplify a single 60K-char-URL POST into a multi-KB error body.
+_INSTANCE_PREVIEW_MAX_CHARS: Final[int] = 512
+
 # Maximum allowed Content-Length on the request body. Larger payloads are
 # rejected before Starlette buffers them, defending against accidental retry
 # loops or pathological consumers OOM-ing uvicorn on the 16 GB M4 host.
@@ -79,6 +85,11 @@ def _content_length_from_scope(scope: Scope) -> int | None:
     try:
         return int(raw)
     except ValueError:
+        # Control-flow conversion: a malformed Content-Length header (non-int)
+        # encodes "we don't know the length" — surface as None so the size
+        # guard treats the request as length-unknown (allowed; chunked
+        # uploads are also length-unknown). Not a "silent swallow" per
+        # CLAUDE.md; the parse failure encodes a known business case.
         return None
 
 
@@ -87,14 +98,19 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     exception handler chain (which lives below this middleware in the ASGI
     stack). The handler chain owns the typed-DomainError shape; this wire
     body is built by hand to keep the middleware self-contained.
+
+    ``path`` is truncated symmetric with ``ValidationErrorDetail.field``'s
+    512-char cap so a pathological consumer cannot amplify a single
+    long-URL POST into a multi-KB error body.
     """
+    bounded_path = path[:_INSTANCE_PREVIEW_MAX_CHARS]
     body = json.dumps(
         {
             "type": "about:blank",
             "title": "Payload Too Large",
             "status": _REQUEST_ENTITY_TOO_LARGE,
             "detail": (f"Request body exceeds the {_MAX_REQUEST_BODY_BYTES}-byte limit."),
-            "instance": path,
+            "instance": bounded_path,
             "code": "REQUEST_TOO_LARGE",
             "request_id": request_id,
         },
@@ -150,6 +166,13 @@ class RequestIdMiddleware:
             client_id = "<non-printable>"
         match_result = _UUID_PATTERN.match(client_id) if client_id else None
 
+        # Resolve method/path early so the rejected-id warning below can
+        # carry the routing context (operators need to know which endpoint
+        # the malformed ID targeted; flagging only by request-id preview is
+        # not enough to attribute a flood of bad IDs to a culprit consumer).
+        method = str(scope.get("method", ""))
+        path = str(scope.get("path", ""))
+
         if client_id and match_result is None:
             preview = client_id[:_REQUEST_ID_PREVIEW_MAX_CHARS]
             request_id = str(uuid.uuid4())
@@ -159,6 +182,8 @@ class RequestIdMiddleware:
             had_control_chars = client_id == "<non-printable>"
             logger.warning(
                 "request_id_rejected_client_value",
+                method=method,
+                path=path,
                 supplied_value_preview=preview,
                 rejected_reason=("control_char" if had_control_chars else "format_mismatch"),
                 rejected_byte_total=len(client_id_raw),
@@ -176,8 +201,6 @@ class RequestIdMiddleware:
         scope["state"]["request_id"] = request_id
 
         captured_status: int = 0
-        method = str(scope.get("method", ""))
-        path = str(scope.get("path", ""))
         start = time.perf_counter()
 
         # Body-size DoS guard: reject early before Starlette buffers the
@@ -253,17 +276,25 @@ class RequestIdMiddleware:
                     # alongside merge_contextvars: a future regression that
                     # drops the contextvar processor would otherwise silently
                     # strip routing context from the access log.
-                    # client_host is the LAN-trusted consumer's peer IP — fine
-                    # to log unconditionally for this single-developer LAN
-                    # profile (consumers are self-owned). Revisit (toggle or
-                    # redact) the day a non-self-owned client class appears.
+                    # ``client_ip`` (renamed from the prior ``client_host``)
+                    # matches the industry "remote IP" convention used by
+                    # uvicorn access / RFC 7239 / common log format and
+                    # disambiguates against the DNS-style ``ollama_host``
+                    # field on other log lines. ``client_port`` is the
+                    # ephemeral peer port — needed to disambiguate two
+                    # simultaneous LAN connections from the same consumer.
+                    # Both are fine to log unconditionally for this
+                    # single-developer LAN profile (consumers are
+                    # self-owned). TODO(future-non-LAN-deploy): wire to a
+                    # Settings.log_client_ip toggle when the topology widens.
                     logger.info(
                         "request_completed",
                         method=method,
                         path=path,
                         status_code=effective_status,
                         duration_ms=duration_ms,
-                        client_host=client[0] if client else None,
+                        client_ip=client[0] if client else None,
+                        client_port=client[1] if client else None,
                     )
 
 

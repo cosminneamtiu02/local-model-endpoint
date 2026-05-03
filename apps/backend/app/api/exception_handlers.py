@@ -111,21 +111,24 @@ def _resolve_request_id(request: Request) -> tuple[str, bool]:
     ``request_id`` field.
     """
     request_id = getattr(request.state, "request_id", None)
-    if (
-        isinstance(request_id, str)
-        and request_id
-        and _REQUEST_ID_UUID_PATTERN.match(request_id) is not None
-    ):
+    # The regex is the primary validator: ``re.Pattern.match("")`` returns None
+    # for the UUID pattern, so the previous defensive ``and request_id``
+    # truthiness clause was redundant. ``isinstance`` narrows ``str`` for
+    # pyright; the pattern handles emptiness.
+    if isinstance(request_id, str) and _REQUEST_ID_UUID_PATTERN.match(request_id) is not None:
         return request_id, False
     fallback = str(uuid.uuid4())
-    # Bind request_id + method + path so every subsequent log line for this
-    # request carries routing context (the middleware ordinarily binds these;
-    # under fallback we duplicate the work so handler-emitted lines don't
-    # ship without method/path on the misconfigured-app path).
+    # Bind request_id + method + path + a fallback-marker so every subsequent
+    # log line for this request carries routing context AND advertises the
+    # broken-middleware path (the middleware ordinarily binds the first three;
+    # under fallback we duplicate the work so handler-emitted lines don't ship
+    # without method/path AND so operators can grep for ``request_id_source=
+    # fallback`` to find every log line on the misconfigured-app path).
     structlog.contextvars.bind_contextvars(
         request_id=fallback,
         method=request.method,
         path=request.url.path,
+        request_id_source="fallback",
     )
     logger.warning(
         "request_id_missing_in_state",
@@ -264,8 +267,14 @@ async def _handle_domain_error(request: Request, exc: Exception) -> Response:
     # routes by ``type(exc).__mro__``, so this typed cast documents the
     # invariant without runtime overhead.
     domain_exc = cast("DomainError", exc)
-    request_id, missed_middleware = _resolve_request_id(request)
+    # Bind error_code BEFORE _resolve_request_id so the
+    # ``request_id_missing_in_state`` warning that may fire from the fallback
+    # path inside ``_resolve_request_id`` carries this request's error code.
+    # ``domain_exc.code`` is statically known on the registered handler
+    # (DomainError subclass invariant), so no constructor can throw between
+    # ``cast`` and the bind.
     structlog.contextvars.bind_contextvars(error_code=domain_exc.code)
+    request_id, missed_middleware = _resolve_request_id(request)
     # Branch level on status: 5xx is operator-actionable, 4xx is client-side
     # information; both share the same event name so filters still find them.
     # 5xx ships with exc_info so the traceback survives — a typed 5xx is
@@ -301,40 +310,53 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     """
     # ``cast`` (not ``assert``) so the narrowing also holds under ``python -O``.
     validation_exc = cast("RequestValidationError", exc)
+    # Bind the typed error code into contextvars BEFORE _resolve_request_id
+    # (and BEFORE any constructor that could in principle raise) so every
+    # log event for this request — including the empty-errors warning below
+    # AND the request_id-missing fallback warning — carries
+    # error_code=VALIDATION_FAILED for log correlation.
+    structlog.contextvars.bind_contextvars(error_code=ValidationFailedError.code)
     request_id, missed_middleware = _resolve_request_id(request)
 
     raw_errors = validation_exc.errors()
-    # Truncate at the handler edge so over-cap inputs (Pydantic's `msg` can
-    # interpolate the offending value, especially for `string_too_long` /
-    # `union_tag_invalid`) don't trip ValidationErrorDetail's own length cap
-    # and explode the handler. The schema cap is the contract; the handler
-    # truncation is belt-and-suspenders.
+    # Pydantic's ``ValidationError.errors()[i]`` typed-dict contract guarantees
+    # ``loc`` and ``msg`` are present (see Pydantic v2 ``ErrorDetails`` typed
+    # dict). Use direct ``[]`` access so a future Pydantic-contract violation
+    # surfaces loudly as a real ``KeyError`` we can trace, instead of silently
+    # degrading to ``field="unknown"``. Truncate at the handler edge so
+    # over-cap inputs (Pydantic's ``msg`` interpolates offending values for
+    # ``string_too_long`` / ``union_tag_invalid``) don't trip
+    # ValidationErrorDetail's own length cap and explode the handler. The
+    # schema cap is the contract; the handler truncation is belt-and-suspenders.
     validation_errors: list[ValidationErrorDetail] = [
         ValidationErrorDetail(
-            field=".".join(str(loc) for loc in e.get("loc", []))[:FIELD_MAX_CHARS] or "unknown",
-            reason=str(e.get("msg", "Unknown validation error"))[:REASON_MAX_CHARS],
+            field=".".join(str(loc) for loc in e["loc"])[:FIELD_MAX_CHARS] or "unknown",
+            reason=str(e["msg"])[:REASON_MAX_CHARS],
         )
         for e in raw_errors
     ]
 
-    # Bind the typed error code into contextvars BEFORE any handler-side
-    # log line so every event (including the empty-errors warning below)
-    # carries error_code=VALIDATION_FAILED. ``ValidationFailedError``
-    # accepts the first-error field/reason or sentinel values when
-    # Pydantic emitted no details.
+    # ``first_field`` / ``first_reason`` are already typed ``str`` from
+    # ``ValidationErrorDetail`` (or the literal sentinel) — no ``str()``
+    # wrapping needed and the redundant call would mislead a reader into
+    # thinking a non-string slipped through.
     first_field = validation_errors[0].field if validation_errors else "unknown"
     first_reason = validation_errors[0].reason if validation_errors else "unknown"
-    domain_err = ValidationFailedError(field=str(first_field), reason=str(first_reason))
-    structlog.contextvars.bind_contextvars(error_code=domain_err.code)
+    domain_err = ValidationFailedError(field=first_field, reason=first_reason)
 
     if not validation_errors:
         # Pydantic emitting an empty errors list for a RequestValidationError
         # violates its own invariants — surface it loudly with a bounded
         # triage payload so the operator can reproduce the upstream bug.
+        # Include content-type / content-length so operators can distinguish
+        # "Pydantic upstream bug" from "consumer sent unparseable JSON" or a
+        # content-type mismatch.
         logger.warning(
             "validation_error_with_no_details",
             raw_error_count=len(raw_errors),
             raw_error_types=[type(e).__name__ for e in raw_errors][:5],
+            content_type=request.headers.get("content-type", ""),
+            content_length=request.headers.get("content-length", ""),
         )
 
     detail_override: str | None = None
@@ -409,25 +431,50 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     """
     # ``cast`` (not ``assert``) so the narrowing also holds under ``python -O``.
     http_exc = cast("StarletteHTTPException", exc)
-    request_id, missed_middleware = _resolve_request_id(request)
     status_code = http_exc.status_code
+    # Bind error_code BEFORE _resolve_request_id so the
+    # ``request_id_missing_in_state`` warning that may fire from the fallback
+    # path inside ``_resolve_request_id`` carries the typed code. The
+    # status<400 branch overrides this to InternalError.code below; the
+    # default-and-override pattern keeps a single bind in the caller.
+    structlog.contextvars.bind_contextvars(error_code=_http_code_for_status(status_code))
+    request_id, missed_middleware = _resolve_request_id(request)
     # A non-error HTTPException (status<400) has no place in the RFC 7807
     # envelope (problem+json is for error responses) and would fail the
-    # ProblemDetails ``ge=400`` schema constraint, raising a ValidationError
-    # we'd then have to handle as an unhandled exception. Clamp loud to 500
-    # so the failure surfaces as an InternalError rather than masquerading
-    # as a confusing handler-internal Pydantic ValidationError.
+    # ProblemDetails ``ge=400`` schema constraint. Inline the InternalError
+    # synthesis (rather than recursing to ``_handle_unhandled_exception``)
+    # so the misconfigured-app path emits one log line and goes through
+    # ``_resolve_request_id`` exactly once — recursing would emit
+    # ``http_exception_non_error_status`` followed by a misleading
+    # ``unhandled_exception`` line referencing the original HTTPException
+    # repr (which contains the original non-error status code) and would
+    # double-resolve the request_id.
     if status_code < HTTPStatus.BAD_REQUEST:
+        structlog.contextvars.bind_contextvars(error_code=InternalError.code)
         logger.warning(
             "http_exception_non_error_status",
             status_code=status_code,
             detail=str(http_exc.detail) if http_exc.detail else None,
         )
-        return await _handle_unhandled_exception(request, exc)
+        problem = _build_problem_payload(InternalError(), request, request_id)
+        response = _problem_response(problem)
+        # Typed-handler responses flow back through RequestIdMiddleware (this
+        # handler is registered via ``add_exception_handler``, so Starlette's
+        # ExceptionMiddleware — inside the user stack — invokes it). Use the
+        # same conditional stamp as the rest of this file: stamp only when
+        # the middleware was missed, to avoid duplicating the header.
+        _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
+        return response
     status_phrase = _http_status_phrase(status_code)
-    detail_text = str(http_exc.detail) if http_exc.detail else status_phrase
+    # Truncate ``detail`` symmetric with ``ValidationErrorDetail.reason``'s
+    # 2048-char cap. Starlette today only constructs HTTPException with
+    # bounded internal strings, but reflecting an unbounded
+    # framework-supplied ``detail`` into the wire body is exactly the
+    # asymmetry the rest of the schema avoids.
+    raw_detail = str(http_exc.detail) if http_exc.detail else status_phrase
+    detail_text = raw_detail[:REASON_MAX_CHARS]
+    # ``code`` was already bound to contextvars upstream via _http_code_for_status.
     code = _http_code_for_status(status_code)
-    structlog.contextvars.bind_contextvars(error_code=code)
     if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
         # 5xx HTTPExceptions raised by the framework would otherwise ship
         # without any log line — operators couldn't grep them by request_id.
@@ -484,8 +531,14 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     :class:`ExceptionMiddleware`, whose responses do flow back through
     RequestIdMiddleware, so they get the header automatically.
     """
-    request_id, _missed = _resolve_request_id(request)
+    # Bind the typed error code into contextvars BEFORE resolving the
+    # request_id — ``_resolve_request_id`` may itself emit a
+    # ``request_id_missing_in_state`` warning on the misconfigured-app
+    # path, and that warning should ship with ``error_code=INTERNAL_ERROR``
+    # so operators searching by error_code find the broken-middleware
+    # diagnostic.
     structlog.contextvars.bind_contextvars(error_code=InternalError.code)
+    request_id, _missed = _resolve_request_id(request)
     # ``exc_message`` is truncated to 200 chars so triage gets actionable
     # signal without unboundedly serializing input-value snippets. The
     # message never ships to the consumer — only ``InternalError``'s

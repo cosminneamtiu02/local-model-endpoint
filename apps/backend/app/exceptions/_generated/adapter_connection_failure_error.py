@@ -1,14 +1,11 @@
 """Generated from errors.yaml. Do not edit."""
 
-from typing import TYPE_CHECKING, ClassVar, cast, override
+from typing import ClassVar, cast, override
 
 from app.exceptions._generated.adapter_connection_failure_params import (
     AdapterConnectionFailureParams,
 )
 from app.exceptions.base import DomainError
-
-if TYPE_CHECKING:
-    from pydantic import BaseModel
 
 
 class AdapterConnectionFailureError(DomainError):
@@ -27,5 +24,5 @@ class AdapterConnectionFailureError(DomainError):
     @override
     def detail(self) -> str:
         """Render the human-readable detail for this error."""
-        params = cast("BaseModel", self.params)
+        params = cast("AdapterConnectionFailureParams", self.params)
         return self.detail_template.format(**params.model_dump())

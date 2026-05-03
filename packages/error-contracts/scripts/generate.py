@@ -270,6 +270,27 @@ def _validate_params(code: str, params: _ParamsMap) -> None:
 SUPPORTED_SCHEMA_VERSION: Final[int] = 1
 
 
+def _validate_description_safe_for_docstring(code: str, description: str) -> None:
+    """Reject characters that would corrupt the generated docstring.
+
+    Description ships into a single-line triple-quoted docstring in the
+    generated module. Pre-rejecting unsafe substrings at YAML-load time
+    keeps the codegen template simple — instead of escape-handling at
+    every render site (where a missed escape ships malformed Python
+    files into source control).
+    """
+    forbidden_substrings = ('"""', "\n", "\\")
+    for forbidden in forbidden_substrings:
+        if forbidden in description:
+            msg = (
+                f"Error {code} description contains forbidden substring "
+                f"{forbidden!r}; descriptions ship into the generated docstring "
+                "and must be a single-line string with no embedded triple-quotes "
+                "or backslashes."
+            )
+            raise ValueError(msg)
+
+
 def load_and_validate(errors_path: Path) -> _ErrorsFile:
     """Load errors.yaml and validate its contents."""
     raw_text = errors_path.read_text(encoding="utf-8")
@@ -329,6 +350,12 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
                 )
                 raise ValueError(msg)
 
+        # Description is emitted into a single-line triple-quoted docstring;
+        # the dedicated helper rejects unsafe substrings to keep the codegen
+        # template simple. Extracted to keep load_and_validate's complexity
+        # under ruff's C901 ceiling.
+        _validate_description_safe_for_docstring(code, spec["description"])
+
         # Validate detail_template placeholders are safe and match params.
         _validate_detail_template(code, spec["detail_template"], params)
 
@@ -357,6 +384,9 @@ def _render_params_module(
     fields = "\n".join(
         f"    {name}: {PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
     )
+    # ``description`` is validated upstream against ``"""``, backslash, and
+    # newline so the simple triple-quoted form below stays intact. Any
+    # unsafe char would have raised at YAML-load time.
     if description:
         docstring = f'"""Parameters for {code} error: {description}"""'
     else:
@@ -440,27 +470,35 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
         # and ``detail`` makes a future rename of the base method a static
         # error rather than a silent shadow — the generator and the runtime
         # invariant stay in lockstep.
-        # detail() body uses `cast` (not `assert`) so the type narrowing also
-        # holds under `python -O`, where `assert` is stripped. The codegen
-        # invariant guarantees self.params is non-None for parameterized
-        # errors; cast documents that invariant for type-checkers without
-        # adding a runtime no-op.
+        # detail() body uses ``cast`` to the CONCRETE ``*Params`` class
+        # (not the abstract ``BaseModel``) so the type-checker sees the
+        # real per-error parameter shape — a future schema typo
+        # (e.g. ``max_waiters`` -> ``maxWaiters`` in YAML) is then a
+        # static error at the format-string call site instead of a
+        # silent string-format failure at runtime. ``cast`` (not
+        # ``assert``) so the narrowing also holds under ``python -O``.
         detail_method = (
             "    @override\n"
             "    def detail(self) -> str:\n"
             '        """Render the human-readable detail for this error."""\n'
-            '        params = cast("BaseModel", self.params)\n'
+            f'        params = cast("{params_class_name}", self.params)\n'
             "        return self.detail_template.format(**params.model_dump())\n"
         )
+        # ``description`` is validated upstream to be free of ``"""``,
+        # backslashes, and newlines (see _validate_description_safe_for_docstring)
+        # so the simple triple-quote works without escape gymnastics.
+        # The params class is imported at module scope (used at runtime by
+        # ``__init__`` AND used by the typed ``cast`` in ``detail()``); the
+        # earlier TYPE_CHECKING-only ``from pydantic import BaseModel`` is
+        # gone now that ``cast`` targets the concrete params class instead.
+        parameterized_docstring = description or f"Error: {code}."
         return (
             '"""Generated from errors.yaml. Do not edit."""\n\n'
-            "from typing import TYPE_CHECKING, ClassVar, cast, override\n\n"
+            "from typing import ClassVar, cast, override\n\n"
             f"{params_import}\n"
-            "from app.exceptions.base import DomainError\n\n"
-            "if TYPE_CHECKING:\n"
-            "    from pydantic import BaseModel\n\n\n"
+            "from app.exceptions.base import DomainError\n\n\n"
             f"class {error_class_name}(DomainError):\n"
-            f'    """{description or f"Error: {code}."}"""\n\n'
+            f'    """{parameterized_docstring}"""\n\n'
             + classvars
             + "\n"
             + "    @override\n"
