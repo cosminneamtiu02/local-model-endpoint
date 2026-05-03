@@ -10,6 +10,7 @@ the wire vocabulary the adapter feature consumes.
 import pytest
 from pydantic import ValidationError
 
+from app.features.inference.model.caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
 from app.features.inference.model.image_content import ImageContent
 
 
@@ -31,7 +32,12 @@ def test_image_content_accepts_base64_only() -> None:
 
 def test_image_content_rejects_both_url_and_base64() -> None:
     with pytest.raises(ValidationError, match="exactly one"):
-        ImageContent(url="https://example.com/x.png", base64="iVBORw0KGgo=")
+        # ``model_validate`` (not direct kwargs) keeps the AnyHttpUrl tightening
+        # happy under pyright strict — kwargs would force ``str`` literals
+        # through an ``AnyHttpUrl`` parameter that is no longer ``str``.
+        ImageContent.model_validate(
+            {"url": "https://example.com/x.png", "base64": "iVBORw0KGgo="},
+        )
 
 
 def test_image_content_rejects_neither_url_nor_base64() -> None:
@@ -41,7 +47,7 @@ def test_image_content_rejects_neither_url_nor_base64() -> None:
 
 def test_image_content_rejects_empty_url() -> None:
     with pytest.raises(ValidationError):
-        ImageContent(url="")
+        ImageContent.model_validate({"url": ""})
 
 
 def test_image_content_rejects_empty_base64() -> None:
@@ -74,11 +80,15 @@ def test_image_content_rejects_non_http_scheme_url() -> None:
 
 
 def test_image_content_rejects_oversize_base64() -> None:
-    # max_length=20_971_520 (~20 MiB) caps the inline-blob DoS surface.
+    # caps the inline-blob DoS surface; one char over the cap is rejected.
+    oversize = BASE64_MEDIA_MAX_CHARS + 1
     with pytest.raises(ValidationError):
-        ImageContent(base64="A" * 20_971_521)
+        ImageContent(base64="A" * oversize)
 
 
 def test_image_content_rejects_oversize_url() -> None:
+    """URL-length cap rejects a URL longer than ``URL_MAX_CHARS``."""
+    # ``http://x/`` is 9 chars; pad to one beyond the cap.
+    pad_len = (URL_MAX_CHARS + 1) - len("http://x/")
     with pytest.raises(ValidationError):
-        ImageContent(url="http://x/" + ("a" * 2050))
+        ImageContent.model_validate({"url": "http://x/" + ("a" * pad_len)})

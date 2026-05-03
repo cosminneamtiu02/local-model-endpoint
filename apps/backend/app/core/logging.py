@@ -9,16 +9,52 @@ documented exception. All other code uses ``structlog.get_logger``.
 
 import logging
 import sys
+from typing import Final
 
 import structlog
+
+EXC_MESSAGE_PREVIEW_MAX_CHARS: Final[int] = 200
+"""Cap for ``exc_message=`` log fields where ``str(exc)`` is serialized.
+
+Prevents an unbounded exception ``__str__`` (e.g. an httpx error reflecting
+a multi-MB upstream body) from inflating the log line. Centralized here so
+ollama_client.py and any future call site reuse one constant rather than
+hand-rolling 200/256/500 caps.
+"""
+
+_REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
+    {"messages", "content", "prompt", "tool_calls", "audios", "images"},
+)
+"""Event-dict keys whose values are unconditionally redacted.
+
+Defense-in-depth backstop for the CLAUDE.md ban on logging consumer prompt
+content. Caller discipline at every emit site is the primary contract; this
+processor catches the regression where a future contributor adds
+``messages=request.messages`` to a logger call.
+"""
+
+
+def _redact_sensitive_keys(
+    _logger: object,
+    _method_name: str,
+    event_dict: structlog.types.EventDict,
+) -> structlog.types.EventDict:
+    """Defense-in-depth backstop for CLAUDE.md prompt-content log ban.
+
+    Replaces values for known-sensitive keys with the ``"<redacted>"``
+    sentinel regardless of caller discipline. The CLAUDE.md ban is the
+    primary contract; this processor is the infrastructure-level catch.
+    """
+    for key in event_dict.keys() & _REDACTION_BLOCKLIST:
+        event_dict[key] = "<redacted>"
+    return event_dict
 
 
 def configure_logging(*, log_level: str = "info", json_output: bool = False) -> None:
     """Configure structlog for the application.
 
-    Args:
-        log_level: The minimum log level (debug, info, warning, error, critical).
-        json_output: If True, output JSON. If False, output pretty console format.
+    ``log_level`` is the minimum log level (debug/info/warning/error/critical).
+    ``json_output=True`` emits JSON; ``False`` emits pretty console format.
     """
     # Build the shared processor chain. Order matters here: ``merge_contextvars``
     # runs FIRST so contextvars-bound keys are present on the event dict before
@@ -37,6 +73,11 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     # added on top of it).
     shared_processors: list[structlog.typing.Processor] = [
         structlog.contextvars.merge_contextvars,
+        # Defense-in-depth redaction sits AFTER ``merge_contextvars`` so a
+        # contextvar bind that accidentally carries prompt content is also
+        # caught. The CLAUDE.md "never log message content" rule is the
+        # primary contract; this processor is the infrastructure backstop.
+        _redact_sensitive_keys,
         structlog.stdlib.add_log_level,
         # ``add_logger_name`` adds the ``logger`` field — kept (rather than
         # dropped as redundant noise) for jq ``.logger`` selectors when
@@ -49,6 +90,10 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
         structlog.processors.StackInfoRenderer(),
     ]
     if json_output:
+        # ``dict_tracebacks`` is a singleton instance per structlog 25.x; if
+        # upgraded to a factory, switch to
+        # ``any(isinstance(p, type(structlog.processors.dict_tracebacks))
+        # for p in processors)`` for the membership test in tests/lints.
         shared_processors.append(structlog.processors.dict_tracebacks)
     shared_processors.append(structlog.processors.UnicodeDecoder())
 
@@ -72,14 +117,14 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
         # single-developer LAN service the cost is negligible vs the
         # uniformity benefit.
         wrapper_class=structlog.stdlib.BoundLogger,
-        # ``cache_logger_on_first_use=True`` freezes the bound logger on
-        # first ``get_logger()`` call. ``reset_defaults()`` (used in
-        # tests/unit/core/test_logging.py) does NOT clear those frozen
-        # per-module loggers; tests that re-configure logging mid-run and
-        # expect already-imported modules' loggers to pick up the new
-        # config will see stale loggers. Today no test does that, but the
-        # trap is real — see test_logging.py docstring for the contract.
-        cache_logger_on_first_use=True,
+        # ``cache_logger_on_first_use`` is INTENTIONALLY OMITTED. Setting
+        # it to True freezes the bound logger on first ``get_logger()``
+        # call, which means ``reset_defaults()`` (used in
+        # tests/unit/core/test_logging.py) does NOT pick up the
+        # reconfigured chain on already-imported module loggers. The perf
+        # delta of the cache is sub-microsecond per call, well below the
+        # operator-debugging cost of stale loggers when tests / dev
+        # iteration reconfigure logging mid-run.
     )
 
     # foreign_pre_chain pipes stdlib-originated records (uvicorn, httpx,

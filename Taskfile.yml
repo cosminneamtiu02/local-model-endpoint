@@ -2,6 +2,7 @@ version: "3"
 
 vars:
   BACKEND_DIR: apps/backend
+  ERROR_CONTRACTS_DIR: packages/error-contracts
 
 tasks:
   # ── Development ──────────────────────────────────────────────
@@ -32,15 +33,34 @@ tasks:
       - task: check:audit
 
   check:lint:
-    desc: Run linter
+    desc: Run linter (backend + error-contracts)
     cmds:
       - task: lint
+      - task: check:lint:errors
+
+  check:lint:errors:
+    desc: Run ruff check on the error-contracts package
+    dir: "{{.ERROR_CONTRACTS_DIR}}"
+    cmds:
+      - uv run ruff check scripts/ tests/
 
   check:format:
-    desc: Verify formatting
+    desc: Verify formatting (backend + error-contracts)
+    cmds:
+      - task: check:format:backend
+      - task: check:format:errors
+
+  check:format:backend:
+    desc: Verify formatting on the backend app
     dir: "{{.BACKEND_DIR}}"
     cmds:
       - uv run ruff format --check app/ tests/
+
+  check:format:errors:
+    desc: Verify formatting on the error-contracts package
+    dir: "{{.ERROR_CONTRACTS_DIR}}"
+    cmds:
+      - uv run ruff format --check scripts/ tests/
 
   check:types:
     desc: Run type checker (backend + error-contracts)
@@ -120,7 +140,13 @@ tasks:
       - uv lock --check
 
   check:audit:
-    desc: Run pip-audit on backend deps (advisory; surfaces known CVEs)
+    desc: Run pip-audit on backend + error-contracts deps (CVE scan)
+    cmds:
+      - task: check:audit:backend
+      - task: check:audit:errors
+
+  check:audit:backend:
+    desc: Run pip-audit on backend deps
     dir: "{{.BACKEND_DIR}}"
     # pip-audit 2.10 rejects ``--disable-pip`` unless paired with ``-r``;
     # we audit the resolved virtualenv directly (the env that ``uv sync``
@@ -131,6 +157,13 @@ tasks:
     # ``--strict`` is intentionally omitted: with it, pip-audit treats the
     # editable-skip as a fatal warning and exits 1 even with zero CVEs.
     # Real CVEs still cause a non-zero exit without ``--strict``.
+    cmds:
+      - uv run --frozen pip-audit --skip-editable
+
+  check:audit:errors:
+    desc: Run pip-audit on error-contracts deps
+    dir: "{{.ERROR_CONTRACTS_DIR}}"
+    # Same flag rationale as the backend variant above.
     cmds:
       - uv run --frozen pip-audit --skip-editable
 

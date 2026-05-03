@@ -58,9 +58,14 @@ class DomainError(Exception):
     def detail(self) -> str:
         """Render the per-instance human-readable detail.
 
-        Subclasses generated from errors.yaml override this. The base
-        implementation returns ``title`` as the most informative default if a
-        subclass is constructed without overriding (e.g. a hand-rolled
-        subclass — forbidden by CLAUDE.md, but kept safe).
+        Subclasses generated from errors.yaml override this; the override
+        is the canonical implementation. The base raises ``NotImplementedError``
+        because CLAUDE.md forbids hand-rolled DomainError subclasses
+        ("Never edit files in ``exceptions/_generated/``"), so any code path
+        reaching this fallback is a bug — a typo in errors.yaml's codegen
+        template, a manually-written subclass, or a future contributor
+        forgetting to regenerate. Failing loud surfaces the bug; the prior
+        ``return self.title`` quietly hid the contract violation.
         """
-        return self.title
+        msg = "DomainError subclasses must override detail()"
+        raise NotImplementedError(msg)

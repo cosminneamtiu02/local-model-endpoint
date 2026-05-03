@@ -325,16 +325,23 @@ def _validate_description_safe_for_docstring(code: str, description: str) -> Non
             raise ValueError(msg)
 
 
-# PII-safe string param names that may legitimately appear on 5xx errors.
-# These are enum-valued strings (drawn from a closed alphabet by the
-# raise site, not user-supplied free-form), so spreading them at root
-# level on the wire body cannot leak operator-private data. New 5xx
-# string params MUST be added to this allowlist with an in-yaml comment
-# justifying the closed-alphabet claim.
-_PII_SAFE_5XX_STRING_PARAMS: Final[frozenset[str]] = frozenset(
+# PII-safe (code, param_name) pairs that may legitimately appear on 5xx
+# errors. These are enum-valued strings (drawn from a closed alphabet by
+# the raise site, not user-supplied free-form), so spreading them at root
+# level on the wire body cannot leak operator-private data.
+#
+# Lane 8.3: scoped per-code rather than as a flat name set so a name like
+# ``reason`` cannot accidentally launder into a *different* 5xx error's
+# string param surface. Each entry is (error_code, param_name) — a future
+# error declaring ``reason`` must be re-allowlisted explicitly here, with
+# an in-source comment justifying the closed-alphabet claim for that
+# specific error's raise sites.
+_PII_SAFE_5XX_STRING_PARAMS: Final[frozenset[tuple[str, str]]] = frozenset(
     {
-        "backend",  # closed enum: only "ollama" today; LIP-internal label
-        "reason",  # closed enum: "timeout" / "connection_refused" / etc.
+        # closed enum: only "ollama" today; LIP-internal label
+        ("ADAPTER_CONNECTION_FAILURE", "backend"),
+        # closed enum: "timeout" / "connection_refused" / etc.
+        ("ADAPTER_CONNECTION_FAILURE", "reason"),
     }
 )
 
@@ -351,16 +358,17 @@ def _validate_no_5xx_string_params(code: str, http_status: int, params: _ParamsM
     body, leaking whatever the caller passed (file paths, urls, prompt
     fragments).
 
-    Allowlists ``_PII_SAFE_5XX_STRING_PARAMS`` for closed-enum strings
-    that are demonstrably PII-safe. New 5xx string params MUST extend
-    that allowlist with explicit justification.
+    Allowlists ``_PII_SAFE_5XX_STRING_PARAMS`` as (code, param_name)
+    pairs for closed-enum strings that are demonstrably PII-safe on a
+    *specific* error code. New 5xx string params MUST extend that
+    allowlist with explicit justification.
     """
     if http_status < 500:  # noqa: PLR2004 — 500 is the HTTP 5xx floor; not a magic constant
         return
     forbidden = [
         name
         for name, ptype in params.items()
-        if ptype == "string" and name not in _PII_SAFE_5XX_STRING_PARAMS
+        if ptype == "string" and (code, name) not in _PII_SAFE_5XX_STRING_PARAMS
     ]
     if forbidden:
         allowlisted = sorted(_PII_SAFE_5XX_STRING_PARAMS)
@@ -369,8 +377,8 @@ def _validate_no_5xx_string_params(code: str, http_status: int, params: _ParamsM
             f"param(s) {sorted(forbidden)!r}; 5xx response bodies must not include "
             "user-supplied free-form strings (PII discipline — see "
             "exception_handlers.py _handle_unhandled_exception). Use integer "
-            f"params, restructure as a 4xx, or add the new param to "
-            f"_PII_SAFE_5XX_STRING_PARAMS (currently {allowlisted}) with "
+            f"params, restructure as a 4xx, or add the (code, param_name) pair "
+            f"to _PII_SAFE_5XX_STRING_PARAMS (currently {allowlisted}) with "
             "justification that it carries closed-enum values only."
         )
         raise ValueError(msg)
@@ -403,9 +411,18 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
 
     seen_class_names: set[str] = set()
     for code, spec in errors.items():
-        # Validate code format
-        if not re.match(r"^[A-Z][A-Z0-9_]*$", code):
-            msg = f"Error code must be SCREAMING_SNAKE_CASE: {code}"
+        # Validate code format (lane 8.5): SCREAMING_SNAKE_CASE strict.
+        # The regex disallows leading/trailing underscores AND consecutive
+        # underscores ("FOO__BAR" is rejected). Each segment must start
+        # with an uppercase letter and may contain digits afterwards.
+        # Mirror this regex in app/schemas/problem_details.py's `code`
+        # Field pattern when AGENT-SCHEMAS lands lane 8.5's wire-side edit
+        # (the schemas file is owned by AGENT-SCHEMAS — left to that lane).
+        if not re.match(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$", code):
+            msg = (
+                f"Error code must be SCREAMING_SNAKE_CASE with no leading/"
+                f"trailing/double underscores: {code}"
+            )
             raise ValueError(msg)
 
         # Validate http_status
@@ -714,15 +731,20 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
     generated_files.append(init_file)
 
     # Generate _registry.py (sorted, error classes only).
+    #
+    # Lane 8.1: ``DomainError`` is the value type of ``ERROR_CLASSES``
+    # (``dict[str, type[DomainError]]``) and the concrete error classes
+    # imported below subclass it; importing it at module scope alongside
+    # the concrete error classes keeps the registry's type annotation
+    # honest at runtime (rather than gating the base-class symbol behind
+    # ``TYPE_CHECKING`` while the dict literal references concrete
+    # subclasses that already pull the base class in transitively).
     registry_file = output_dir / "_registry.py"
     error_imports = sorted((name, imp) for name, imp in init_entries if name.endswith("Error"))
     sorted_registry_entries = sorted(registry_entries, key=lambda pair: pair[0])
     registry_content = (
         '"""Generated error registry. Do not edit."""\n\n'
-        "from __future__ import annotations\n\n"
-        "from typing import TYPE_CHECKING\n\n"
-        "if TYPE_CHECKING:\n"
-        "    from app.exceptions.base import DomainError\n\n"
+        "from app.exceptions.base import DomainError\n"
         + "\n".join(imp for _, imp in error_imports)
         + "\n\n"
         "ERROR_CLASSES: dict[str, type[DomainError]] = {\n"

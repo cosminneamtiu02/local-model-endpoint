@@ -26,8 +26,14 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.12
     hooks:
+      # Lane 10.8: ``--fix`` removed so pre-commit and CI behave
+      # identically (CI runs ``ruff check`` without auto-fix). The
+      # auto-fix surface produced a window where ``git commit`` could
+      # silently rewrite files between staged and committed, then CI
+      # would still flag a finding the developer never saw. With
+      # ``ruff check`` everywhere, a finding is surfaced once at commit
+      # time and the contributor edits manually.
       - id: ruff
-        args: [--fix]
       - id: ruff-format
 
   - repo: local

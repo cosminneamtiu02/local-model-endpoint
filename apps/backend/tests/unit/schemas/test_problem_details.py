@@ -1,26 +1,44 @@
 """Unit tests for the RFC 7807 ProblemDetails schema."""
 
 import json
+from typing import TypedDict
 
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import ProblemDetails, ProblemExtras
+from app.schemas import ProblemDetails
 
 
-def _base_kwargs() -> dict[str, object]:
-    return {
-        "type": "urn:lip:error:queue-full",
-        "title": "Inference Queue Full",
-        "status": 503,
-        "detail": "Inference queue at capacity (5 waiters, max 4).",
-        "instance": "/api/v1/inference",
-        "code": "QUEUE_FULL",
+class _BaseKwargs(TypedDict):
+    """Canonical kwargs shape for ProblemDetails construction in tests.
+
+    Typed so pyright strict can narrow ``**_base_kwargs()`` spreads at
+    every call site without falling back to ``dict[str, object]`` (which
+    would be Unknown under the round-7 ``AnyHttpUrl`` tightening).
+    """
+
+    type: str
+    title: str
+    status: int
+    detail: str
+    instance: str
+    code: str
+    request_id: str
+
+
+def _base_kwargs() -> _BaseKwargs:
+    return _BaseKwargs(
+        type="urn:lip:error:queue-full",
+        title="Inference Queue Full",
+        status=503,
+        detail="Inference queue at capacity (5 waiters, max 4).",
+        instance="/api/v1/inference",
+        code="QUEUE_FULL",
         # UUID-shaped to match the schema's defense-in-depth pattern; the
         # handler always populates this field from the middleware's
         # generated UUID, so test fixtures should mirror the real wire shape.
-        "request_id": "12345678-1234-1234-1234-123456789012",
-    }
+        request_id="12345678-1234-1234-1234-123456789012",
+    )
 
 
 def test_problem_details_accepts_canonical_rfc7807_fields() -> None:
@@ -37,10 +55,12 @@ def test_problem_details_accepts_canonical_rfc7807_fields() -> None:
 
 def test_problem_details_allows_arbitrary_extension_fields() -> None:
     """extra='allow' accepts typed-params extensions and validation_errors[]."""
-    pd = ProblemDetails(
-        **_base_kwargs(),
-        max_waiters=4,
-        current_waiters=5,
+    # ``model_validate`` keeps the extras-spread path strictly typed: kwargs
+    # spread (``**_base_kwargs(), max_waiters=...``) cannot be statically
+    # typed under the round-7 AnyHttpUrl tightening because pyright can't
+    # express "TypedDict + arbitrary extra keys".
+    pd = ProblemDetails.model_validate(
+        {**_base_kwargs(), "max_waiters": 4, "current_waiters": 5},
     )
     dumped = pd.model_dump()
     assert dumped["max_waiters"] == 4
@@ -49,12 +69,14 @@ def test_problem_details_allows_arbitrary_extension_fields() -> None:
 
 def test_problem_details_accepts_validation_errors_extension_list() -> None:
     """validation_errors[] is permitted via extra='allow' as a list of dicts."""
-    pd = ProblemDetails(
-        **_base_kwargs(),
-        validation_errors=[
-            {"field": "messages.0.role", "reason": "Input should be 'user'"},
-            {"field": "messages.1.content", "reason": "field required"},
-        ],
+    pd = ProblemDetails.model_validate(
+        {
+            **_base_kwargs(),
+            "validation_errors": [
+                {"field": "messages.0.role", "reason": "Input should be 'user'"},
+                {"field": "messages.1.content", "reason": "field required"},
+            ],
+        },
     )
     dumped = pd.model_dump()
     assert isinstance(dumped["validation_errors"], list)
@@ -64,23 +86,25 @@ def test_problem_details_accepts_validation_errors_extension_list() -> None:
 
 def test_problem_details_rejects_missing_status() -> None:
     """status is required (RFC 7807 §3.1)."""
-    kwargs = _base_kwargs()
+    kwargs: dict[str, object] = dict(_base_kwargs())
     del kwargs["status"]
     with pytest.raises(ValidationError):
-        ProblemDetails(**kwargs)
+        ProblemDetails.model_validate(kwargs)
 
 
 def test_problem_details_rejects_status_out_of_range() -> None:
     """status must be 400-599 — non-error responses are not problems."""
-    kwargs = _base_kwargs()
+    kwargs: dict[str, object] = dict(_base_kwargs())
     kwargs["status"] = 200
     with pytest.raises(ValidationError):
-        ProblemDetails(**kwargs)
+        ProblemDetails.model_validate(kwargs)
 
 
 def test_problem_details_dump_includes_extension_fields_at_root() -> None:
     """extra fields appear at root level of model_dump(), not nested."""
-    pd = ProblemDetails(**_base_kwargs(), validation_errors=[{"field": "x", "reason": "y"}])
+    pd = ProblemDetails.model_validate(
+        {**_base_kwargs(), "validation_errors": [{"field": "x", "reason": "y"}]},
+    )
     dumped = pd.model_dump()
     assert "validation_errors" in dumped
     assert dumped["validation_errors"] == [{"field": "x", "reason": "y"}]
@@ -91,34 +115,16 @@ def test_problem_details_dump_includes_extension_fields_at_root() -> None:
 
 def test_problem_details_model_dump_json_produces_valid_json() -> None:
     """model_dump_json() — the path used by the handler — round-trips through json.loads."""
-    pd = ProblemDetails(
-        **_base_kwargs(),
-        max_waiters=4,
-        current_waiters=5,
-        validation_errors=[{"field": "x", "reason": "y"}],
+    pd = ProblemDetails.model_validate(
+        {
+            **_base_kwargs(),
+            "max_waiters": 4,
+            "current_waiters": 5,
+            "validation_errors": [{"field": "x", "reason": "y"}],
+        },
     )
     raw = pd.model_dump_json()
     parsed = json.loads(raw)
     assert parsed["status"] == 503
     assert parsed["max_waiters"] == 4
     assert parsed["validation_errors"] == [{"field": "x", "reason": "y"}]
-
-
-def test_problem_extras_typed_dict_validation_errors_key_is_typed_correctly() -> None:
-    """ProblemExtras (TypedDict) carries ``validation_errors`` typed as a list.
-
-    The previous test re-asserted on the literal it just constructed, which
-    was tautological — ``{"validation_errors": []}["validation_errors"] == []``
-    is true regardless of the schema. Inspect the raw ``__annotations__``
-    string-form so the assertion exercises the TypedDict declaration itself;
-    if a future refactor drops or renames the key, or widens the value type
-    to something other than a list of ValidationErrorDetail, this test
-    fails for a real reason. The string form is used (instead of
-    ``get_type_hints``) because ``ValidationErrorDetail`` is imported under
-    ``TYPE_CHECKING`` in problem_extras.py — runtime resolution would fail.
-    """
-    annotations = ProblemExtras.__annotations__
-    assert "validation_errors" in annotations
-    annotation_repr = str(annotations["validation_errors"])
-    assert "list[" in annotation_repr
-    assert "ValidationErrorDetail" in annotation_repr

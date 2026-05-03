@@ -18,7 +18,17 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "fastapi==0.136.1",
     "starlette==1.0.0",
-    "uvicorn[standard]==0.46.0",
+    # Lane 18.3: ``uvicorn[standard]`` was the convenience extra; we now
+    # pin the explicit subset actually used so the dep audit can see
+    # exactly which transitives are load-bearing. ``websockets`` and
+    # ``python-dotenv`` (also pulled by ``[standard]``) are intentionally
+    # NOT listed — LIP has no WebSocket routes (CLAUDE.md "Conventions
+    # (planned, not yet implemented) — WebSockets") and reads env via
+    # pydantic-settings, never via dotenv.
+    "uvicorn==0.46.0",
+    "httptools==0.7.1",
+    "uvloop==0.22.1",
+    "watchfiles==1.1.1",
     "pydantic==2.13.3",
     "pydantic-settings==2.14.0",
     "structlog==25.5.0",
@@ -44,6 +54,11 @@ dev = [
     # carries a vetted Schemathesis transitive set when the fuzz tests land.
     "schemathesis==4.17.0",
     "pip-audit==2.10.0",
+    # Lane 18.1: backend tests parse errors.yaml directly to assert
+    # invariants between the YAML source-of-truth and the generated
+    # exception classes. The backend has no runtime dependency on YAML
+    # (only the codegen does), so pyyaml is dev-only here.
+    "pyyaml==6.0.3",
 ]
 
 [tool.ruff]
@@ -105,23 +120,29 @@ addopts = [
 xfail_strict = true
 filterwarnings = [
     "error",
-    "ignore::DeprecationWarning:hypothesis",
-    "ignore::DeprecationWarning:schemathesis",
-    # anyio's memory streams emit ResourceWarnings on GC during pytest's
-    # asyncio-teardown sweep; not a LIP bug. Filter so they don't get
-    # elevated to test failures by `error`. The unraisable-exception
-    # filter is scoped to the pytest module that emits it on
-    # asyncio-teardown so it does not silence "coroutine was never awaited"
-    # bugs across the rest of the suite.
+    # Lane 15.2: hypothesis + schemathesis DeprecationWarning filters were
+    # dropped — they swallow nothing today (the fuzz suite is dormant
+    # until LIP-E001-F002 lands the inference router), and a blanket
+    # ``ignore::DeprecationWarning:hypothesis`` would also mask the
+    # 4.x→5.x rename signals that fuzz-suite consumers actually need to
+    # see when the bump lands. Re-add narrowly when LIP-E001-F002 lands a
+    # fuzzable inference router.
+    #
+    # The ``PytestUnraisableExceptionWarning`` filter below is scoped to
+    # the pytest module that emits it on asyncio-teardown so it does not
+    # silence "coroutine was never awaited" bugs across the rest of the
+    # suite.
     "ignore::pytest.PytestUnraisableExceptionWarning:_pytest.unraisableexception",
-    # Narrow to the specific anyio teardown ResourceWarning category. A
-    # plain ``ignore::ResourceWarning:anyio`` would silence every
-    # anyio-module ResourceWarning — including a future bug like an
-    # unclosed AsyncClient that leaks into anyio's stream-management
-    # code. Today the only anyio ResourceWarning we tolerate is the
-    # teardown-time GC sweep on memory streams.
+    # anyio's memory streams emit ResourceWarnings on GC during pytest's
+    # asyncio-teardown sweep; not a LIP bug. Narrow to the specific
+    # ``memory_stream`` text in the warning message so a future bug
+    # like an unclosed AsyncClient that leaks into anyio's stream-
+    # management code (a *different* ResourceWarning) is NOT silenced.
+    # Lane 15.3: the prior unconditional ``ignore::ResourceWarning:anyio``
+    # entry was redundant — it superseded this narrowed regex by
+    # silencing every anyio-module ResourceWarning. Removed so the
+    # narrowing actually narrows.
     "ignore:.*memory[ _]stream.*:ResourceWarning:anyio",
-    "ignore::ResourceWarning:anyio",
 ]
 # No ``markers = [...]`` block — empty list is a no-op under
 # ``--strict-markers`` (set in addopts above), which already rejects unknown

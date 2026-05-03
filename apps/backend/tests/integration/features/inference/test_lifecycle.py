@@ -20,7 +20,7 @@ from fastapi import Depends
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_ollama_client
-from app.features.inference.repository.ollama_client import OllamaClient
+from app.features.inference import OllamaClient
 
 
 async def test_mock_transport_allows_full_request_round_trip() -> None:

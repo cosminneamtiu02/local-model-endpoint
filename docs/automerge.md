@@ -2,7 +2,7 @@
 
 How the "Dependabot PRs auto-merge if and only if everything is green" invariant is actually enforced. Read this end-to-end the first time. Bookmark it as a reference the next time something misbehaves.
 
-> **Note (post-bootstrap):** This document was originally written for the full-stack template that LIP was bootstrapped from. The auto-merge workflow, ruleset, variable, and PAT mechanics described below are unchanged for LIP. The historical incident references and lockfile-sync sections that mention `frontend-checks`, `api-client-checks`, `pnpm-lock.yaml`, and pnpm package groups describe the pre-bootstrap state — those parts of the surface no longer apply (LIP has no frontend, no Node, no `pnpm-lock.yaml`). Required status checks for LIP are `backend-checks` and `error-contracts`. The lockfile-sync workflow now operates only on `uv.lock` files in `apps/backend` and `packages/error-contracts`.
+> **Note (post-bootstrap):** This document was originally written for the full-stack template that LIP was bootstrapped from. The auto-merge workflow, ruleset, variable, and PAT mechanics described below are unchanged for LIP. The historical incident references and lockfile-sync sections that mention `frontend-checks`, `api-client-checks`, `pnpm-lock.yaml`, and pnpm package groups describe the pre-bootstrap state — those parts of the surface no longer apply (LIP has no frontend, no Node, no `pnpm-lock.yaml`). Required status checks for LIP are `backend-checks`, `error-contracts`, and `darwin-checks` (the macOS-only `plutil` plist canary). The lockfile-sync workflow now operates only on `uv.lock` files in `apps/backend` and `packages/error-contracts`.
 
 ## TL;DR
 
@@ -60,6 +60,7 @@ Lives at Settings → Rules → Rulesets → `main-protection`. Active. Targets 
 - **Require status checks to pass** — with `strict: true` (branches must be up to date). Required contexts:
   - `backend-checks`
   - `error-contracts`
+  - `darwin-checks`
 - **Block force pushes** — cannot rewrite history on main.
 
 The ruleset is load-bearing for the whole auto-merge system. Specifically, the **required status checks** list is what `gh pr merge --auto` waits for. With an empty or missing ruleset, `--auto` has nothing to wait for and merges immediately — including merging PRs with failing CI. This is not theoretical; it happened once (see the Incident Log below).
@@ -139,7 +140,7 @@ The invariant only holds when every component is correctly configured. The setup
 
 ## Historical (pre-bootstrap)
 
-The incidents below are pre-bootstrap narrative from the full-stack template LIP was extracted from. The lessons (the four guard-condition / ruleset / `--auto` / sibling-conflict patterns) still apply unchanged. The symptom-level references to `frontend-checks`, `api-client-checks`, `pnpm-lock.yaml`, and `ERR_PNPM_OUTDATED_LOCKFILE` are pre-bootstrap context — those check names and that ecosystem no longer exist in this repo. Required status checks for LIP are `backend-checks` and `error-contracts`; the lockfile-sync workflow operates only on `uv.lock` files.
+The incidents below are pre-bootstrap narrative from the full-stack template LIP was extracted from. The lessons (the four guard-condition / ruleset / `--auto` / sibling-conflict patterns) still apply unchanged. The symptom-level references to `frontend-checks`, `api-client-checks`, `pnpm-lock.yaml`, and `ERR_PNPM_OUTDATED_LOCKFILE` are pre-bootstrap context — those check names and that ecosystem no longer exist in this repo. Required status checks for LIP are `backend-checks`, `error-contracts`, and `darwin-checks`; the lockfile-sync workflow operates only on `uv.lock` files.
 
 ### Incident 1: PR #19 — auto-merged with red CI because ruleset didn't exist yet
 
@@ -190,10 +191,10 @@ Run these after any change to the auto-merge system to confirm the paired contra
 gh api repos/<owner>/<repo>/rulesets --jq '.[] | select(.name=="main-protection") | {name, enforcement, id}'
 # Expect: {"name":"main-protection","enforcement":"active","id":<number>}
 
-# 2. Ruleset has all 2 required status checks bound to GitHub Actions
+# 2. Ruleset has all 3 required status checks bound to GitHub Actions
 gh api repos/<owner>/<repo>/rulesets/<id> \
   --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks'
-# Expect: 2 entries, each with "context" and "integration_id": 15368
+# Expect: 3 entries, each with "context" and "integration_id": 15368
 
 # 3. Variable is set
 gh variable list --repo <owner>/<repo>
@@ -304,7 +305,7 @@ Pushing with a PAT (or a GitHub App installation token) bypasses this limitation
   - `Pull requests: Read and write`
 - **Expiration:** set a reasonable limit (e.g., 1 year) and rotate on expiration
 
-Store it as a repo secret named `DEPENDABOT_LOCKFILE_SYNC_PAT` (Settings → Secrets and variables → Actions → Secrets tab → New repository secret). The workflow references it via `secrets.DEPENDABOT_LOCKFILE_SYNC_PAT`.
+Store it as a Dependabot secret (Settings → Secrets and variables → **Dependabot** tab → New repository secret), not Actions secrets — Dependabot-triggered workflows can only read from the Dependabot store (a 2021 supply-chain mitigation against compromised dependencies pulling Actions secrets). The workflow references it via `secrets.DEPENDABOT_LOCKFILE_SYNC_PAT`. The matching CLI invocation is `gh secret set DEPENDABOT_LOCKFILE_SYNC_PAT --app dependabot --body "<paste PAT>"` — see the Setup section below.
 
 ### Prerequisites for the sync workflow to function
 
@@ -359,7 +360,7 @@ step 4 is only safe to flip on after the ruleset in step 1 is verified
    linear history, require a pull request before merging (0 approvals,
    dismiss stale approvals on push, require conversation resolution,
    squash-only), require status checks to pass with `strict: true` and
-   required contexts `backend-checks` and `error-contracts` (LIP does not
+   required contexts `backend-checks`, `error-contracts`, and `darwin-checks` (LIP does not
    ship CodeQL in v1 — drop the parenthetical from any template that
    carries it), block force pushes. Verify the contexts
    bind to GitHub Actions (`integration_id: 15368`) using the

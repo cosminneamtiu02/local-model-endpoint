@@ -15,13 +15,13 @@ from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
 from app.features.inference.model.ollama_chat_result import OllamaChatResult
-from app.features.inference.model.text_content import TextContent
-from app.features.inference.repository.ollama_translation import (
+from app.features.inference.model.ollama_translation import (
     _PARAM_RENAMES,
     build_chat_result,
     translate_message,
     translate_params,
 )
+from app.features.inference.model.text_content import TextContent
 
 # ── translate_message ───────────────────────────────────────────────
 

@@ -1,18 +1,15 @@
 """InferenceRequest wire schema — public POST body for the inference endpoint."""
 
-from typing import Final, Self
+from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from app.features.inference.model.caps import (
+    METADATA_KEY_MAX_LENGTH,
+    METADATA_VALUE_MAX_LENGTH,
+)
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
-
-# Per-string cap for metadata values: bounds payload size symmetrically with
-# Message string-content limits and prevents `{"x": "<10MiB string>"}`-style
-# memory amplification on the LAN-trusted-but-not-infallible consumer path.
-# The validator walks nested lists/dicts so a consumer cannot bypass the cap
-# by wrapping a long string in a one-element list or a single-key dict.
-_METADATA_VALUE_MAX_LENGTH: Final[int] = 4096
 
 
 def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
@@ -23,10 +20,10 @@ def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
     operator at the offending leaf.
     """
     if isinstance(value, str):
-        if len(value) > _METADATA_VALUE_MAX_LENGTH:
+        if len(value) > METADATA_VALUE_MAX_LENGTH:
             msg = (
                 f"metadata[{key_path}] string value exceeds the "
-                f"{_METADATA_VALUE_MAX_LENGTH}-character cap."
+                f"{METADATA_VALUE_MAX_LENGTH}-character cap."
             )
             raise ValueError(msg)
         return
@@ -49,8 +46,8 @@ class InferenceRequest(BaseModel):
     `model` is a logical name the registry resolves to a concrete
     backend tag — never a backend-specific tag itself. `metadata` is a
     pass-through for future per-project attribution; structural bounds
-    (key count + per-value length, recursive) are enforced, content
-    semantics are opaque.
+    (key count, per-key length, and per-value length, recursive) are
+    enforced, content semantics are opaque.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
@@ -62,11 +59,27 @@ class InferenceRequest(BaseModel):
     # (str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]).
     # Tightens the wire contract from ``dict[str, Any]`` so a consumer cannot
     # ship a non-JSON value (e.g. a datetime) that would deserialize fine on
-    # input and fail downstream at JSON encoding.
-    metadata: dict[str, JsonValue] = Field(default_factory=dict, max_length=16)
+    # input and fail downstream at JSON encoding. The Annotated key type
+    # bounds the third orthogonal DoS axis (key length); the
+    # ``_bound_metadata_values`` validator below bounds string-value leaves
+    # recursively — together they pin all three metadata-DoS surfaces
+    # (key count via ``max_length``, key length via the key Annotated cap,
+    # per-string-leaf length via the recursive validator).
+    metadata: dict[
+        Annotated[str, Field(max_length=METADATA_KEY_MAX_LENGTH)],
+        JsonValue,
+    ] = Field(default_factory=dict, max_length=16)
 
     @model_validator(mode="after")
     def _bound_metadata_values(self) -> Self:
         for key, value in self.metadata.items():
+            # Defense-in-depth: the dict-key Annotated cap above already
+            # bounds key length, but a future schema rebuild that drops
+            # the Annotated wrapper without updating this validator would
+            # otherwise silently widen the surface — re-check here keeps
+            # the cap visible at the validator level too.
+            if len(key) > METADATA_KEY_MAX_LENGTH:
+                msg = f"metadata key {key!r} exceeds the {METADATA_KEY_MAX_LENGTH}-character cap."
+                raise ValueError(msg)
             _bounded_strings_in_metadata(value, repr(key))
         return self

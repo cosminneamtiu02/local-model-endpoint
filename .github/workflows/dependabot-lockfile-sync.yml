@@ -229,7 +229,20 @@ jobs:
             -m "chore(deps): regenerate lockfiles after dependabot bump" \
             -m "Automated follow-up commit from .github/workflows/dependabot-lockfile-sync.yml. Dependabot's uv support does not regenerate workspace lockfiles when bumping a manifest; this workflow runs uv in regeneration mode and pushes the updated lockfile back so CI's frozen-lockfile check passes."
 
-          git push || {
-            echo "Push failed (likely concurrent Dependabot push); next event will reconcile."
-            exit 0
-          }
+          # Lane 10.10: discriminate between a benign concurrent-push
+          # collision (non-fast-forward — another sync run beat us to
+          # the push, so the PR head already has the correct lockfile)
+          # and a real push failure (auth/scope/network) that should
+          # surface as a workflow error. The prior unconditional
+          # ``|| exit 0`` masked credential errors as silent successes.
+          push_status=0
+          push_output=$(git push 2>&1) || push_status=$?
+          if [ "$push_status" != 0 ]; then
+            if echo "$push_output" | grep -q "non-fast-forward"; then
+              echo "Concurrent push detected; another lockfile-sync run will reconcile."
+              exit 0
+            fi
+            echo "$push_output"
+            exit "$push_status"
+          fi
+          echo "$push_output"

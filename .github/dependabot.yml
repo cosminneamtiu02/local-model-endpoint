@@ -34,24 +34,26 @@ updates:
     labels:
       - "dependencies"
     groups:
+      # Lane 18.5: ``update-types`` filters dropped from every group below
+      # so MAJOR bumps also stay grouped — mirrors the
+      # ``github-actions-stack`` policy (no filter ⇒ all update types
+      # ride together). Without this, a major bump in one ecosystem PR
+      # could land in isolation while its sibling minor/patch PR moves
+      # in a separate group, re-opening the cascade-conflict surface
+      # that the grouping is here to close.
       pydantic:
         patterns:
           - "pydantic"
           - "pydantic-settings"
-        # Major bumps stay ungrouped so they're evaluated individually;
-        # only minor/patch ride together in a single PR.
-        update-types: ["minor", "patch"]
       pytest:
         patterns:
           - "pytest"
           - "pytest-*"
-        update-types: ["minor", "patch"]
       fastapi-stack:
         patterns:
           - "fastapi"
           - "starlette"
           - "uvicorn*"
-        update-types: ["minor", "patch"]
       dev-tools:
         patterns:
           - "ruff"
@@ -59,7 +61,6 @@ updates:
           - "import-linter"
           - "schemathesis"
           - "pip-audit"
-        update-types: ["minor", "patch"]
 
   - package-ecosystem: "pip"
     directory: "/packages/error-contracts"
@@ -74,16 +75,16 @@ updates:
     labels:
       - "dependencies"
     groups:
+      # Lane 18.5: ``update-types`` filters dropped — major bumps stay grouped.
       pytest:
         patterns:
           - "pytest"
           - "pytest-*"
-        update-types: ["minor", "patch"]
+      # Lane 18.6: import-linter intentionally excluded — workspace has no linter config.
       dev-tools:
         patterns:
           - "ruff"
           - "pyright"
-        update-types: ["minor", "patch"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -132,7 +133,7 @@ updates:
     labels:
       - "dependencies"
     groups:
+      # Lane 18.5: ``update-types`` filter dropped — major bumps stay grouped.
       pre-commit-tools:
         patterns:
           - "*"
-        update-types: ["minor", "patch"]

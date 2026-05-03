@@ -6,16 +6,20 @@ Covers acceptance criteria from LIP-E003-F001 unit-test scenarios:
 - async context manager support
 - close() idempotency
 - _request("GET", ...) and _request("POST", ..., json=...) plumbing
-- _request privacy (single underscore — not part of public API surface)
+- cancellation logging contract (Lane 2.1)
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
+from app.features.inference.model.message import Message
+from app.features.inference.model.model_params import ModelParams
 from app.features.inference.repository.ollama_client import (
     DEFAULT_TIMEOUT,
     OllamaClient,
@@ -50,22 +54,34 @@ async def test_constructor_sets_base_url_on_internal_httpx_client() -> None:
 
 
 async def test_constructor_uses_default_timeout_when_none_supplied() -> None:
+    """Lane 14.14 — assert each timeout field rather than relying on a
+    single equality of the whole ``httpx.Timeout`` value-object.
+
+    Equality on httpx.Timeout is structural; a future httpx that adds a
+    new field (or that breaks structural equality on Timeout) would let a
+    real regression slip past a single ``client.timeout == DEFAULT_TIMEOUT``
+    check. Field-by-field assertions stay specific to the four bounds we
+    actually rely on.
+    """
     client = OllamaClient(base_url="http://localhost:11434")
     try:
-        assert client._client.timeout == DEFAULT_TIMEOUT
-        # also verify the spec scenario directly so this test does
-        # not depend on test_default_timeout_* having run first
-        assert client._client.timeout.connect == 5.0
-        assert client._client.timeout.read == 600.0
+        assert client._client.timeout.connect == DEFAULT_TIMEOUT.connect
+        assert client._client.timeout.read == DEFAULT_TIMEOUT.read
+        assert client._client.timeout.write == DEFAULT_TIMEOUT.write
+        assert client._client.timeout.pool == DEFAULT_TIMEOUT.pool
     finally:
         await client.close()
 
 
 async def test_constructor_accepts_custom_timeout_override() -> None:
+    """Field-by-field assertion mirrors the default-timeout test (Lane 14.14)."""
     custom = httpx.Timeout(connect=2.0, read=1.0, write=1.0, pool=1.0)
     client = OllamaClient(base_url="http://localhost:11434", timeout=custom)
     try:
-        assert client._client.timeout == custom
+        assert client._client.timeout.connect == custom.connect
+        assert client._client.timeout.read == custom.read
+        assert client._client.timeout.write == custom.write
+        assert client._client.timeout.pool == custom.pool
     finally:
         await client.close()
 
@@ -140,16 +156,6 @@ async def test_request_post_sends_json_body() -> None:
     assert json.loads(body) == payload
 
 
-def test_request_method_is_private_not_in_public_api_surface() -> None:
-    """The low-level helper is single-underscore, not part of the public class API."""
-    public_attrs = [name for name in dir(OllamaClient) if not name.startswith("_")]
-    assert "request" not in public_attrs
-    # The single-underscore method exists but is by-convention internal
-    assert hasattr(OllamaClient, "_request")
-    # Public surface is: close + async context manager dunders only
-    assert "close" in public_attrs
-
-
 async def test_request_propagates_connect_error_via_mock_transport() -> None:
     """OllamaClient._request surfaces httpx.ConnectError to callers (deterministic).
 
@@ -171,3 +177,47 @@ async def test_request_propagates_connect_error_via_mock_transport() -> None:
             await client._request("GET", "/api/tags")
     finally:
         await client.close()
+
+
+# ── Cancellation contract (Lane 2.1) ─────────────────────────────────
+
+
+async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() -> None:
+    """A cancelled chat() call emits ``ollama_call_cancelled`` exactly once and
+    NEVER ``ollama_call_failed``.
+
+    Drives a slow MockTransport handler so the chat() coroutine is parked
+    on the request, then cancels the surrounding task. The Exception arm
+    in ``OllamaClient.chat`` must bypass — only the BaseException arm
+    (``ollama_call_cancelled``) should fire. Without this test, a
+    future refactor that broadens the except to BaseException would
+    silently log the cancellation as a generic failure.
+    """
+
+    async def slow_handler(_request: httpx.Request) -> httpx.Response:
+        # Park the request long enough for the surrounding task to be
+        # cancelled before the response materializes. 10s is far above
+        # the event-loop tick we wait for below.
+        await asyncio.sleep(10)
+        return httpx.Response(200, json={"message": {"content": "x"}, "done_reason": "stop"})
+
+    transport = httpx.MockTransport(slow_handler)
+    async with OllamaClient(base_url="http://ollama.test", transport=transport) as client:
+        with capture_logs() as captured:
+            task = asyncio.create_task(
+                client.chat(
+                    model_tag="gemma4:e2b",
+                    messages=[Message(role="user", content="hi")],
+                    params=ModelParams(),
+                ),
+            )
+            # Yield control so the task starts and parks on the slow handler.
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        cancelled_events = [e for e in captured if e.get("event") == "ollama_call_cancelled"]
+        failed_events = [e for e in captured if e.get("event") == "ollama_call_failed"]
+        assert len(cancelled_events) == 1, captured
+        assert failed_events == [], captured

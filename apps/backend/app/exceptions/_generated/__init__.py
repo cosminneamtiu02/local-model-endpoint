@@ -5,9 +5,11 @@ from app.exceptions._generated.adapter_connection_failure_params import (
     AdapterConnectionFailureParams,
 )
 from app.exceptions._generated.conflict_error import ConflictError
+from app.exceptions._generated.http_error import HttpError
 from app.exceptions._generated.inference_timeout_error import InferenceTimeoutError
 from app.exceptions._generated.inference_timeout_params import InferenceTimeoutParams
 from app.exceptions._generated.internal_error import InternalError
+from app.exceptions._generated.method_not_allowed_error import MethodNotAllowedError
 from app.exceptions._generated.model_capability_not_supported_error import (
     ModelCapabilityNotSupportedError,
 )
@@ -28,9 +30,11 @@ __all__ = [
     "AdapterConnectionFailureError",
     "AdapterConnectionFailureParams",
     "ConflictError",
+    "HttpError",
     "InferenceTimeoutError",
     "InferenceTimeoutParams",
     "InternalError",
+    "MethodNotAllowedError",
     "ModelCapabilityNotSupportedError",
     "ModelCapabilityNotSupportedParams",
     "NotFoundError",

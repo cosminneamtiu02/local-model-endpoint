@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.features.inference.model._caps import TEXT_PART_MAX_CHARS
+from app.features.inference.model.caps import TEXT_PART_MAX_CHARS
 from app.features.inference.model.content_part import ContentPart
 
 
@@ -24,17 +24,10 @@ class Message(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     role: Literal["user", "assistant", "system"]
-    # Per-arm constraints so Pydantic knows which length applies to which type:
-    # str -> char-count cap (single-turn plain prompt); list -> part-count cap
-    # (the third orthogonal DoS axis after per-part size and per-request message
-    # count). min_length=1 on each arm rejects empty content. `union_mode` is on
-    # the outer Field so the str arm is matched first; constraints with
-    # `union_mode` cannot live on the same Field per Pydantic v2 semantics.
-    # ``TEXT_PART_MAX_CHARS`` is shared with ``TextContent.text`` (see
-    # ``app.features.inference.model._caps``) so a future cap bump moves both
-    # at once.
-    content: Annotated[
+    # Per-arm constraints: str -> char-count cap (single-turn plain prompt);
+    # list -> part-count cap. ``TEXT_PART_MAX_CHARS`` is shared with
+    # ``TextContent.text`` so a future cap bump moves both at once.
+    content: (
         Annotated[str, Field(min_length=1, max_length=TEXT_PART_MAX_CHARS)]
-        | Annotated[list[ContentPart], Field(min_length=1, max_length=32)],
-        Field(union_mode="left_to_right"),
-    ]
+        | Annotated[list[ContentPart], Field(min_length=1, max_length=32)]
+    ) = Field(union_mode="left_to_right")

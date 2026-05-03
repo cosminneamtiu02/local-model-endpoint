@@ -176,9 +176,13 @@ Always use absolute latest versions for all dependencies.
 **Auto-merge architecture** (see [docs/automerge.md](docs/automerge.md) for the full explainer):
 
 - Dependabot-authored PRs that pass all required status checks are automatically
-  squash-merged by [.github/workflows/dependabot-automerge.yml](.github/workflows/dependabot-automerge.yml).
-  This is the ONE exception to the manual-Squash-button rule, documented in
-  [docs/decisions.md ADR-010](docs/decisions.md).
+  squash-merged by [.github/workflows/dependabot-automerge.yml](.github/workflows/dependabot-automerge.yml)
+  *when* `DEPENDABOT_AUTOMERGE_ENABLED='true'`. This is the ONE exception to the
+  manual-Squash-button rule, documented in [docs/decisions.md ADR-010](docs/decisions.md).
+  The variable is currently unset, so the workflow's `if:` evaluates false on every
+  event and the workflow no-ops; once the `main-protection` ruleset is verified
+  to require all three CI checks (`backend-checks`, `error-contracts`,
+  `darwin-checks`), flip the variable on.
 - Never click merge on a green Dependabot PR. Let auto-merge handle it. If it's
   not auto-merging, something is wrong -- fix the root cause rather than merging
   manually.

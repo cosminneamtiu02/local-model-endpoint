@@ -19,10 +19,10 @@ narrows them for wire-contract clarity):
   but does not strictly forbid non-error codes; LIP forbids them since
   problem+json is for error responses).
 
-Asymmetric ``extra`` policy: request envelopes use ``extra='forbid'`` to catch
-consumer bugs at the boundary; response envelopes use ``extra='allow'`` to
-permit per-error typed extensions. Per-field ``Field(description=...)`` strings
-are the source of truth for OpenAPI; this docstring stays high-level.
+``extra='allow'`` is required because per-error typed params and
+ProblemExtras keys (e.g. ``validation_errors``) are spread at root level
+(RFC 7807 §3.2). Per-field ``Field(description=...)`` strings are the
+source of truth for OpenAPI; this docstring stays high-level.
 
 Untrusted-extension warning: some fields reflect raw request input.
 ``instance`` is the request URL path, and ``validation_errors[].field``
@@ -35,12 +35,20 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas._constants import UUID_PATTERN_STR
+
 # Per-string length caps, symmetric with ValidationErrorDetail's
 # field=512 / reason=2048 caps. Bounds response amplification on the
 # error path: an upstream Ollama failure interpolated into ``detail``
 # could otherwise ship multi-KB problem+json bodies.
 _TITLE_MAX_CHARS: Final[int] = 128
 _DETAIL_MAX_CHARS: Final[int] = 4096
+_INSTANCE_MAX_CHARS: Final[int] = 2048
+_CODE_MAX_CHARS: Final[int] = 128
+# Longest realistic URN form: ``urn:lip:error:`` (14 chars) + ~100 chars
+# of kebab tail. 160 is a comfortable ceiling.
+_TYPE_MAX_CHARS: Final[int] = 160
+_REQUEST_ID_LENGTH: Final[int] = 36
 
 
 class ProblemDetails(BaseModel):
@@ -61,6 +69,7 @@ class ProblemDetails(BaseModel):
         # construction now fails the schema instead of shipping a body that
         # violates the URN convention consumers pattern-match on.
         pattern=r"^(about:blank|urn:lip:error:[a-z0-9-]+)$",
+        max_length=_TYPE_MAX_CHARS,
     )
     title: str = Field(
         description="Short human-readable summary of the problem",
@@ -80,8 +89,12 @@ class ProblemDetails(BaseModel):
         # ``/``. RFC 7807 §3.1 permits any URI reference, but LIP's wire
         # contract is the URL-path subset; the pattern documents and
         # enforces that commitment so a hand-rolled construction in tests
-        # / future helpers cannot ship a malformed ``instance``.
+        # / future helpers cannot ship a malformed ``instance``. The
+        # ``max_length`` is defense-in-depth on the wire schema — the
+        # middleware truncates path previews in logs but the schema is
+        # the last line keeping multi-KB ``instance`` strings off the wire.
         min_length=1,
+        max_length=_INSTANCE_MAX_CHARS,
         pattern=r"^/",
     )
     code: str = Field(
@@ -90,7 +103,11 @@ class ProblemDetails(BaseModel):
         # already enforces on errors.yaml — defense-in-depth so a future
         # contributor adding an HTTPException-status-to-code mapping with
         # a kebab/camel value fails at the schema, not silently on the wire.
-        pattern=r"^[A-Z][A-Z0-9_]*$",
+        # The pattern forbids leading/trailing underscores and double
+        # underscores so codegen and the wire schema agree on the
+        # canonical form.
+        pattern=r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$",
+        max_length=_CODE_MAX_CHARS,
     )
     request_id: str = Field(
         description="Request UUID from the X-Request-ID middleware",
@@ -98,9 +115,10 @@ class ProblemDetails(BaseModel):
         # enforce — defense-in-depth so a future code path that builds
         # ProblemDetails without going through ``_resolve_request_id``
         # (e.g. a synthetic test fixture leaking into production helpers)
-        # cannot ship a malformed correlation ID. The pattern subsumes
-        # ``min_length``; case-insensitive via the [0-9a-fA-F] character
-        # class because Pydantic's regex flags don't carry into the JSON
-        # Schema published to consumers.
-        pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        # cannot ship a malformed correlation ID. Pattern subsumes the
+        # length floors but the explicit min/max keeps OpenAPI docs and
+        # static-analysis caps in sync.
+        pattern=UUID_PATTERN_STR,
+        min_length=_REQUEST_ID_LENGTH,
+        max_length=_REQUEST_ID_LENGTH,
     )

@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import contextlib
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -43,6 +44,12 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         ollama_host=settings.ollama_host.host,
         ollama_port=settings.ollama_host.port,
         log_level=settings.log_level,
+        # Safety-clamp escape hatches surfaced at startup so a misconfigured
+        # public-bind / external-Ollama deployment is greppable from a single
+        # log line — operators searching for ``allow_public_bind=true`` can
+        # find the misconfigured-app instance without diffing every env var.
+        allow_external_ollama=settings.allow_external_ollama,
+        allow_public_bind=settings.allow_public_bind,
     )
     start_monotonic = time.monotonic()
     shutdown_reason = "clean"
@@ -78,7 +85,17 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                     env=settings.app_env,
                     uptime_ms=int((time.monotonic() - start_monotonic) * 1000),
                 )
-    except Exception:
+                # Drop the torn-down AppState reference so a stray request
+                # arriving after lifespan exits raises ``InternalError`` via
+                # ``get_app_state`` (the typed ``isinstance`` guard) rather
+                # than returning a torn-down AppState whose OllamaClient
+                # has already had ``__aexit__`` called on it. The
+                # ``contextlib.suppress(AttributeError)`` covers the path
+                # where ``application.state.context`` was never assigned
+                # (resource construction raised before line 65).
+                with contextlib.suppress(AttributeError):
+                    delattr(application.state, "context")
+    except BaseException:
         # A resource-construction failure (settings drift, OllamaClient
         # connect-time issue, etc.) would otherwise propagate as an opaque
         # uvicorn traceback. Logged at ``critical`` (NOT ``logger.exception``,
@@ -87,6 +104,11 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # explicit because critical isn't auto-traceback-attaching like
         # ``exception`` is. ``entered_yield`` discriminates startup vs
         # shutdown so the event name routes to the correct runbook.
+        #
+        # ``BaseException`` (not ``Exception``) so a teardown ``CancelledError``
+        # raised by uvicorn's signal handler still produces an
+        # ``app_shutdown_failed`` log line. The bare ``raise`` re-raises the
+        # captured BaseException so cancellation propagation is preserved.
         event_name = "app_shutdown_failed" if entered_yield else "app_startup_failed"
         logger.critical(
             event_name,

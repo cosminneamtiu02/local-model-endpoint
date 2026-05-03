@@ -13,9 +13,12 @@ from app.features.inference import OllamaClient
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return cached application settings."""
-    # pydantic-settings loads required fields from env / .env at construction time;
-    # pyright doesn't see the BaseSettings dynamic init so we suppress the false call-issue.
-    return Settings()  # pyright: ignore[reportCallIssue]
+    # ``Settings.model_validate({})`` runs the BaseSettings env / .env load
+    # path the same way ``Settings()`` does, but goes through Pydantic's
+    # typed ``model_validate`` entry point so pyright doesn't see a
+    # dynamic-init false-positive. Avoids the ``# pyright: ignore`` escape
+    # hatch and keeps the construction site contract-clean.
+    return Settings.model_validate({})
 
 
 def get_app_state(request: Request) -> AppState:

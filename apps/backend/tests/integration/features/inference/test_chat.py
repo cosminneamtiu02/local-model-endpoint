@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import pytest
 
+from app.features.inference import OllamaClient
 from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
 from app.features.inference.model.text_content import TextContent
-from app.features.inference.repository.ollama_client import OllamaClient
 
 if TYPE_CHECKING:
     from app.features.inference.model.ollama_chat_result import OllamaChatResult
@@ -150,35 +150,37 @@ async def test_chat_emits_body_keys_in_spec_order() -> None:
     assert list(body.keys()) == ["model", "messages", "options", "stream"]
 
 
-async def test_chat_always_sets_stream_false() -> None:
-    """All five param shapes must produce stream:false — non-negotiable invariant."""
-    shapes = [
-        ModelParams(),
-        ModelParams(temperature=0.5),
-        ModelParams(max_tokens=100),
-        ModelParams(think=True),
+# The five canonical ModelParams shapes the wire-invariant tests sweep over.
+# Extracted to a module-level constant so ``test_chat_always_sets_stream_false``
+# and ``test_chat_never_sends_tools_keep_alive_or_format_keys`` parametrize
+# over the same list (drift-proof) — Lane 5.9.
+_FIVE_PARAM_SHAPES = [
+    pytest.param(ModelParams(), id="bare"),
+    pytest.param(ModelParams(temperature=0.5), id="temperature-only"),
+    pytest.param(ModelParams(max_tokens=100), id="max-tokens-only"),
+    pytest.param(ModelParams(think=True), id="think-true"),
+    pytest.param(
         ModelParams(temperature=0.5, top_p=0.9, top_k=40, seed=42),
-    ]
-    for params in shapes:
-        body, _, _ = await _send_and_capture(params=params)
-        assert body.get("stream") is False, f"stream should be false for {params!r}"
+        id="full-sampling",
+    ),
+]
 
 
-async def test_chat_never_sends_tools_keep_alive_or_format_keys() -> None:
-    """Forbidden fields invariant across the same five shapes."""
-    shapes = [
-        ModelParams(),
-        ModelParams(temperature=0.5),
-        ModelParams(max_tokens=100),
-        ModelParams(think=True),
-        ModelParams(temperature=0.5, top_p=0.9, top_k=40, seed=42),
-    ]
+@pytest.mark.parametrize("params", _FIVE_PARAM_SHAPES)
+async def test_chat_always_sets_stream_false(params: ModelParams) -> None:
+    """Every ``ModelParams`` shape must produce stream:false — non-negotiable invariant."""
+    body, _, _ = await _send_and_capture(params=params)
+    assert body.get("stream") is False, f"stream should be false for {params!r}"
+
+
+@pytest.mark.parametrize("params", _FIVE_PARAM_SHAPES)
+async def test_chat_never_sends_tools_keep_alive_or_format_keys(params: ModelParams) -> None:
+    """Forbidden fields invariant across every ``ModelParams`` shape."""
     forbidden = {"tools", "keep_alive", "format"}
-    for params in shapes:
-        body, _, _ = await _send_and_capture(params=params)
-        assert forbidden.isdisjoint(body.keys()), (
-            f"forbidden fields leaked for {params!r}: {set(body) & forbidden}"
-        )
+    body, _, _ = await _send_and_capture(params=params)
+    assert forbidden.isdisjoint(body.keys()), (
+        f"forbidden fields leaked for {params!r}: {set(body) & forbidden}"
+    )
 
 
 # ── Inbound response translation ────────────────────────────────────

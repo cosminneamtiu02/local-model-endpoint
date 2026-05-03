@@ -28,6 +28,16 @@ EXPECTED_ENV: dict[str, str] = {
     "OLLAMA_KV_CACHE_TYPE": "q8_0",
 }
 
+# Top-level structural keys the plist must declare. Mirror EXPECTED_ENV's
+# table form so a future contributor adding a structural key updates one
+# constant rather than writing a new test (Lane 5.13).
+EXPECTED_TOPLEVEL: dict[str, object] = {
+    "Label": "com.lip.ollama",
+    "ProcessType": "Background",
+    "RunAtLoad": True,
+    "KeepAlive": True,
+}
+
 REQUIRED_DOC_SECTIONS: tuple[str, ...] = (
     "What this is",
     "Install",
@@ -85,8 +95,15 @@ def test_plutil_lint_exits_zero(plist_path: Path) -> None:
     )
 
 
-def test_label_value_equals_com_lip_ollama(parsed_plist: dict[str, object]) -> None:
-    assert parsed_plist["Label"] == "com.lip.ollama"
+@pytest.mark.parametrize(("key", "expected"), list(EXPECTED_TOPLEVEL.items()))
+def test_toplevel_keys_match_v1_calibration(
+    parsed_plist: dict[str, object],
+    key: str,
+    expected: object,
+) -> None:
+    """Each top-level structural key matches its expected value (Lane 5.13)."""
+    assert key in parsed_plist, f"missing top-level key {key}"
+    assert parsed_plist[key] == expected, f"{key} expected {expected!r}, got {parsed_plist[key]!r}"
 
 
 def test_environment_variables_match_v1_calibration(
@@ -108,15 +125,6 @@ def test_program_arguments_invoke_ollama_serve(
     assert isinstance(args[0], str)
     assert args[0].endswith("ollama"), f"first arg should end with 'ollama', got {args[0]!r}"
     assert args[1] == "serve"
-
-
-def test_run_at_load_and_keep_alive_are_true(parsed_plist: dict[str, object]) -> None:
-    assert parsed_plist["RunAtLoad"] is True
-    assert parsed_plist["KeepAlive"] is True
-
-
-def test_process_type_is_background(parsed_plist: dict[str, object]) -> None:
-    assert parsed_plist["ProcessType"] == "Background"
 
 
 def test_log_paths_end_with_dot_log(parsed_plist: dict[str, object]) -> None:
