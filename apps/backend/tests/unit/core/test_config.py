@@ -137,7 +137,7 @@ def test_settings_literal_field_rejects_unknown_value(
 # ── Bind-host clamp (Lane 19.9) ──────────────────────────────────────
 
 
-@pytest.mark.parametrize("public_host", ["0.0.0.0", "::"])  # noqa: S104 - reject-list
+@pytest.mark.parametrize("public_host", ["0.0.0.0", "::"])  # noqa: S104 — reject-list
 def test_settings_bind_host_rejects_public_without_acknowledgement(
     monkeypatch: pytest.MonkeyPatch,
     public_host: str,
@@ -326,3 +326,24 @@ def test_get_settings_cache_clear_invalidates_singleton() -> None:
     get_settings.cache_clear()
     s2 = get_settings()
     assert s1 is not s2
+
+
+def test_settings_model_validate_empty_dict_reads_lip_env_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``Settings.model_validate({})`` runs the BaseSettings env-load path.
+
+    ``app.api.deps.get_settings`` constructs Settings via
+    ``Settings.model_validate({})`` (rather than ``Settings()``) to avoid
+    a pyright false-positive on dynamic-init kwargs. The contract being
+    relied on — that ``model_validate({})`` still consults the env loader —
+    is a pydantic-settings 2.x behavior, not a Pydantic-core one. Pinning
+    it here means a future Pydantic refactor that prioritizes the ``obj``
+    argument over the env loader fails this test loudly instead of
+    silently returning defaults.
+    """
+    monkeypatch.setenv("LIP_OLLAMA_HOST", "http://127.0.0.1:11500")
+    monkeypatch.setenv("LIP_LOG_LEVEL", "warning")
+    settings = Settings.model_validate({})
+    assert str(settings.ollama_host) == "http://127.0.0.1:11500/"
+    assert settings.log_level == "warning"

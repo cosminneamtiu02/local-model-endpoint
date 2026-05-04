@@ -246,29 +246,31 @@ async def test_chat_propagates_http_status_error_for_every_non_2xx(
     assert exc_info.value.response.status_code == status_code
 
 
-async def test_chat_propagates_read_timeout_uncaught() -> None:
+@pytest.mark.parametrize(
+    "timeout_cls",
+    [httpx.ReadTimeout, httpx.ConnectTimeout],
+    ids=lambda c: c.__name__,
+)
+async def test_chat_propagates_timeout_uncaught(
+    timeout_cls: type[httpx.TimeoutException],
+) -> None:
+    """OllamaClient.chat re-raises every httpx timeout class verbatim.
+
+    Parametrized over the two timeout classes documented in
+    ``OllamaClient.DEFAULT_TIMEOUT`` (``connect`` and ``read``) so a future
+    addition of ``WriteTimeout`` / ``PoolTimeout`` (also documented httpx
+    timeout subclasses) extends coverage by adding one row, not by writing
+    another full near-clone test function. Mirrors the existing
+    parametrize-over-status-code pattern in this file.
+    """
+
     def handler(request: httpx.Request) -> httpx.Response:
-        msg = "simulated read timeout"
-        raise httpx.ReadTimeout(msg, request=request)
+        msg = f"simulated {timeout_cls.__name__}"
+        raise timeout_cls(msg, request=request)
 
     transport = httpx.MockTransport(handler)
     async with OllamaClient(base_url="http://ollama.test", transport=transport) as client:
-        with pytest.raises(httpx.ReadTimeout):
-            await client.chat(
-                model_tag="gemma4:e2b",
-                messages=[Message(role="user", content="hi")],
-                params=ModelParams(),
-            )
-
-
-async def test_chat_propagates_connect_timeout_uncaught() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        msg = "simulated connect timeout"
-        raise httpx.ConnectTimeout(msg, request=request)
-
-    transport = httpx.MockTransport(handler)
-    async with OllamaClient(base_url="http://ollama.test", transport=transport) as client:
-        with pytest.raises(httpx.ConnectTimeout):
+        with pytest.raises(timeout_cls):
             await client.chat(
                 model_tag="gemma4:e2b",
                 messages=[Message(role="user", content="hi")],

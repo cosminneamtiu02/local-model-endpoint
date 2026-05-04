@@ -55,3 +55,37 @@ def test_problem_extras_field_names_are_reserved_in_codegen() -> None:
         f"RESERVED_PARAM_NAMES; add them to packages/error-contracts/scripts/"
         f"generate.py:RESERVED_PARAM_NAMES so YAML params cannot collide."
     )
+
+
+def test_rfc7807_envelope_field_names_are_reserved_in_codegen() -> None:
+    """The seven RFC 7807 + LIP envelope keys MUST be in RESERVED_PARAM_NAMES.
+
+    The codegen and the runtime ``_build_problem_payload`` both spread params
+    at the root of the wire body. A YAML-declared param named ``status`` /
+    ``instance`` / ``code`` would shadow the envelope kwarg on the
+    ``ProblemDetails(...)`` call and either ship a confusing wire body or
+    trip the handler's collision detector as a 500. The test backstops the
+    envelope side of the contract — siblings to the
+    ``test_problem_extras_field_names_are_reserved_in_codegen`` extension
+    side — so a future renamed envelope field stays in sync with the
+    codegen reservation.
+    """
+    rfc7807_envelope_fields = frozenset(
+        {
+            "type",
+            "title",
+            "status",
+            "detail",
+            "instance",
+            "code",
+            "request_id",
+        }
+    )
+    reserved = _load_codegen_reserved_param_names()
+    missing = rfc7807_envelope_fields - reserved
+    assert not missing, (
+        f"RFC 7807 envelope fields {sorted(missing)} are not in codegen "
+        f"RESERVED_PARAM_NAMES; rename in lockstep with "
+        f"packages/error-contracts/scripts/generate.py and "
+        f"app/api/exception_handlers._build_problem_payload."
+    )

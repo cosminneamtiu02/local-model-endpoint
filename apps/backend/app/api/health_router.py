@@ -1,6 +1,6 @@
 """Health endpoint — liveness probe mounted at root, outside /v1/."""
 
-from typing import Any
+from typing import Any, Final
 
 from fastapi import APIRouter, status
 
@@ -10,7 +10,7 @@ router = APIRouter(tags=["health"])
 
 # OpenAPI default-response for every error path; content key advertises
 # the application/problem+json media type the error handler emits.
-_PROBLEM_RESPONSE: dict[str, Any] = {
+_PROBLEM_RESPONSE: Final[dict[str, Any]] = {
     "model": ProblemDetails,
     "description": "Problem details (RFC 7807)",
     "content": {"application/problem+json": {}},
@@ -21,7 +21,7 @@ _PROBLEM_RESPONSE: dict[str, Any] = {
 # error path symmetrically. FastAPI infers 200 from the return-type
 # annotation, but the inferred entry is content-typeless; declaring it
 # here makes the wire contract self-documenting in /openapi.json.
-_HEALTH_OK_RESPONSE: dict[str, Any] = {
+_HEALTH_OK_RESPONSE: Final[dict[str, Any]] = {
     "model": HealthResponse,
     "description": "Liveness probe — process is alive",
     "content": {"application/json": {}},

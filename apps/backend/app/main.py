@@ -5,6 +5,7 @@ import contextlib
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from importlib import metadata as _metadata
 
 import structlog
 from fastapi import FastAPI
@@ -13,9 +14,27 @@ from app.api.deps import get_settings
 from app.api.exception_handlers import register_exception_handlers
 from app.api.request_id_middleware import configure_middleware
 from app.api.router_registry import lifespan_resources, register_routers
-from app.core.logging import configure_logging
+from app.core.logging import configure_logging, elapsed_ms
 
 logger = structlog.get_logger(__name__)
+
+
+def _resolve_app_version() -> str:
+    """Return the LIP package version from importlib.metadata, or ``"unknown"``.
+
+    Single source of truth shared with ``OllamaClient._build_user_agent`` so
+    a future bump in ``pyproject.toml`` flows automatically into both the
+    OpenAPI ``info.version`` field and the User-Agent header — no second
+    hand-edited literal to remember.
+    """
+    try:
+        return _metadata.version("lip-backend")
+    except _metadata.PackageNotFoundError:
+        # Editable install context where importlib.metadata can't see the
+        # dist-info — surface as ``unknown`` rather than crash the factory.
+        # Same fallback shape OllamaClient uses; the warning lives there
+        # so this helper stays pure-data for ``FastAPI(version=...)``.
+        return "unknown"
 
 
 @asynccontextmanager
@@ -84,7 +103,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                     reason=shutdown_reason,
                     version=application.version,
                     env=settings.app_env,
-                    uptime_ms=int((time.monotonic() - start_monotonic) * 1000),
+                    uptime_ms=elapsed_ms(start_monotonic, now=time.monotonic),
                 )
                 # Drop the torn-down AppState reference so a stray request
                 # arriving after lifespan exits raises ``InternalError`` via
@@ -144,7 +163,7 @@ def create_app() -> FastAPI:
             "Exposes a stable backend-agnostic inference contract to "
             "local consumer backend projects."
         ),
-        version="0.1.0",
+        version=_resolve_app_version(),
         lifespan=lifespan,
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",

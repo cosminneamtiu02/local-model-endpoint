@@ -36,6 +36,14 @@ async def lifespan_resources(settings: Settings) -> AsyncGenerator[AppState]:
     Centralizing this here means main.py's lifespan stays a one-liner
     even as features add resources (semaphore, idle watchdog, etc.).
 
+    ``settings`` is hand-passed (rather than reached internally via
+    ``get_settings()``) so test fixtures can vary Settings under
+    monkeypatch without going through the @lru_cache(maxsize=1) carve-out
+    in ``app.api.deps.get_settings``. Production callers (currently only
+    ``app.main.lifespan``) MUST pass ``get_settings()`` to preserve the
+    cached-Settings invariant — bypassing it would construct two Settings
+    instances per request lifetime.
+
     Resources are pushed onto an ``AsyncExitStack`` so any sibling
     resource added later this lifespan is torn down in LIFO order even
     if a downstream construction fails — and ``__aexit__`` receives the

@@ -55,7 +55,11 @@ class Settings(BaseSettings):
     silently ignores unknown ``LIP_*``-prefixed env vars (verified by
     ``test_settings_extra_forbid_silently_ignores_unknown_env_var``).
     A typo in ``.env`` (e.g. ``LIP_OLLMA_HOST``) is therefore not caught
-    at import time.
+    at import time. The audit-only ``os.environ`` enumeration in
+    ``app.api.deps.get_settings`` surfaces such typos as a single
+    ``unknown_lip_env_vars_ignored`` structlog warning at first
+    ``get_settings()`` call (the ``@lru_cache(maxsize=1)`` ensures
+    single-fire), so the silent-ignore behavior is observable to operators.
     """
 
     # env_prefix="LIP_" disambiguates every env var from Ollama daemon's
@@ -164,11 +168,11 @@ class Settings(BaseSettings):
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_log_level(cls, value: object) -> object:
-        """Lowercase incoming log-level strings so ``LIP_LOG_LEVEL=INFO`` and
-        ``LIP_LOG_LEVEL=info`` are both accepted.
+        """Lowercase incoming log-level strings to match the canonical alphabet.
 
-        The ``Literal[...]`` constraint on ``log_level`` is case-sensitive;
-        without this normalizer, an uppercase value (the natural form for
+        Both ``LIP_LOG_LEVEL=INFO`` and ``LIP_LOG_LEVEL=info`` are accepted
+        — the ``Literal[...]`` constraint on ``log_level`` is case-sensitive,
+        so without this normalizer an uppercase value (the natural form for
         operators copy-pasting from stdlib ``logging`` docs) would fail
         validation with a confusing "input should be 'debug', 'info', ..."
         error. Returning the value unchanged for non-string inputs lets

@@ -237,7 +237,7 @@ tasks:
 
   # ── Ollama launchd agent (one-time per machine; see docs/ollama-launchd.md) ──
   ollama:install:
-    desc: Install the Ollama launchd agent (renders plist template + bootstraps under gui/$UID)
+    desc: Install the Ollama launchd agent (renders plist template + bootstraps under gui/$UID; idempotent on re-run)
     cmds:
       - mkdir -p ~/Library/Logs/ollama
       - mkdir -p ~/Library/LaunchAgents
@@ -248,11 +248,27 @@ tasks:
       # str.replace (not sed) so a $HOME containing & or | doesn't
       # collide with sed's substitution-pattern metacharacters
       # (``$HOME=/Users/cosmin&laptop`` would corrupt the plist with
-      # sed; Python's literal replace is metacharacter-safe).
+      # sed; Python's literal replace is metacharacter-safe). Stage the
+      # rendered plist next to the install target then diff before
+      # overwriting so an operator-side hand-edit is reported, not silently
+      # clobbered (mirrors `task check:errors`'s diff-then-overwrite shape).
       - >
         python3 -c "import os, sys, pathlib;
         src = pathlib.Path('infra/launchd/com.lip.ollama.plist.tmpl').read_text();
-        sys.stdout.write(src.replace('__HOME__', os.environ['HOME']))" > ~/Library/LaunchAgents/com.lip.ollama.plist
+        sys.stdout.write(src.replace('__HOME__', os.environ['HOME']))" > ~/Library/LaunchAgents/.com.lip.ollama.plist.next
+      - >
+        if [ -f ~/Library/LaunchAgents/com.lip.ollama.plist ] &&
+        ! cmp -s ~/Library/LaunchAgents/.com.lip.ollama.plist.next ~/Library/LaunchAgents/com.lip.ollama.plist;
+        then echo "ollama:install — plist drift detected; overwriting (diff above)";
+        diff -u ~/Library/LaunchAgents/com.lip.ollama.plist ~/Library/LaunchAgents/.com.lip.ollama.plist.next || true;
+        fi
+      - mv -f ~/Library/LaunchAgents/.com.lip.ollama.plist.next ~/Library/LaunchAgents/com.lip.ollama.plist
+      # Idempotent re-load: bootout (tolerant of "not loaded" via `|| true`,
+      # matches the symmetric ollama:uninstall pattern) then bootstrap. A
+      # re-run of `task ollama:install` after a partial setup converges to
+      # the loaded-state instead of failing with launchctl exit code 17
+      # ("Service is already loaded").
+      - launchctl bootout gui/$(id -u)/com.lip.ollama 2>/dev/null || true
       - launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lip.ollama.plist
 
   ollama:uninstall:

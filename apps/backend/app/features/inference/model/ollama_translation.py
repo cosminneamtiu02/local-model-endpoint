@@ -164,23 +164,22 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     is reserved for genuine mapping-key misses, so collapsing real key
     errors into the malformed-frame signal would be ambiguous.
 
-    Each malformed-frame branch also emits a named
-    ``ollama_response_malformed`` log event with a stable ``reason`` so
-    operators can grep by reason instead of parsing exception messages.
+    No ``ollama_response_malformed`` log line is emitted from these
+    branches: the downstream ``OllamaClient.chat`` ``except Exception``
+    arm's ``ollama_call_failed`` line carries ``exc_message=`` with the
+    same diagnostic string ("non terminal frame", "missing 'message'
+    field", etc.). Logging here would double-count the same failure —
+    same convention as ``_decode_ollama_json`` in ollama_client.py.
     """
     if not response_json.get("done", True):
-        logger.warning(
-            "ollama_response_malformed",
-            reason="non_terminal_frame",
-            done_value=response_json.get("done"),
+        error_message = (
+            "Ollama malformed frame: done=False under stream=False; expected terminal frame."
         )
-        error_message = "Ollama returned done=False under stream=False; expected terminal frame."
         raise ValueError(error_message)
     raw_finish = response_json.get("done_reason", "stop")
     finish_reason: FinishReason = _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop")
     if "message" not in response_json:
-        logger.warning("ollama_response_malformed", reason="missing_message_field")
-        error_message = "Ollama response missing 'message' field."
+        error_message = "Ollama malformed frame: response missing 'message' field."
         raise ValueError(error_message)
     raw_message_value: Any = response_json["message"]
     # The annotation on ``response_json`` types this as Any; runtime-check the
@@ -189,13 +188,9 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     # instead of a TypeError ("None is not subscriptable") that the
     # failure-mapping layer would not recognize.
     if not isinstance(raw_message_value, dict):
-        logger.warning(
-            "ollama_response_malformed",
-            reason="non_object_message",
-            message_type=type(raw_message_value).__name__,
-        )
         error_message = (
-            f"Ollama 'message' field has non-object type {type(raw_message_value).__name__}."
+            "Ollama malformed frame: 'message' field has non-object type "
+            f"{type(raw_message_value).__name__}."
         )
         # ``ValueError`` (not the TRY004-preferred ``TypeError``) keeps every
         # malformed-Ollama-frame case routed through one exception type
@@ -208,8 +203,7 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     # accesses below preserve the per-key type discipline.
     raw_message: dict[str, Any] = cast("dict[str, Any]", raw_message_value)
     if "content" not in raw_message:
-        logger.warning("ollama_response_malformed", reason="missing_message_content")
-        error_message = "Ollama message missing 'content' field."
+        error_message = "Ollama malformed frame: message missing 'content' field."
         raise ValueError(error_message)
     raw_content = raw_message["content"]
     # ``isinstance`` coerces ``None`` / non-str values to an empty string so

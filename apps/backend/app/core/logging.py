@@ -9,6 +9,8 @@ documented exception. All other code uses ``structlog.get_logger``.
 
 import logging
 import sys
+import time
+from collections.abc import Callable
 from typing import Final
 
 import structlog
@@ -22,6 +24,21 @@ ollama_client.py and any future call site reuse one constant rather than
 hand-rolling 200/256/500 caps.
 """
 
+_MS_PER_SECOND: Final[int] = 1000
+
+
+def elapsed_ms(start: float, *, now: Callable[[], float] = time.perf_counter) -> int:
+    """Return integer milliseconds elapsed since ``start`` per ``now()``.
+
+    Centralizes the ``int((time.perf_counter() - start) * 1000)`` pattern
+    duplicated across :class:`RequestIdMiddleware`, :class:`OllamaClient`,
+    and the lifespan ``app_shutdown`` line. Pass ``now=time.monotonic``
+    for uptime measurements (immune to NTP jumps); the default
+    ``time.perf_counter`` is the right choice for request-latency timing.
+    """
+    return int((now() - start) * _MS_PER_SECOND)
+
+
 _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
     {"messages", "content", "prompt", "tool_calls", "audios", "images"},
 )
@@ -30,20 +47,26 @@ _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
 Defense-in-depth backstop for the CLAUDE.md ban on logging consumer prompt
 content. Caller discipline at every emit site is the primary contract; this
 processor catches the regression where a future contributor adds
-``messages=request.messages`` to a logger call.
+``messages=request.messages`` to a logger call. The processor only inspects
+TOP-LEVEL keys — nested structures (e.g. ``logger.info("x", request=body)``
+where ``body["messages"]`` lives one level down) are NOT scanned. Caller
+discipline remains the primary contract; recursion would pay a per-call
+cost on every log line for a regression that has never appeared.
 """
 
 
 def _redact_sensitive_keys(
-    _logger: object,
+    _logger: structlog.types.WrappedLogger,
     _method_name: str,
     event_dict: structlog.types.EventDict,
 ) -> structlog.types.EventDict:
     """Defense-in-depth backstop for CLAUDE.md prompt-content log ban.
 
-    Replaces values for known-sensitive keys with the ``"<redacted>"``
-    sentinel regardless of caller discipline. The CLAUDE.md ban is the
-    primary contract; this processor is the infrastructure-level catch.
+    Replaces values for known-sensitive TOP-LEVEL keys with the
+    ``"<redacted>"`` sentinel regardless of caller discipline. The
+    CLAUDE.md ban is the primary contract; this processor is the
+    infrastructure-level catch. Nested values are intentionally NOT
+    scanned — see ``_REDACTION_BLOCKLIST`` docstring for the rationale.
     """
     for key in event_dict.keys() & _REDACTION_BLOCKLIST:
         event_dict[key] = "<redacted>"

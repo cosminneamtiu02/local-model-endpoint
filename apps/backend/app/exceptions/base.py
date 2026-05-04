@@ -13,7 +13,9 @@ from pydantic import BaseModel
 class DomainError(Exception):
     """Base class for all domain errors.
 
-    Each subclass has:
+    Each subclass has the following ClassVars (enforced by
+    ``__init_subclass__``):
+
     - code: machine-readable error code (e.g. "NOT_FOUND")
     - http_status: HTTP status code to return
     - type_uri: stable URN identifying the problem type. LIP uses
@@ -24,7 +26,13 @@ class DomainError(Exception):
     - detail_template: per-instance human-readable explanation; substituted via
       ``str.format(**params.model_dump())`` for parameterized errors. For
       parameterless errors the value is unused — ``detail()`` returns ``title``.
-    - params: typed parameter object (or None for parameterless errors)
+
+    And one instance attribute (NOT a ClassVar — set per instantiation):
+
+    - params: typed parameter object (or None for parameterless errors).
+
+    Plus one method:
+
     - detail(): renders the per-instance detail string. Generated per subclass.
     """
 

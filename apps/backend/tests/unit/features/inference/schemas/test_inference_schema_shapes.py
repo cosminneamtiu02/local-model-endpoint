@@ -15,7 +15,8 @@ ref-template-agnostic and remains valid once FastAPI mounts the schemas.
 
 from typing import Any, cast
 
-from pydantic import TypeAdapter
+import pytest
+from pydantic import BaseModel, TypeAdapter
 
 from app.features.inference.model.content_part import ContentPart
 from app.features.inference.model.message import Message
@@ -38,28 +39,20 @@ def test_message_schema_renders_content_as_oneof() -> None:
     assert variants, "Message.content should be a union"
 
 
-def test_message_schema_declares_additional_properties_false() -> None:
-    schema = Message.model_json_schema()
-    assert schema.get("additionalProperties") is False
+@pytest.mark.parametrize(
+    "model_cls",
+    [Message, ModelParams, InferenceRequest, InferenceResponse, ResponseMetadata],
+    ids=lambda c: c.__name__,
+)
+def test_schema_declares_additional_properties_false(model_cls: type[BaseModel]) -> None:
+    """Every wire/value-object schema must close ``additionalProperties``.
 
-
-def test_model_params_schema_declares_additional_properties_false() -> None:
-    schema = ModelParams.model_json_schema()
-    assert schema.get("additionalProperties") is False
-
-
-def test_inference_request_schema_declares_additional_properties_false() -> None:
-    schema = InferenceRequest.model_json_schema()
-    assert schema.get("additionalProperties") is False
-
-
-def test_inference_response_schema_declares_additional_properties_false() -> None:
-    schema = InferenceResponse.model_json_schema()
-    assert schema.get("additionalProperties") is False
-
-
-def test_response_metadata_schema_declares_additional_properties_false() -> None:
-    schema = ResponseMetadata.model_json_schema()
+    Parametrized over the five F001 models so a future schema added to the
+    inference feature only needs a row in the ``model_cls`` list to inherit
+    coverage — no new test function to write. The PEP 695 ID renderer keeps
+    the per-class failure name human-readable in ``-v`` output.
+    """
+    schema = model_cls.model_json_schema()
     assert schema.get("additionalProperties") is False
 
 

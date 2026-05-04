@@ -27,7 +27,7 @@
 ```
 apps/backend/
 ├── app/
-│   ├── core/               -- config, logging. Cross-cutting infrastructure.
+│   ├── core/               -- config.py, logging.py. Cross-cutting infrastructure.
 │   ├── api/                -- middleware (request_id only), exception handler, health, shared deps.
 │   ├── exceptions/         -- DomainError base (base.py) + generated subclasses (_generated/).
 │   ├── schemas/            -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse. Shared response shapes (RFC 7807 problem+json + liveness).
