@@ -193,3 +193,15 @@ exclude_lines = [
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 include = ["app"]
+# Strict mode does NOT enable these by default. Each adds a real round-10
+# guarantee:
+# - reportUnnecessaryTypeIgnoreComment: a `# pyright: ignore[X]` that
+#   becomes obsolete after a Pydantic/httpx upgrade silently rots; this
+#   flips that into a build failure so the comment is removed alongside
+#   the upstream fix.
+# - reportImplicitOverride: every generated DomainError subclass uses
+#   `@override`; enforcing it on hand-written code keeps the convention
+#   uniform and surfaces a missing-decorator regression at type-check
+#   time rather than at code-review time.
+reportUnnecessaryTypeIgnoreComment = "error"
+reportImplicitOverride = "error"

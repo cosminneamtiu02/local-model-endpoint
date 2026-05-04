@@ -204,7 +204,7 @@ tasks:
       - uv run --frozen pytest tests/integration/ -v
 
   test:contract:
-    desc: Run contract tests (Schemathesis)
+    desc: Run contract tests (OpenAPI canary + RFC 7807 wire shape; Schemathesis fuzz lands with LIP-E001-F002)
     dir: "{{.BACKEND_DIR}}"
     cmds:
       - uv run --frozen pytest tests/contract/ -v

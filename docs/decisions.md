@@ -57,14 +57,15 @@ Every Python class lives in its own file. No exceptions except generated code in
 **Rationale:** Load balancers and orchestrators hardcode health paths. Versioning health
 endpoints forces infrastructure config changes on API version bumps.
 
-## ADR-009: Pre-commit Fast, Pre-push Unit Tests, CI Everything
+## ADR-009: Pre-commit Fast, Pre-push Slow, CI Everything
 
 **Status:** Accepted
 **Date:** 2026-04-07
 
 Pre-commit: ruff (lint + format), trailing-whitespace, end-of-file-fixer,
 check-yaml/json, large-file guard, detect-secrets, Taskfile syntax check (~5-10s).
-Pre-push: pyright, import-linter, unit tests.
+Pre-push: pyright, import-linter, full pytest suite (backend unit +
+integration + contract; error-contracts unit).
 CI: all three test levels (unit, integration, contract) + type checker + import-linter
 + error-contracts regen check.
 

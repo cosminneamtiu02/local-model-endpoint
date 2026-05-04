@@ -70,10 +70,11 @@ router        Thin handler. Declares Depends(), calls service, returns result.
 service       Inference orchestration. Semaphore-gated. Resolves model via registry.
     |
     v
-repository    Ollama HTTP client. Translates envelope <-> Ollama API.
+repository    Ollama HTTP client (data-access boundary).
     |
     v
-model         Pydantic value-objects passed through the layers.
+model         Pydantic value-objects passed through the layers, plus pure
+              envelope <-> Ollama translation helpers (ollama_translation.py).
 ```
 
 No layer skipping. Router never calls Ollama directly. Repository never owns service-level
