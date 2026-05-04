@@ -47,7 +47,7 @@ def test_message_schema_renders_content_as_oneof() -> None:
 def test_schema_declares_additional_properties_false(model_cls: type[BaseModel]) -> None:
     """Every wire/value-object schema must close ``additionalProperties``.
 
-    Parametrized over the five F001 models so a future schema added to the
+    Parametrized over the five LIP-E001-F001 models so a future schema added to the
     inference feature only needs a row in the ``model_cls`` list to inherit
     coverage — no new test function to write. The PEP 695 ID renderer keeps
     the per-class failure name human-readable in ``-v`` output.

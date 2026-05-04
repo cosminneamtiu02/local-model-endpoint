@@ -91,6 +91,27 @@ field name from Pydantic's error data. Centralized so the three sites that
 synthesize "we don't know which field failed" (empty loc, empty errors list,
 abnormal-empty-errors fallback) stay in lockstep."""
 
+_INSTANCE_MAX_CHARS: Final[int] = 2048
+"""Cap mirroring ``ProblemDetails.instance``'s ``max_length=2048``.
+
+Bounds ``request.url.path`` before it lands as the ``instance`` field on
+ProblemDetails so a pathological URL (well under uvicorn's request-line
+limit but past the schema cap) cannot fail ProblemDetails construction
+inside an exception handler — the schema ValidationError would otherwise
+escape the handler, get caught by ``ServerErrorMiddleware``, and ship a
+bare-text 500 with no X-Request-ID."""
+
+
+def _bounded_instance(request: Request) -> str:
+    """Return ``request.url.path`` truncated to ``_INSTANCE_MAX_CHARS``.
+
+    Symmetric with the ``RequestIdMiddleware`` 413 path's ``bounded_path``
+    truncation, so both halves of the error envelope (middleware-emitted
+    body-too-large + handler-emitted typed errors) ship a uniformly
+    bounded ``instance`` field.
+    """
+    return request.url.path[:_INSTANCE_MAX_CHARS]
+
 
 def _resolve_request_id(request: Request) -> tuple[str, bool]:
     """Read the request ID set by :class:`RequestIdMiddleware`.
@@ -130,11 +151,12 @@ def _resolve_request_id(request: Request) -> tuple[str, bool]:
         path=request.url.path,
         request_id_source="fallback",
     )
+    # ``path`` and ``method`` ride in via ``merge_contextvars`` from the
+    # bind two lines above, so the call-site kwargs would be the same value
+    # twice — drop the redundancy.
     logger.warning(
         "request_id_missing_in_state",
         fallback_request_id=fallback,
-        path=request.url.path,
-        method=request.method,
     )
     return fallback, True
 
@@ -213,7 +235,7 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
             title=exc.title,
             status=exc.http_status,
             detail=detail_override if detail_override is not None else exc.detail(),
-            instance=request.url.path,
+            instance=_bounded_instance(request),
             code=exc.code,
             request_id=request_id,
             **spread,
@@ -235,7 +257,7 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
             title=InternalError.title,
             status=InternalError.http_status,
             detail="An unexpected error occurred while building the error response.",
-            instance=request.url.path,
+            instance=_bounded_instance(request),
             code=InternalError.code,
             request_id=request_id,
         )
@@ -359,9 +381,18 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # ``string_too_long`` / ``union_tag_invalid``) don't trip
     # ValidationErrorDetail's own length cap and explode the handler. The
     # schema cap is the contract; the handler truncation is belt-and-suspenders.
+    # Pydantic's ``loc`` tuple includes user-supplied keys when nested-dict
+    # validation fails (e.g. ``("body", "metadata", "<user-key>")``). ASCII-
+    # replace control chars before truncate, symmetric with the
+    # ``request_id_rejected_client_value`` discipline in the middleware:
+    # ``application/problem+json`` already defeats browser HTML/JS rendering,
+    # but this defends against future ops dashboards that may render
+    # ``validation_errors[].field`` into HTML.
     validation_errors: list[ValidationErrorDetail] = [
         ValidationErrorDetail(
-            field=".".join(str(loc) for loc in e["loc"])[:FIELD_MAX_CHARS]
+            field=".".join(str(loc) for loc in e["loc"])
+            .encode("ascii", "replace")
+            .decode("ascii")[:FIELD_MAX_CHARS]
             or _UNKNOWN_FIELD_SENTINEL,
             reason=str(e["msg"])[:REASON_MAX_CHARS],
         )
@@ -575,12 +606,30 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response
 
+    if status_code == HTTPStatus.METHOD_NOT_ALLOWED:
+        # Route through MethodNotAllowedError so the wire shape matches a
+        # typed ``raise MethodNotAllowedError()`` from a route — single
+        # source of truth for the 405 envelope, mirroring the 404 branch.
+        # Without this, framework-405 ships ``type="about:blank"`` while
+        # typed-405 ships ``type="urn:lip:error:method-not-allowed"`` —
+        # consumers pattern-matching on ``type`` would see two URNs for
+        # the same ``code=METHOD_NOT_ALLOWED``.
+        problem = _build_problem_payload(
+            MethodNotAllowedError(),
+            request,
+            request_id,
+            detail_override=detail_text,
+        )
+        response = _problem_response(problem)
+        _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
+        return response
+
     problem = ProblemDetails(
         type=ABOUT_BLANK_TYPE,
         title=status_phrase,
         status=status_code,
         detail=detail_text,
-        instance=request.url.path,
+        instance=_bounded_instance(request),
         code=code,
         request_id=request_id,
     )
@@ -616,9 +665,11 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     structlog.contextvars.bind_contextvars(error_code=InternalError.code)
     # ``_resolve_request_id`` returns ``(id, missed)``; this branch always
     # passes ``missed=True`` literally below (ServerErrorMiddleware lives
-    # outside the user middleware stack, so the header is always absent),
-    # so the second value is intentionally discarded with ``_``.
-    request_id, _ = _resolve_request_id(request)
+    # outside the user middleware stack, so the header is always absent).
+    # Bind the resolver's ``missed`` flag to ``_missed`` (rather than ``_``)
+    # so the comment block on ``_stamp_request_id_header_if_missed`` below
+    # can name the variable a future flip would consult.
+    request_id, _missed = _resolve_request_id(request)
     # ``internal_error_5xx_raised`` so operator queries align with the
     # typed-domain-error pattern: every 5xx event in the codebase now
     # reads ``*_5xx_raised`` (cf. ``http_exception_5xx_raised``,
@@ -651,12 +702,13 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)
     response = _problem_response(problem)
-    # Defense-in-depth: pass ``missed=True`` literally rather than reading
-    # ``_missed`` because ServerErrorMiddleware lives outside the user
-    # middleware stack today, so ``X-Request-ID`` is always missing on this
-    # path. If a future Starlette release moves catch-all ``Exception``
+    # Defense-in-depth: pass ``missed=True`` literally rather than
+    # ``missed=_missed`` because ServerErrorMiddleware lives outside the
+    # user middleware stack today, so ``X-Request-ID`` is always missing on
+    # this path. If a future Starlette release moves catch-all ``Exception``
     # back inside the user stack (encode/starlette#1438/#1715), flip this
     # to ``missed=_missed`` to consult the resolver state.
+    _ = _missed  # explicitly retained — see comment above.
     _stamp_request_id_header_if_missed(response, request_id, missed=True)
     return response
 

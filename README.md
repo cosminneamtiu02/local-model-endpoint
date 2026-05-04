@@ -9,7 +9,7 @@ and [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 
 ## Tech Stack
 
-- **Backend**: Python 3.13, FastAPI, Pydantic v2, asyncio, httpx, structlog
+- **Backend**: Python 3.13, FastAPI, Pydantic v2, pydantic-settings, asyncio, httpx, structlog
 - **Inference backend**: Ollama running natively on macOS (Gemma 4 E2B in v1)
 - **Testing**: pytest + pytest-asyncio + Schemathesis
 - **Tooling**: Taskfile, Ruff, Pyright, import-linter, uv, pre-commit, pytest-cov, pip-audit, detect-secrets
@@ -47,7 +47,7 @@ task dev
 | Command | Description |
 |---|---|
 | `task dev` | Start backend with hot reload |
-| `task check` | Run lint, format, lockfile, types, architecture, tests, coverage, error contracts, plist, audit, secrets |
+| `task check` | Run lint, format, lockfile, types, architecture, coverage-gated tests, error contracts, plist, audit, secrets |
 | `task test` | Run all tests (unit + integration + contract) |
 | `task test:unit` | Run unit tests |
 | `task test:integration` | Run integration tests (in-process via ASGI transport) |

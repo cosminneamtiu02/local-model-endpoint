@@ -23,13 +23,13 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "fastapi==0.136.1",
     "starlette==1.0.0",
-    # Lane 18.3: ``uvicorn[standard]`` was the convenience extra; we now
-    # pin the explicit subset actually used so the dep audit can see
-    # exactly which transitives are load-bearing. ``websockets`` and
-    # ``python-dotenv`` (also pulled by ``[standard]``) are intentionally
-    # NOT listed — LIP has no WebSocket routes (CLAUDE.md "Conventions
-    # (planned, not yet implemented) — WebSockets") and reads env via
-    # pydantic-settings, never via dotenv.
+    # uvicorn's explicit transitive subset is pinned here (rather than via
+    # the ``uvicorn[standard]`` convenience extra) so the dep audit and
+    # Dependabot can both see exactly which transitives are load-bearing.
+    # ``websockets`` and ``python-dotenv`` (also pulled by ``[standard]``)
+    # are intentionally NOT listed — LIP has no WebSocket routes (CLAUDE.md
+    # "Conventions (planned, not yet implemented) — WebSockets") and reads
+    # env via pydantic-settings, never via dotenv.
     "uvicorn==0.46.0",
     "httptools==0.7.1",
     "uvloop==0.22.1",
@@ -55,13 +55,13 @@ dev = [
     # a strict-mode semantic change requires a deliberate Dependabot PR.
     "pyright==1.1.409",
     "pip-audit==2.10.0",
-    # Lane 18.1: backend tests parse errors.yaml directly to assert
-    # invariants between the YAML source-of-truth and the generated
-    # exception classes. The backend has no runtime dependency on YAML
-    # (only the codegen does), so pyyaml is dev-only here.
+    # Backend tests parse errors.yaml directly to assert invariants between
+    # the YAML source-of-truth and the generated exception classes. The
+    # backend has no runtime dependency on YAML (only the codegen does), so
+    # pyyaml is dev-only here.
     "pyyaml==6.0.3",
     # Stub package for PyYAML so pyright can type-check yaml.* usage in
-    # tests rather than suppressing the import as untyped (lane 18.7).
+    # tests rather than suppressing the import as untyped.
     "types-pyyaml==6.0.12.20260408",
     # Schemathesis is intentionally NOT pinned ahead of consumption.
     # Pre-pinning a heavy dep "for when the feature lands" violates
@@ -143,13 +143,13 @@ addopts = [
 xfail_strict = true
 filterwarnings = [
     "error",
-    # Lane 15.2: hypothesis + schemathesis DeprecationWarning filters were
-    # dropped — they swallow nothing today (the fuzz suite is dormant
-    # until LIP-E001-F002 lands the inference router), and a blanket
+    # No hypothesis / schemathesis DeprecationWarning filters here — they
+    # would swallow nothing today (the fuzz suite is dormant until
+    # LIP-E001-F002 lands the inference router), and a blanket
     # ``ignore::DeprecationWarning:hypothesis`` would also mask the
-    # 4.x→5.x rename signals that fuzz-suite consumers actually need to
-    # see when the bump lands. Re-add narrowly when LIP-E001-F002 lands a
-    # fuzzable inference router.
+    # 4.x→5.x rename signals fuzz-suite consumers need to see when the
+    # bump lands. Re-add narrowly when LIP-E001-F002 lands a fuzzable
+    # inference router.
     #
     # The ``PytestUnraisableExceptionWarning`` filter below is scoped to
     # the pytest module that emits it on asyncio-teardown so it does not
@@ -157,20 +157,26 @@ filterwarnings = [
     # suite.
     "ignore::pytest.PytestUnraisableExceptionWarning:_pytest.unraisableexception",
     # anyio's memory streams emit ResourceWarnings on GC during pytest's
-    # asyncio-teardown sweep; not a LIP bug. Narrowed to the specific
-    # ``anyio.streams.memory`` submodule (the actual emitter) plus the
-    # ``memory_stream`` message text so an unrelated anyio module
-    # emitting a future ResourceWarning surfaces normally. The prior
-    # blanket ``module=anyio`` form silenced every anyio-rooted warning
-    # including ones from anyio.streams.tls / anyio.from_thread, which
-    # would mask a leaked AsyncClient surfacing through anyio internals.
-    "ignore:.*memory[ _]stream.*:ResourceWarning:anyio\\.streams\\.memory",
+    # asyncio-teardown sweep; not a LIP bug. Narrowed to the dedicated
+    # ``anyio.streams.memory`` submodule (the actual emitter) without a
+    # message regex: that submodule only emits memory-stream-shaped
+    # ResourceWarnings, so re-anchoring on the message text adds a
+    # second condition that fail-opens the moment anyio rephrases the
+    # string (e.g. to "MemoryObjectReceiveStream unclosed"). The module
+    # narrowing keeps unrelated anyio modules (anyio.streams.tls /
+    # anyio.from_thread) emitting normally, so a leaked AsyncClient
+    # surfacing through anyio internals still surfaces.
+    "ignore::ResourceWarning:anyio.streams.memory",
 ]
 # No ``markers = [...]`` block — empty list is a no-op under
 # ``--strict-markers`` (set in addopts above), which already rejects unknown
 # markers. Re-add ``markers = ["slow: ..."]`` etc. only when a test actually
 # applies the marker.
 # Forbid test classes — CLAUDE.md sacred rule "Never write a test class".
+# Suppresses class-based collection silently; the loud-fail backstop is
+# the ``pytest_sessionstart`` hook in ``tests/conftest.py`` (the literal
+# class name ``NoTestClassesAllowed`` is a sentinel no realistic test
+# author writes).
 python_classes = ["NoTestClassesAllowed"]
 # Pin discovery patterns to match CLAUDE.md naming convention
 # (`test_<unit>_<scenario>_<expected>`). Default pytest also picks up

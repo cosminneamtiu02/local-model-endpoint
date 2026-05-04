@@ -82,13 +82,24 @@ preserved but with redefined semantics for a no-DB feature:
 ## Forbidden Patterns -- Backend
 
 - Never use `print`. Use structlog.
-- Never use `logging.getLogger`. Use structlog.
+- Never use `logging.getLogger`. Use structlog. The single production
+  carve-outs are `app/core/logging.py:188` (root-handler bind) and
+  `app/core/logging.py:199` (uvicorn.access silencer); both are documented
+  in the module docstring. Adding a third stdlib-logger site requires
+  updating this rule and the module docstring in lockstep.
 - Never use f-string log messages. Use structlog's key=value pairs:
   `logger.info("event_name", key=value)` not `logger.info(f"thing {value}")`.
+- Never set `cache_logger_on_first_use=True` in `configure_logging`; it
+  freezes the bound logger and breaks `structlog.reset_defaults()` in the
+  test reconfiguration tests. The sub-microsecond per-call perf cost is
+  acceptable for a LAN service.
 - Never raise `HTTPException`. Raise a DomainError subclass.
 - Never write a `try/except` that silently swallows errors. If you catch, re-raise or log.
 - Never edit files in `exceptions/_generated/`. Edit errors.yaml, run task errors:generate.
-- Never use `os.environ` or `os.getenv`. Use pydantic-settings.
+- Never use `os.environ` or `os.getenv`. Use pydantic-settings. The single
+  production carve-out is `audit_lip_env_typos()` in `app/api/deps.py`,
+  which enumerates env-var NAMES (not values) once at startup to surface
+  typo'd `LIP_*` env vars that pydantic-settings silently ignores.
 - Never use `datetime.now()` without `tz=`. Use `datetime.now(UTC)`.
 - Never use `datetime.utcnow()`.
 - Never put business logic in route handlers. Handlers call one service method.
@@ -113,6 +124,16 @@ preserved but with redefined semantics for a no-DB feature:
   prompt body would land every consumer's prompts in stdout/JSON logs. Log
   message counts, durations, model IDs, finish reasons only. (See
   `OllamaClient.chat` for the canonical kw-set.)
+- Never insert `await` between an `except` clause and a
+  `logger.exception(...)` call: `sys.exc_info()` may be cleared by the
+  awaited coroutine's own try/except, silently dropping the traceback.
+  If you must await, capture `exc_info = sys.exc_info()` immediately and
+  pass `logger.exception(..., exc_info=exc_info)` after the await.
+- Never reuse `logger.critical` outside lifespan-singleton failures
+  (currently `app_startup_failed` / `app_shutdown_failed` in
+  `app/main.py`). Operator paging keys on `level=CRITICAL`; a third
+  CRITICAL site dilutes the signal. Per-request errors use `logger.error`
+  or `logger.exception`.
 
 ## Forbidden Patterns -- Cross-cutting
 

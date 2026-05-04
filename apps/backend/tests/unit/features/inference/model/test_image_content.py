@@ -1,10 +1,10 @@
 """Unit tests for ImageContent (LIP-E001-F001).
 
-Per the F001 open question on multimodal serialization, ImageContent
-carries an internal union over `url` (public reference) and `base64`
-(base64-encoded bytes). Exactly one must be set; the validator enforces
-that invariant at the schema boundary. The field name `base64` matches
-the wire vocabulary the adapter feature consumes.
+Per the LIP-E001-F001 open question on multimodal serialization,
+ImageContent carries an internal union over `url` (public reference)
+and `base64` (base64-encoded bytes). Exactly one must be set; the
+validator enforces that invariant at the schema boundary. The field
+name `base64` matches the wire vocabulary the adapter feature consumes.
 """
 
 import pytest

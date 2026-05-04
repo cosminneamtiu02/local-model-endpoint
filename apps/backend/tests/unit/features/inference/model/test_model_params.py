@@ -1,8 +1,8 @@
 """Unit tests for ModelParams (LIP-E001-F001).
 
-The exhaustive boundary scenarios are inherited from the F001 spec.
-exclude_unset semantics are core to the merge logic E002-F002 will
-build on top.
+The exhaustive boundary scenarios are inherited from the LIP-E001-F001
+spec. ``exclude_unset`` semantics are core to the merge logic the
+service-layer feature (LIP-E001-F002) will build on top.
 """
 
 import pytest
@@ -135,6 +135,7 @@ def test_model_params_max_tokens_rejects_values_out_of_range(max_tokens: int) ->
     [
         pytest.param(0, id="zero-included"),
         pytest.param(42, id="midrange"),
+        pytest.param(2**32 - 1, id="uint32-ceiling-included"),
     ],
 )
 def test_model_params_seed_accepts_values_in_range(seed: int) -> None:
@@ -142,9 +143,20 @@ def test_model_params_seed_accepts_values_in_range(seed: int) -> None:
     assert params.seed == seed
 
 
-def test_model_params_seed_rejects_negative_values() -> None:
+@pytest.mark.parametrize(
+    "seed",
+    [
+        pytest.param(-1, id="negative-excluded"),
+        # Above the uint32 ceiling Ollama / llama.cpp accept; left
+        # unbounded the consumer's seed would silently mod-truncate
+        # inside the backend, breaking the determinism contract the
+        # field's description promises.
+        pytest.param(2**32, id="uint32-overflow-rejected"),
+    ],
+)
+def test_model_params_seed_rejects_out_of_range_values(seed: int) -> None:
     with pytest.raises(ValidationError):
-        ModelParams(seed=-1)
+        ModelParams(seed=seed)
 
 
 def test_model_params_stop_accepts_list_of_strings() -> None:

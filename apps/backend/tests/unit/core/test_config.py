@@ -134,7 +134,7 @@ def test_settings_literal_field_rejects_unknown_value(
         make_settings()
 
 
-# ── Bind-host clamp (Lane 19.9) ──────────────────────────────────────
+# ── Bind-host clamp ──────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("public_host", ["0.0.0.0", "::"])  # noqa: S104 — reject-list
@@ -171,7 +171,7 @@ def test_settings_bind_host_accepts_loopback_default() -> None:
     assert settings.bind_host == "127.0.0.1"
 
 
-# ── Bind-port clamp (Lane 19.12) ─────────────────────────────────────
+# ── Bind-port clamp ──────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("port", [1023, 65536])
@@ -196,7 +196,7 @@ def test_settings_bind_port_accepts_valid_values(
     assert settings.bind_port == port
 
 
-# ── SSRF clamp (Lane 19.10) ──────────────────────────────────────────
+# ── SSRF clamp ───────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -292,12 +292,19 @@ def test_is_private_host_classifier_covers_ipv6_and_ula() -> None:
     assert is_private_host("fd00::1")  # ULA
     assert is_private_host("localhost")
     assert is_private_host("gemma.local")
+    # IPv4-mapped IPv6 forms unwrap to their v4 classification — without
+    # the ``ipv4_mapped`` re-classification in ``is_private_host`` an
+    # operator who wrote the loopback as ``::ffff:127.0.0.1`` would fail
+    # the SSRF clamp despite literally pointing at loopback.
+    assert is_private_host("::ffff:127.0.0.1")
+    assert is_private_host("::ffff:10.0.0.1")
+    assert not is_private_host("::ffff:8.8.8.8")
     assert not is_private_host("8.8.8.8")
     assert not is_private_host("2606:4700:4700::1111")  # public IPv6
     assert not is_private_host("")
 
 
-# ── lru_cache singleton (Lane 19.6) ──────────────────────────────────
+# ── lru_cache singleton ──────────────────────────────────────────────
 
 
 def test_get_settings_returns_cached_singleton() -> None:

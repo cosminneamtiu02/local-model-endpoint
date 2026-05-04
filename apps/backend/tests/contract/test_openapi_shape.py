@@ -31,12 +31,3 @@ def test_openapi_spec_is_valid(client: TestClient) -> None:
     # The LIP feature router will add inference paths under /v1/
     # when LIP-E001-F002 lands during feature-dev. Pre-feature-dev,
     # /v1/ has no operations and is not present in the spec.
-
-
-# ``test_health_endpoint_conforms_to_spec`` was removed: it duplicated
-# ``tests/integration/api/test_health.py::test_health_returns_200`` (same
-# request, same hardcoded body assertion, no actual spec-conformance
-# logic). The integration tier already pins the wire shape; the
-# contract tier owns spec-shape canaries (``test_openapi_spec_is_valid``
-# above) and the cross-route ProblemDetails contract in
-# ``test_problem_details_contract.py``.

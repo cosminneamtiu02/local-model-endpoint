@@ -28,10 +28,11 @@ if TYPE_CHECKING:
 # 600s read backstop bounds a hung Ollama daemon when no per-request budget
 # is wrapped around the call. Generous enough not to interrupt long thinking-mode
 # inference; finite enough that a wedged daemon eventually releases the slot.
-# ``pool=5.0`` bounds pool-slot acquisition; with the F001 semaphore set to 1
-# in-flight, pool starvation should be unreachable today, but a finite ceiling
-# converts a future regression (a sibling adapter call holding a slot) into a
-# loud ``httpx.PoolTimeout`` rather than a silent hang.
+# ``pool=5.0`` bounds pool-slot acquisition; with the LIP-E004-F001
+# semaphore set to 1 in-flight, pool starvation should be unreachable
+# today, but a finite ceiling converts a future regression (a sibling
+# adapter call holding a slot) into a loud ``httpx.PoolTimeout`` rather
+# than a silent hang.
 DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(
     connect=5.0,
     read=600.0,
@@ -43,11 +44,12 @@ DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(
 # instances is safe; re-verify on every httpx upgrade.
 
 # Single Ollama target serialized through one in-flight slot — pool sized to
-# match the F001 semaphore (max_in_flight=1) so a regression that leaks the
-# semaphore surfaces as a loud ``httpx.PoolTimeout`` rather than letting two
-# concurrent dials slip through silently. Keepalive_expiry pins the idle hold
-# time so log churn and any future idle-shutdown coordinator have a known knob.
-# See DEFAULT_TIMEOUT.pool=5.0 for the matching pool-acquisition deadline.
+# match the LIP-E004-F001 semaphore (max_in_flight=1) so a regression that
+# leaks the semaphore surfaces as a loud ``httpx.PoolTimeout`` rather than
+# letting two concurrent dials slip through silently. Keepalive_expiry pins
+# the idle hold time so log churn and any future idle-shutdown coordinator
+# have a known knob. See DEFAULT_TIMEOUT.pool=5.0 for the matching pool-
+# acquisition deadline.
 DEFAULT_LIMITS: Final[httpx.Limits] = httpx.Limits(
     max_connections=1,
     max_keepalive_connections=1,
@@ -128,33 +130,36 @@ class OllamaClient:
         # giving defense-in-depth against credential leakage even though
         # ``Settings._check_safety_invariants`` already rejects userinfo in
         # ``ollama_host``. Default-port elision is httpx's choice (verified:
-        # ``URL("http://x:80").netloc`` returns ``b"x"``); no operator
-        # disambiguation is lost vs the prior host:port composition.
+        # ``URL("http://x:80").netloc`` returns ``b"x"``).
         parsed = httpx.URL(base_url)
+        # ``parsed.path`` (str in httpx 0.28) is included so a future
+        # operator who sets ``LIP_OLLAMA_HOST=http://localhost:11434/api/v1``
+        # (currently legal — ``Settings._check_safety_invariants`` only
+        # screens host classification) sees the full target in the
+        # lifecycle log line rather than a wire-vs-log mismatch.
         self._loggable_base_url = (
-            f"{parsed.scheme}://{parsed.netloc.decode('ascii', errors='replace')}"
+            f"{parsed.scheme}://{parsed.netloc.decode('ascii', errors='replace')}{parsed.path}"
         )
 
-        # ``base_url`` retained for diagnostics; the live ``httpx.AsyncClient``
-        # below holds the parsed form. ``__aenter__``/``__aexit__`` are pure
-        # logging+close hooks — construction is eager so an unparseable URL
-        # fails loudly here, not at the first request.
-        self._base_url = base_url
         # User-Agent is computed per-instance so the ``PackageNotFoundError``
         # fallback is reachable from unit tests via monkeypatch on the
-        # instance method; module-scope evaluation made the warning branch
-        # untestable.
+        # instance method.
         self._user_agent = self._build_user_agent()
-        client_kwargs: dict[str, Any] = {
-            "base_url": base_url,
-            "timeout": timeout,
-            "limits": DEFAULT_LIMITS,
+        # Pass ``transport=transport`` unconditionally: ``httpx.AsyncClient``
+        # treats ``transport=None`` as "use the default transport," so the
+        # branch-on-None pattern was extra typing surface for no behavior
+        # difference. Direct kwargs keeps the precise httpx types instead of
+        # collapsing to ``dict[str, Any]``.
+        self._client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=timeout,
+            limits=DEFAULT_LIMITS,
             # Explicit ``Accept`` header makes the symmetry with the
             # _decode_ollama_json content-type guard self-documenting: LIP
             # only consumes JSON, and a future Ollama version supporting
             # content negotiation (or a misconfigured reverse proxy) gets a
             # clear signal rather than landing as an HTML error page.
-            "headers": {
+            headers={
                 "User-Agent": self._user_agent,
                 "Accept": "application/json",
             },
@@ -163,7 +168,7 @@ class OllamaClient:
             # clamp on ``ollama_host``. Flipping this to ``True`` would
             # weaken that defense, so the choice is annotated rather than
             # implicit.
-            "follow_redirects": False,
+            follow_redirects=False,
             # Defense-in-depth vs proxy/credential leakage: httpx defaults to
             # ``trust_env=True`` which honors HTTPS_PROXY / NO_PROXY / ~/.netrc
             # from the operator's shell. For a loopback/LAN-only target, an
@@ -171,11 +176,9 @@ class OllamaClient:
             # an unintended hop — defeating the SSRF clamp on ollama_host.
             # Flip to False so the proxy decision is an explicit Settings
             # field if it ever becomes one.
-            "trust_env": False,
-        }
-        if transport is not None:
-            client_kwargs["transport"] = transport
-        self._client = httpx.AsyncClient(**client_kwargs)
+            trust_env=False,
+            transport=transport,
+        )
         # Debug-level construction trace so operators can verify wire-config
         # (TLS, redirects, pool, timeout) under -v without adding info noise.
         logger.debug(
@@ -375,36 +378,57 @@ class OllamaClient:
             # exception type that carries a typed response.status_code.
             if isinstance(call_exc, httpx.HTTPStatusError):
                 ollama_status_code = call_exc.response.status_code
+            # Closed-alphabet bucket so operator triage queries can group
+            # failures without string-matching on ``exc_type``. Defaults to
+            # ``"unknown"`` so a future exception family that escapes the
+            # enumerated categories surfaces as a known-unknown rather than
+            # silently mis-bucketing.
+            if isinstance(call_exc, httpx.HTTPStatusError):
+                failure_category = "http_status"
+            elif isinstance(call_exc, httpx.TimeoutException | httpx.NetworkError):
+                failure_category = "transport"
+            elif isinstance(call_exc, ValueError):
+                failure_category = "malformed_frame"
+            else:
+                failure_category = "unknown"
             # ``logger.exception`` (not ``logger.warning``): we ARE inside an
             # except block, so structlog auto-attaches the traceback via
             # ``sys.exc_info`` and the level marks the event as the original
             # raise-site capture for grep-by-level dashboards. ``exc_message``
             # is httpx-side infrastructure data (or a malformed-frame
-            # ``ValueError``); never user prompt content, so it is safe to log.
+            # ``ValueError``); never user prompt content. The ASCII-replace +
+            # truncate sequence neutralizes any control chars an httpx error
+            # may have reflected from a malformed Ollama body — symmetric
+            # with ``RequestIdMiddleware``'s X-Request-ID header sanitation —
+            # so a malicious upstream cannot inject log-line forgeries under
+            # the dev ConsoleRenderer.
             logger.exception(
                 "ollama_call_failed",
                 model_name=model_tag,
                 exc_type=type(call_exc).__name__,
-                exc_message=str(call_exc)[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
+                exc_message=str(call_exc)
+                .encode("ascii", "replace")
+                .decode("ascii")[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
+                failure_category=failure_category,
                 ollama_status_code=ollama_status_code,
                 duration_ms=duration_ms,
                 option_keys=option_keys,
                 message_count=len(messages),
             )
             raise
-        except (asyncio.CancelledError, GeneratorExit) as cancel_exc:
+        except asyncio.CancelledError as cancel_exc:
             # Cancellation (consumer disconnect, lifespan shutdown) bypasses
             # the Exception arm above, which is correct for propagation, but
             # would otherwise leave NO log evidence the call started reaching
             # Ollama. Emit a single ``ollama_call_cancelled`` line so the
             # operator can correlate via request_id, then re-raise so the
-            # cancellation continues to propagate. Narrowed to the actual
-            # cancellation primitives (``asyncio.CancelledError`` for task
-            # cancel, ``GeneratorExit`` for async-generator close) rather
-            # than ``BaseException``: ``KeyboardInterrupt`` and ``SystemExit``
-            # mean the process is dying and don't need a per-call log line —
-            # they propagate uncaught, which is the canonical
-            # structured-concurrency pattern.
+            # cancellation continues to propagate. Narrowed to
+            # ``asyncio.CancelledError`` only (not ``BaseException``):
+            # ``KeyboardInterrupt`` / ``SystemExit`` mean the process is
+            # dying and don't need a per-call log line; ``GeneratorExit`` is
+            # raised only inside async generators (``aclose``) and
+            # ``chat()`` returns a typed value rather than yielding, so the
+            # arm has no path to fire.
             duration_ms = elapsed_ms(start)
             # ``info`` (not ``warning``): consumer-disconnect cancellation is
             # expected traffic on a multi-consumer LAN service; logging at

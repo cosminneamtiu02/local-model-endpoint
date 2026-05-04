@@ -2,8 +2,9 @@
 
 The intermediate value-object that `OllamaClient.chat()` returns. The
 orchestrator (LIP-E001-F002) composes the public `InferenceResponse`
-from this plus its own metadata; F002 only owns the four fields it can
-itself observe (content, prompt/completion tokens, finish reason).
+from this plus its own metadata; LIP-E003-F002 only owns the four
+fields it can itself observe (content, prompt/completion tokens,
+finish reason).
 """
 
 import pytest

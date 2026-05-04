@@ -301,13 +301,21 @@ def test_domain_error_handler_takes_priority_over_generic(client: TestClient) ->
 # ── HTTPException path (404 missing route, 405 method mismatch) ───────────
 
 
-def test_http_exception_405_returns_about_blank_problem_json(client: TestClient) -> None:
-    """A bare HTTPException(405) is wrapped into RFC 7807 with type='about:blank'."""
+def test_http_exception_405_returns_typed_method_not_allowed_problem_json(
+    client: TestClient,
+) -> None:
+    """Framework-405 routes through ``MethodNotAllowedError`` for wire-shape parity.
+
+    Single source of truth for the 405 envelope: a typed
+    ``raise MethodNotAllowedError()`` from a route and a framework
+    ``HTTPException(405)`` ship the same ``type`` URN, mirroring the 404
+    branch's typed-vs-framework symmetry.
+    """
     response = client.get("/trigger-http-405")
     assert response.status_code == 405
     assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
     body = response.json()
-    assert body["type"] == "about:blank"
+    assert body["type"] == "urn:lip:error:method-not-allowed"
     assert body["status"] == 405
     assert body["code"] == "METHOD_NOT_ALLOWED"
     assert body["request_id"] == response.headers["X-Request-ID"]

@@ -52,7 +52,8 @@ Every Python class lives in its own file. No exceptions except generated code in
 **Date:** 2026-04-07
 
 `/health` lives at the root, outside `/v1/`. Inference endpoints live under `/v1/`.
-(Inference endpoints land via LIP-E001-F002.)
+(LIP-E001-F002 lands the inference endpoint; LIP-E006-F002 lands the
+state-inspection set; both under `/v1/`.)
 
 **Rationale:** Load balancers and orchestrators hardcode health paths. Versioning health
 endpoints forces infrastructure config changes on API version bumps.
@@ -188,9 +189,9 @@ the work.
 
 ## ADR-013: OpenAPI `operation_id` Casing — camelCase
 
-**Date:** 2026-05-03
+**Status:** Accepted
 
-**Status:** Accepted (round-7 review sweep — lane 11 follow-up).
+**Date:** 2026-05-03
 
 **Context.** The single existing route (`GET /health`) declares
 `operation_id="getHealth"` — camelCase. CLAUDE.md naming convention

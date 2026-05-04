@@ -38,6 +38,13 @@ def is_private_host(host: str) -> bool:
     # they must NOT be considered "private" upstream targets.
     if ip.is_unspecified:
         return False
+    # IPv4-mapped IPv6 (``::ffff:127.0.0.1`` / ``::ffff:8.8.8.8``) does not
+    # set ``.is_loopback`` / ``.is_private`` / ``.is_link_local`` on the
+    # IPv6 view — re-classify against the embedded IPv4 form so an operator
+    # who explicitly writes the v4-mapped-v6 loopback isn't pushed toward
+    # ``LIP_ALLOW_EXTERNAL_OLLAMA=true`` by a false-positive clamp.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
     return ip.is_loopback or ip.is_private or ip.is_link_local
 
 
@@ -79,11 +86,11 @@ class Settings(BaseSettings):
     )
 
     # ``production`` is the only value that triggers behavior today (gates
-    # ``/docs`` exposure in main.py). The previous ``"test"`` literal was
-    # reserved-but-inert pre-feature scaffolding (ADR-011 forbids that):
-    # operators setting ``LIP_APP_ENV=test`` got identical behavior to
-    # ``development`` with no signal. Re-add narrowly when a test-mode
-    # behavior lands (e.g. mock-Ollama injection, forced JSON logging).
+    # ``/docs`` exposure in main.py). The alphabet is closed against
+    # ADR-011's "no scaffolding before the feature lands" rule: re-add a
+    # ``"test"`` literal narrowly when a test-mode behavior actually lands
+    # (e.g. mock-Ollama injection, forced JSON logging) so operators have
+    # one switch with one effect, not a switch with no effect.
     app_env: Literal["development", "production"] = Field(
         default="development",
         description=(
@@ -183,10 +190,9 @@ class Settings(BaseSettings):
     def _check_safety_invariants(self) -> Self:
         # Bind-host clamp: anything we can't recognize as private requires
         # ``allow_public_bind``. This catches the all-interfaces values
-        # (0.0.0.0, ::) AND a public address typo (8.8.8.8, garbage strings,
-        # etc.) — the original membership check on a 2-element set let
-        # everything outside the loopback/RFC1918 families slip past the
-        # validator unless it was literally one of two strings.
+        # (0.0.0.0, ::) AND a public address typo (8.8.8.8, garbage
+        # strings, etc.) — clamping anything we cannot classify as private
+        # is the correct default for a service with no auth.
         # ``!r`` (not ``!s``) is intentional and load-bearing: ``repr()``
         # escapes control chars (\\x1b, \\n, etc.) so a malicious env var
         # like ``LIP_BIND_HOST=$'\\x1b[31mfoo\\x1b[0m'`` cannot ANSI-inject
@@ -199,10 +205,12 @@ class Settings(BaseSettings):
             )
             raise ValueError(msg)
         # SSRF clamp: don't let a typo turn LIP into a forwarding proxy.
+        # ``ollama_host=`` mirrors the ``bind_host=`` field name in the
+        # bind-clamp above so a single grep finds both safety-clamp errors.
         host = self.ollama_host.host or ""
         if not is_private_host(host) and not self.allow_external_ollama:
             msg = (
-                f"ollama_host host={host!r} is not localhost / private LAN / link-local; "
+                f"ollama_host={host!r} is not localhost / private LAN / link-local; "
                 "set LIP_ALLOW_EXTERNAL_OLLAMA=true explicitly to acknowledge that LIP will "
                 "forward consumer prompts to a non-private host"
             )

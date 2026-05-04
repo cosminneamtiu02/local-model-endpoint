@@ -47,14 +47,13 @@ _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
         "tool_calls",
         "audios",
         "images",
-        # Additional prompt-bearing keys that future emit sites might bind
-        # by accident. The CLAUDE.md ban (never log message content / prompt
-        # text / model output / tool-call arguments) is the primary contract;
-        # adding these here turns the backstop from "catches the obvious
-        # names" into "catches the obvious AND the close-by-name regression
-        # surface." All seven new entries are wire-shape concepts present in
-        # the Ollama /api/chat request and response (arguments / output /
-        # output_text / completion / assistant_message / model_output / text).
+        # Each entry below is a wire-shape concept present in the Ollama
+        # /api/chat request or response. The CLAUDE.md ban (never log message
+        # content / prompt text / model output / tool-call arguments) is the
+        # primary contract; the entries here turn the backstop from "catches
+        # the obvious names" into "catches the obvious AND the close-by-name
+        # regression surface." Add new entries when a sibling adapter method
+        # introduces a new prompt-bearing key shape.
         "arguments",
         "output",
         "output_text",

@@ -1,9 +1,11 @@
-"""Unit tests for configure_logging.
+"""Unit tests for ``app.core.logging``.
 
-Closes the no-test gap flagged by Lane 13.4 (CLAUDE.md TDD sacred rule).
-``configure_logging`` wires a 7-step processor chain, two renderer paths, a
-stdlib bridge, and a uvicorn.access silencer; without coverage, any change to
-the chain ships untested.
+Verifies ``configure_logging`` wires the 7-step processor chain, both
+renderer paths (JSON + console), the stdlib bridge for foreign loggers,
+and the uvicorn.access silencer; the redaction processor backstop for
+the CLAUDE.md no-prompt-content rule is exercised against the live
+``_REDACTION_BLOCKLIST`` source so the parametrize cannot drift behind
+new entries.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import pytest
 import structlog
 from structlog.testing import capture_logs
 
+from app.core.logging import _REDACTION_BLOCKLIST as _REDACTION_BLOCKLIST_SOURCE
 from app.core.logging import configure_logging
 
 if TYPE_CHECKING:
@@ -90,10 +93,11 @@ def test_configure_logging_dev_mode_omits_dict_tracebacks() -> None:
     assert structlog.processors.dict_tracebacks not in processors, processors
 
 
-@pytest.mark.parametrize(
-    "sensitive_key",
-    ["messages", "content", "prompt", "tool_calls", "audios", "images"],
-)
+# Reading the parametrize from the source frozenset prevents drift: a new
+# entry added to ``_REDACTION_BLOCKLIST`` is automatically exercised here
+# without an extra hand edit. ``sorted`` keeps the parametrize id alphabet
+# stable across runs (frozensets have insertion-order-dependent iteration).
+@pytest.mark.parametrize("sensitive_key", sorted(_REDACTION_BLOCKLIST_SOURCE))
 def test_redaction_processor_strips_sensitive_keys(sensitive_key: str) -> None:
     """Defense-in-depth backstop for CLAUDE.md prompt-content log ban.
 
