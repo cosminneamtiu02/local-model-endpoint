@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import asyncio
 import contextlib
 import time
 from collections.abc import AsyncGenerator
@@ -95,7 +96,18 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                 # (resource construction raised before line 65).
                 with contextlib.suppress(AttributeError):
                     delattr(application.state, "context")
-    except BaseException:
+    except asyncio.CancelledError:
+        # Clean SIGTERM / Ctrl-C cancellation during teardown is normal;
+        # uvicorn's signal handler raises CancelledError into the lifespan
+        # generator on shutdown. Logging this at ``critical`` would alert-
+        # fatigue operator paging that keys on level=CRITICAL. Drop to ``info``
+        # for shutdown-cancel; ``app_startup_cancelled`` is the rarer-but-
+        # also-not-critical case (e.g. uvicorn aborted before resources
+        # constructed). The bare ``raise`` preserves cancellation propagation.
+        event_name = "app_shutdown_cancelled" if entered_yield else "app_startup_cancelled"
+        logger.info(event_name, phase="lifespan", env=settings.app_env)
+        raise
+    except Exception:
         # A resource-construction failure (settings drift, OllamaClient
         # connect-time issue, etc.) would otherwise propagate as an opaque
         # uvicorn traceback. Logged at ``critical`` (NOT ``logger.exception``,
@@ -105,10 +117,9 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # ``exception`` is. ``entered_yield`` discriminates startup vs
         # shutdown so the event name routes to the correct runbook.
         #
-        # ``BaseException`` (not ``Exception``) so a teardown ``CancelledError``
-        # raised by uvicorn's signal handler still produces an
-        # ``app_shutdown_failed`` log line. The bare ``raise`` re-raises the
-        # captured BaseException so cancellation propagation is preserved.
+        # ``Exception`` (not ``BaseException``) so ``CancelledError`` /
+        # ``KeyboardInterrupt`` / ``SystemExit`` propagate through their own
+        # arms — cancellation is normal shutdown traffic and should not page.
         event_name = "app_shutdown_failed" if entered_yield else "app_startup_failed"
         logger.critical(
             event_name,

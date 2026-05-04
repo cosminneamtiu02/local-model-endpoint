@@ -179,6 +179,41 @@ async def test_request_propagates_connect_error_via_mock_transport() -> None:
         await client.close()
 
 
+# ── _request input/state guards (round-10 L14) ──────────────────────
+
+
+async def test_request_rejects_relative_path_with_value_error() -> None:
+    """A relative ``path`` would silently RFC-3986-merge against ``base_url``.
+
+    With ``base_url="http://localhost:11434"`` (no trailing slash), passing
+    ``"api/chat"`` (no leading slash) replaces the last path segment instead
+    of appending. Today's only call site (``chat`` -> ``"/api/chat"``) is
+    fine, but the seam guards future siblings.
+    """
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, json={}),
+    )
+    client = OllamaClient(base_url="http://example.invalid", transport=transport)
+    try:
+        with pytest.raises(ValueError, match="path must be absolute"):
+            await client._request("GET", "api/tags")
+    finally:
+        await client.close()
+
+
+async def test_request_rejects_use_after_close_with_runtime_error() -> None:
+    """A leaked Depends-resolved reference arriving after lifespan teardown
+    must surface a typed signal, not httpx's untyped internal RuntimeError.
+    """
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, json={}),
+    )
+    client = OllamaClient(base_url="http://example.invalid", transport=transport)
+    await client.close()
+    with pytest.raises(RuntimeError, match="OllamaClient cannot be used after close"):
+        await client._request("GET", "/api/tags")
+
+
 # ── Cancellation contract (Lane 2.1) ─────────────────────────────────
 
 

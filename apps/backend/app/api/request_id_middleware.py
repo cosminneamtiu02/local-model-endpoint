@@ -119,7 +119,11 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
         request_id=request_id,
         instance=bounded_path,
     )
-    body = problem.model_dump_json(exclude_none=False).encode("utf-8")
+    # No ``exclude_none=False`` — that's the Pydantic v2 default; passing it
+    # explicitly drifts from the bare ``model_dump_json()`` shape used at
+    # ``exception_handlers._problem_response``. The 413 path has no
+    # ProblemExtras / typed-params spread that would need ``None`` preservation.
+    body = problem.model_dump_json().encode("utf-8")
     await send(
         {
             "type": "http.response.start",
