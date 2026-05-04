@@ -35,10 +35,10 @@ def test_default_timeout_constants_match_documented_v1_backstop() -> None:
     inference under Gemma 4, but bounded so a hung daemon does not hold the
     single semaphore slot indefinitely (which would be a self-inflicted DoS).
     Write stays unbounded — the request body is small relative to Ollama's
-    response. Pool is 5s: with the F001 semaphore set to 1 in-flight, pool
-    starvation should be unreachable today, but a finite ceiling converts a
-    future regression (a sibling adapter call holding a slot) into a loud
-    ``httpx.PoolTimeout`` rather than a silent hang.
+    response. Pool is 5s: with the LIP-E004-F001 semaphore set to 1
+    in-flight, pool starvation should be unreachable today, but a finite
+    ceiling converts a future regression (a sibling adapter call holding
+    a slot) into a loud ``httpx.PoolTimeout`` rather than a silent hang.
     """
     assert DEFAULT_TIMEOUT.connect == 5.0
     assert DEFAULT_TIMEOUT.read == 600.0
@@ -55,8 +55,8 @@ async def test_constructor_sets_base_url_on_internal_httpx_client() -> None:
 
 
 async def test_constructor_uses_default_timeout_when_none_supplied() -> None:
-    """Lane 14.14 — assert each timeout field rather than relying on a
-    single equality of the whole ``httpx.Timeout`` value-object.
+    """Assert each timeout field rather than relying on a single equality
+    of the whole ``httpx.Timeout`` value-object.
 
     Equality on httpx.Timeout is structural; a future httpx that adds a
     new field (or that breaks structural equality on Timeout) would let a
@@ -75,7 +75,7 @@ async def test_constructor_uses_default_timeout_when_none_supplied() -> None:
 
 
 async def test_constructor_accepts_custom_timeout_override() -> None:
-    """Field-by-field assertion mirrors the default-timeout test (Lane 14.14)."""
+    """Field-by-field assertion mirrors the default-timeout test above."""
     custom = httpx.Timeout(connect=2.0, read=1.0, write=1.0, pool=1.0)
     client = OllamaClient(base_url="http://localhost:11434", timeout=custom)
     try:
@@ -301,7 +301,7 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
         assert failed_events == [], captured
 
 
-# ── __aexit__ close-failure path (Lane 14.2) ─────────────────────────
+# ── __aexit__ close-failure path ─────────────────────────────────────
 
 
 async def test_aexit_propagates_close_error_when_body_did_not_raise() -> None:
@@ -356,7 +356,7 @@ async def test_aexit_suppresses_close_error_when_body_already_raised() -> None:
     assert closed == [], captured
 
 
-# ── _build_user_agent fallback (Lane 14.3) ───────────────────────────
+# ── _build_user_agent fallback ───────────────────────────────────────
 
 
 async def test_build_user_agent_falls_back_when_package_metadata_missing(

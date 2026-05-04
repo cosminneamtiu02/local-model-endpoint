@@ -294,7 +294,7 @@ def test_build_chat_result_defaults_token_counts_when_missing() -> None:
 
 
 def test_build_chat_result_raises_value_error_on_missing_message() -> None:
-    """F003 catches at a higher layer; F002 lets the failure surface.
+    """LIP-E003-F003 catches at a higher layer; LIP-E003-F002 lets the failure surface.
 
     ValueError (not KeyError) — Python reserves KeyError for genuine
     mapping-key misses, and the failure-mapping layer needs one unified

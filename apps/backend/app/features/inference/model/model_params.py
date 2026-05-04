@@ -82,9 +82,16 @@ class ModelParams(BaseModel):
     seed: int | None = Field(
         default=None,
         ge=0,
+        # Ollama's underlying llama.cpp sampler casts the seed to ``uint32``,
+        # so any value > 2^32-1 silently mod-truncates inside the backend.
+        # Capping at the schema boundary surfaces the truncation as a
+        # consumer-visible ValidationError instead of a "two different
+        # large seeds reproduce the same output" determinism puzzle.
+        le=2**32 - 1,
         description=(
-            "Deterministic-sampling seed. Non-negative; identical (model, prompt, "
-            "params, seed) tuples reproduce the same output."
+            "Deterministic-sampling seed. Non-negative, ≤2^32-1 (uint32 "
+            "ceiling enforced by Ollama / llama.cpp); identical (model, "
+            "prompt, params, seed) tuples reproduce the same output."
         ),
         examples=[42],
     )

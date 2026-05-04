@@ -67,10 +67,10 @@ def test_errors_yaml_declares_supported_version(errors_data: dict[str, object]) 
     assert errors_data["version"] == 1
 
 
-def test_errors_yaml_declares_at_least_round7_baseline_codes(
+def test_errors_yaml_declares_at_least_baseline_codes(
     errors_data: dict[str, object],
 ) -> None:
-    """The YAML must declare at least the baseline of 10 codes.
+    """The YAML must declare at least ``_MIN_CODE_COUNT`` codes.
 
     Catches a regression where a YAML refactor strips all codes (the
     generator emits zero files, ``task check:errors`` passes the

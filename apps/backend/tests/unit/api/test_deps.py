@@ -15,7 +15,7 @@ import structlog
 from fastapi import FastAPI
 
 from app.api.app_state import AppState
-from app.api.deps import get_app_state, get_ollama_client, get_settings
+from app.api.deps import audit_lip_env_typos, get_app_state, get_ollama_client, get_settings
 from app.exceptions import InternalError
 
 if TYPE_CHECKING:
@@ -70,33 +70,45 @@ def test_get_app_state_when_context_wrong_type_raises_internal_error() -> None:
         get_app_state(request)
 
 
-def test_get_app_state_returns_lifespan_appstate_on_happy_path() -> None:
-    """When ``app.state.context`` is a valid AppState, get_app_state returns it."""
+async def test_get_app_state_returns_lifespan_appstate_on_happy_path() -> None:
+    """When ``app.state.context`` is a valid AppState, get_app_state returns it.
+
+    The ``async with`` wrapping is load-bearing: ``OllamaClient.__init__``
+    eagerly constructs ``httpx.AsyncClient`` (a transport pool open until
+    aclose). Sibling ollama-client tests pair construction with explicit
+    teardown; without the context manager here, ``filterwarnings=["error"]``
+    would flip a future httpx-version pool-leak warning into a session-killing
+    failure.
+    """
     from app.features.inference import OllamaClient
 
     app = FastAPI()
-    client = OllamaClient(base_url="http://127.0.0.1:11434")
-    state = AppState(ollama_client=client)
-    app.state.context = state
-    request = _request_for(app)
+    async with OllamaClient(base_url="http://127.0.0.1:11434") as client:
+        state = AppState(ollama_client=client)
+        app.state.context = state
+        request = _request_for(app)
 
-    assert get_app_state(request) is state
+        assert get_app_state(request) is state
 
 
-def test_get_ollama_client_delegates_through_get_app_state() -> None:
+async def test_get_ollama_client_delegates_through_get_app_state() -> None:
     """``get_ollama_client`` is a thin reader on top of ``get_app_state`` —
-    test it returns the same client identity that AppState carries."""
+    test it returns the same client identity that AppState carries.
+
+    Wrapped in ``async with`` for the same pool-leak reason as the sibling
+    happy-path test above.
+    """
     from app.features.inference import OllamaClient
 
     app = FastAPI()
-    client = OllamaClient(base_url="http://127.0.0.1:11434")
-    app.state.context = AppState(ollama_client=client)
-    request = _request_for(app)
+    async with OllamaClient(base_url="http://127.0.0.1:11434") as client:
+        app.state.context = AppState(ollama_client=client)
+        request = _request_for(app)
 
-    assert get_ollama_client(request) is client
+        assert get_ollama_client(request) is client
 
 
-def test_get_settings_warns_on_unknown_lip_env_var(
+def test_audit_lip_env_typos_warns_on_unknown_lip_env_var(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A typo'd ``LIP_*`` env var should surface as a structlog warning
@@ -104,22 +116,36 @@ def test_get_settings_warns_on_unknown_lip_env_var(
     pydantic-settings 2.14 silently ignores extras at the env-source layer.
     """
     monkeypatch.setenv("LIP_BOGUS_TYPO_VAR", "x")
-    get_settings.cache_clear()
     with structlog.testing.capture_logs() as captured:
-        get_settings()
-    get_settings.cache_clear()
+        audit_lip_env_typos()
     warnings = [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
     assert len(warnings) == 1
     assert "LIP_BOGUS_TYPO_VAR" in warnings[0]["env_vars"]
 
 
-def test_get_settings_does_not_warn_when_all_env_vars_known(
+def test_audit_lip_env_typos_does_not_warn_when_all_env_vars_known(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Happy path: only declared env vars set → no audit warning fires."""
     monkeypatch.setenv("LIP_LOG_LEVEL", "warning")
+    with structlog.testing.capture_logs() as captured:
+        audit_lip_env_typos()
+    assert not [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
+
+
+def test_get_settings_construction_no_longer_emits_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``get_settings`` no longer side-effects on env-var typos.
+
+    The audit is now a separate ``audit_lip_env_typos`` call, fired from
+    ``create_app`` AFTER ``configure_logging``. ``get_settings`` itself
+    must therefore stay log-silent — otherwise the orphaned warning would
+    re-introduce the orphaned-non-JSON-line bug this split fixed.
+    """
+    monkeypatch.setenv("LIP_BOGUS_TYPO_VAR", "x")
     get_settings.cache_clear()
     with structlog.testing.capture_logs() as captured:
         get_settings()
     get_settings.cache_clear()
-    assert not [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
+    assert captured == []

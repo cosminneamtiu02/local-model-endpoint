@@ -1,46 +1,79 @@
 """FastAPI application factory."""
 
-import asyncio
 import contextlib
 import time
+from asyncio import CancelledError
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from importlib import metadata as _metadata
+from typing import Final
 
 import structlog
 from fastapi import FastAPI
 
-from app.api.deps import get_settings
+from app.api.deps import audit_lip_env_typos, get_settings
 from app.api.exception_handlers import register_exception_handlers
 from app.api.request_id_middleware import configure_middleware
 from app.api.router_registry import lifespan_resources, register_routers
-from app.core.logging import configure_logging, elapsed_ms
+from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, configure_logging, elapsed_ms
 
 logger = structlog.get_logger(__name__)
 
 
-def _resolve_app_version() -> str:
-    """Return the LIP package version from importlib.metadata, or ``"unknown"``.
+def _resolve_app_version() -> tuple[str, BaseException | None]:
+    """Return ``(version, exc-or-None)`` for the LIP package.
 
     Single source of truth shared with ``OllamaClient._build_user_agent`` so
     a future bump in ``pyproject.toml`` flows automatically into both the
     OpenAPI ``info.version`` field and the User-Agent header — no second
-    hand-edited literal to remember.
+    hand-edited literal to remember. Returns the resolution exception (if
+    any) rather than logging it because this function is called at module-
+    import time, BEFORE ``configure_logging`` runs in ``create_app``; the
+    caller emits the warning post-``configure_logging`` so the line lands
+    as JSON in production rather than as orphaned dev-format text mid-stream.
     """
     try:
-        return _metadata.version("lip-backend")
-    except _metadata.PackageNotFoundError:
-        logger.warning("app_version_resolve_failed", reason="package_not_found")
-        return "unknown"
-    except Exception:  # noqa: BLE001 — defense-in-depth at module-singleton boot
+        return _metadata.version("lip-backend"), None
+    except _metadata.PackageNotFoundError as exc:
+        return "unknown", exc
+    except Exception as exc:  # noqa: BLE001 — defense-in-depth at module-singleton boot
         # A corrupted dist-info under editable-install layouts can raise
         # non-PackageNotFoundError (KeyError / ValueError from
-        # importlib.metadata internals). Without this arm the failure
-        # crashes ``create_app`` at import time, before structlog has a
-        # handler attached — log via structlog and degrade rather than
-        # silently take down every worker boot.
-        logger.warning("app_version_resolve_failed", reason="unexpected", exc_info=True)
-        return "unknown"
+        # importlib.metadata internals). Returning the exception keeps the
+        # failure visible without crashing module import; the caller emits
+        # the structured warning after structlog is configured.
+        return "unknown", exc
+
+
+_APP_VERSION_RESOLUTION: Final[tuple[str, BaseException | None]] = _resolve_app_version()
+_APP_VERSION: Final[str] = _APP_VERSION_RESOLUTION[0]
+"""LIP package version, computed once per process. See ``_resolve_app_version``."""
+
+
+def _emit_app_version_resolve_failure() -> None:
+    """Emit the deferred warning if ``_resolve_app_version`` failed at import.
+
+    Called from ``create_app`` AFTER ``configure_logging`` so the warning
+    ships through the configured renderer (JSON in production, console in
+    dev) rather than the unconfigured-structlog default chain that would
+    drop the line silently or render it without redaction processors.
+    """
+    exc = _APP_VERSION_RESOLUTION[1]
+    if exc is None:
+        return
+    if isinstance(exc, _metadata.PackageNotFoundError):
+        logger.warning("app_version_resolve_failed", reason="package_not_found")
+        return
+    # ``logger.warning(..., exc_type=..., exc_message=...)`` ships the
+    # exception identity without ``exc_info=True`` — the traceback is
+    # unrecoverable across the module-import → ``create_app`` boundary
+    # anyway, so encoding the type+preview here is a faithful record.
+    logger.warning(
+        "app_version_resolve_failed",
+        reason="unexpected",
+        exc_type=type(exc).__name__,
+        exc_message=str(exc)[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
+    )
 
 
 @asynccontextmanager
@@ -84,7 +117,8 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         allow_external_ollama=settings.allow_external_ollama,
         allow_public_bind=settings.allow_public_bind,
     )
-    start_monotonic = time.monotonic()
+    start = time.perf_counter()
+    shutdown_started: float | None = None
     shutdown_reason = "clean"
     # Track whether we entered the resource-yield window so the outer
     # except can distinguish a startup-time failure (resource construction
@@ -100,7 +134,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             logger.info("lifespan_resources_ready", phase="lifespan", env=settings.app_env)
             try:
                 yield
-            except asyncio.CancelledError:
+            except CancelledError:
                 # SIGTERM / Ctrl-C surfaces here as CancelledError raised by
                 # uvicorn's signal handler. Discriminated from the broader
                 # ``except BaseException`` arm so the ``app_shutdown`` line
@@ -118,15 +152,20 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                 shutdown_reason = "exception"
                 raise
             finally:
-                # uptime_ms keeps the time-unit consistent with the
-                # request_completed log line's duration_ms field.
+                # ``app_shutdown`` records the moment the yield window
+                # exited; ``app_shutdown_completed`` (emitted in the outer
+                # ``finally`` below, after AsyncExitStack unwinds) records
+                # the moment teardown finished. The pair lets operators
+                # bound resource-teardown duration (e.g. a stuck httpx
+                # pool drain) without joining log lines by request_id.
+                shutdown_started = time.perf_counter()
                 logger.info(
                     "app_shutdown",
                     phase="lifespan",
                     reason=shutdown_reason,
                     version=application.version,
                     env=settings.app_env,
-                    uptime_ms=elapsed_ms(start_monotonic, now=time.monotonic),
+                    uptime_ms=elapsed_ms(start),
                 )
                 # Drop the torn-down AppState reference so a stray request
                 # arriving after lifespan exits raises ``InternalError`` via
@@ -135,10 +174,11 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                 # has already had ``__aexit__`` called on it. The
                 # ``contextlib.suppress(AttributeError)`` covers the path
                 # where ``application.state.context`` was never assigned
-                # (resource construction raised before line 65).
+                # (resource construction raised before the
+                # ``application.state.context = state`` assignment above).
                 with contextlib.suppress(AttributeError):
                     delattr(application.state, "context")
-    except asyncio.CancelledError:
+    except CancelledError:
         # Clean SIGTERM / Ctrl-C cancellation during teardown is normal;
         # uvicorn's signal handler raises CancelledError into the lifespan
         # generator on shutdown. Logging this at ``critical`` would alert-
@@ -170,6 +210,21 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             exc_info=True,
         )
         raise
+    finally:
+        # Outer finally fires on every exit path (clean / cancelled /
+        # exception) AFTER ``async with lifespan_resources`` has unwound
+        # — so ``teardown_ms`` bounds the post-yield resource-close
+        # duration. Gate on ``shutdown_started`` so a startup-time failure
+        # (resources never reached the inner finally) doesn't emit a
+        # confusing teardown line for a teardown that never ran.
+        if shutdown_started is not None:
+            logger.info(
+                "app_shutdown_completed",
+                phase="lifespan",
+                reason=shutdown_reason,
+                env=settings.app_env,
+                teardown_ms=elapsed_ms(shutdown_started),
+            )
 
 
 def create_app() -> FastAPI:
@@ -178,6 +233,12 @@ def create_app() -> FastAPI:
     is_prod = settings.app_env == "production"
 
     configure_logging(log_level=settings.log_level, json_output=is_prod)
+    # Both warnings below MUST emit AFTER ``configure_logging`` so the
+    # lines land as JSON in production (vs. the unconfigured-structlog
+    # default chain that drops them silently or renders them without the
+    # redaction processor).
+    _emit_app_version_resolve_failure()
+    audit_lip_env_typos()
 
     application = FastAPI(
         title="Local Inference Provider",
@@ -186,7 +247,7 @@ def create_app() -> FastAPI:
             "Exposes a stable backend-agnostic inference contract to "
             "local consumer backend projects."
         ),
-        version=_resolve_app_version(),
+        version=_APP_VERSION,
         lifespan=lifespan,
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",

@@ -12,11 +12,11 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest==9.0.3",
-    # Lane 18.7: pytest-asyncio not needed — codegen tests are sync.
+    # pytest-asyncio not needed — codegen tests are sync.
     "ruff==0.15.12",
     "pyright==1.1.409",
-    # Lane 10.2: pip-audit added so this workspace can mirror the
-    # backend's CVE scan via ``task check:audit:errors``.
+    # pip-audit mirrors the backend's CVE scan via ``task check:audit:errors``
+    # so both workspaces share the same gating shape.
     "pip-audit==2.10.0",
 ]
 
@@ -29,10 +29,14 @@ addopts = [
     "--strict-markers",
     "--strict-config",
 ]
+# An xfail that unexpectedly passes is a hard failure (forces the author
+# to remove the marker rather than leaving stale xfails in the suite). See
+# ``apps/backend/pyproject.toml`` for the full rationale; the same
+# discipline applies to both workspaces.
 xfail_strict = true
-# Lane 15.5: bare ``["error"]`` suffices because this workspace has no
-# async tests; if any are added, copy the apps/backend filter list to
-# handle anyio teardown ResourceWarnings.
+# Bare ``["error"]`` suffices because this workspace has no async tests;
+# if any are added, copy the apps/backend filter list to handle anyio
+# teardown ResourceWarnings.
 filterwarnings = ["error"]
 # Mirror the apps/backend pinning so this workspace's discovery rules
 # match the rest of the monorepo. Without these pins, pytest's defaults

@@ -16,19 +16,36 @@ logger = structlog.get_logger(__name__)
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return cached application settings."""
-    # ``Settings.model_validate({})`` runs the BaseSettings env / .env load
-    # path the same way ``Settings()`` does, but goes through Pydantic's
-    # typed ``model_validate`` entry point so pyright doesn't see a
-    # dynamic-init false-positive. Avoids the ``# pyright: ignore`` escape
-    # hatch and keeps the construction site contract-clean.
-    settings = Settings.model_validate({})
-    # See ``Settings.__doc__`` — pydantic-settings 2.14 silently ignores
-    # unknown ``LIP_*`` env vars at the env-source layer. This ``os.environ``
-    # enumeration is the only known way to surface that, fired once per
-    # process via @lru_cache. The env-prefix is read from
-    # ``Settings.model_config`` directly so a future ADR renaming ``LIP_``
-    # propagates here automatically.
+    """Return cached application settings.
+
+    Construction goes through ``Settings.model_validate({})`` rather than
+    ``Settings()``: pydantic-settings 2.14's ``model_validate`` runs the same
+    env / .env load path while letting pyright see the typed construction
+    surface, so the call site stays contract-clean without a
+    ``# pyright: ignore`` escape hatch. ``maxsize=1`` is the FastAPI-blessed
+    Settings-singleton pattern (CLAUDE.md sole-carve-out); tests use
+    ``get_settings.cache_clear()`` for hermetic isolation.
+    """
+    return Settings.model_validate({})
+
+
+def audit_lip_env_typos() -> None:
+    """Surface typo'd ``LIP_*`` env vars that pydantic-settings silently ignores.
+
+    pydantic-settings 2.14 ignores unknown env vars at the env-source layer
+    (``extra="forbid"`` only fires on init kwargs). This helper enumerates
+    ``os.environ`` once per process and warns about any ``LIP_*`` name that
+    doesn't match a declared ``Settings`` field, so an operator with
+    ``LIP_OLLMA_HOST=...`` (typo) sees a startup-time warning rather than a
+    silent default-value boot.
+
+    MUST be called from ``create_app`` AFTER ``configure_logging`` so the
+    warning ships through the configured renderer (JSON in production,
+    console in dev) rather than the unconfigured-structlog default chain
+    that would render the line as orphaned text in an otherwise-JSON
+    stream. The env-prefix is read from ``Settings.model_config`` so a
+    future ADR renaming ``LIP_`` propagates here automatically.
+    """
     env_prefix = Settings.model_config.get("env_prefix") or ""
     declared = {f"{env_prefix}{name.upper()}" for name in Settings.model_fields}
     actual = {name for name in os.environ if name.startswith(env_prefix)}
@@ -37,12 +54,11 @@ def get_settings() -> Settings:
         # ``phase="startup"`` keeps this warning grep-compatible with the
         # rest of the lifecycle taxonomy (lifespan logs carry
         # ``phase="lifespan"``, request logs carry ``phase="request"``).
-        # ``get_settings()`` first-fires inside ``create_app`` BEFORE the
-        # lifespan binds ``phase``, so the field would otherwise be missing
-        # exactly on the line operators grep when triaging
-        # "why didn't my env override take effect?".
+        # The full env-var names are deliberately surfaced as a triage
+        # affordance — operators searching "did this typo fire" can grep
+        # the unknown set directly. CLAUDE.md's prompt-content ban applies
+        # to message bodies; env-var names are operator metadata.
         logger.warning("unknown_lip_env_vars_ignored", env_vars=unknown, phase="startup")
-    return settings
 
 
 def get_app_state(request: Request) -> AppState:

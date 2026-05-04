@@ -260,9 +260,10 @@ async def test_chat_propagates_timeout_uncaught(
     of the bounds in ``OllamaClient.DEFAULT_TIMEOUT``: ``ConnectTimeout``
     -> ``connect=5s``, ``ReadTimeout`` -> ``read=600s``, ``WriteTimeout``
     -> ``write=None`` (still raises if upstream forces it),
-    ``PoolTimeout`` -> ``pool=5s`` (load-bearing today: F001 semaphore + 1
-    pool slot means a regression that adds a sibling adapter call surfaces
-    here as a loud PoolTimeout rather than a silent hang). All four share
+    ``PoolTimeout`` -> ``pool=5s`` (load-bearing today: the LIP-E004-F001
+    semaphore + 1 pool slot means a regression that adds a sibling
+    adapter call surfaces here as a loud PoolTimeout rather than a
+    silent hang). All four share
     the ``httpx.TimeoutException`` base, so the handler can synthesize
     them uniformly.
     """
