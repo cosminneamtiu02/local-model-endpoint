@@ -58,20 +58,23 @@ state-inspection set; both under `/v1/`.)
 **Rationale:** Load balancers and orchestrators hardcode health paths. Versioning health
 endpoints forces infrastructure config changes on API version bumps.
 
-## ADR-009: Pre-commit Fast, Pre-push Slow, CI Everything
+## ADR-009: Pre-commit Fast, Pre-push Unit-Only, CI Everything
 
-**Status:** Accepted
+**Status:** Accepted (revised 2026-05-04 to match the round-14 lane 10.6
+narrowing of the pre-push stage)
 **Date:** 2026-04-07
 
 Pre-commit: ruff (lint + format), trailing-whitespace, end-of-file-fixer,
 check-yaml/json, large-file guard, detect-secrets, Taskfile syntax check (~5-10s).
-Pre-push: pyright, import-linter, full pytest suite (backend unit +
-integration + contract; error-contracts unit).
-CI: all three test levels (unit, integration, contract) + type checker + import-linter
-+ error-contracts regen check.
+Pre-push: backend unit tests + error-contracts unit tests only.
+CI: all three backend test levels (unit, integration, contract) + type checker +
+import-linter + error-contracts codegen+regen + pip-audit + secret scan.
 
-**Rationale:** Fast commit loop. Tests before code leaves the machine. Full verification
-before merge.
+**Rationale:** Fast commit loop. Unit tests before code leaves the machine. The
+slower pyright/import-linter/integration/contract checks live in CI only — running
+them at pre-push too created real pressure to use `--no-verify` (which CLAUDE.md
+forbids), since `main-protection` already gates merges on the same checks. Operators
+wanting the full local mirror still have `task check` as the sacred-rule entry point.
 
 ## ADR-010: Dependabot Auto-Merge Exception to Manual-Squash Rule
 
@@ -157,10 +160,13 @@ and read by `Depends` factories via `request.app.state.context.<field>`.
 **Rationale.** Starlette's `app.state` accessor is `Any`-typed; reaching
 through it directly leaks `Any` into every consumer and reduces Pyright
 strict mode's value to "compiles, no guarantees about shape." Wrapping
-the lifespan resources in a `@dataclass(slots=True)` gives Pyright a
-single typed entry point and forbids dynamic attribute attachment
-(`slots=True`) that would otherwise let `app.state.context.foo = bar`
-silently grow into a service-locator pattern.
+the lifespan resources in a `@dataclass(slots=True, frozen=True)` gives
+Pyright a single typed entry point and forbids dynamic attribute
+attachment (`slots=True`) that would otherwise let
+`app.state.context.foo = bar` silently grow into a service-locator
+pattern. `frozen=True` then forbids in-place mutation of the existing
+fields after construction, so a lifespan-managed httpx client cannot be
+silently swapped mid-request.
 
 `Depends(get_app_state)` and `Depends(get_ollama_client)` factories in
 `app/api/deps.py` are the only call sites that touch `app.state.context`;

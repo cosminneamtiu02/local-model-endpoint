@@ -1,13 +1,13 @@
 """Drift guard between ``ProblemExtras`` (wire schema) and the codegen's
 ``RESERVED_PARAM_NAMES`` (codegen-time forbidden YAML param names).
 
-The codegen forbids YAML-declared params from colliding with seven RFC 7807
-keys plus every ``ProblemExtras`` field name. The two sources cannot import
-each other (cross-workspace), so the contract is enforced by hand-sync.
-This test pins the contract: every ``ProblemExtras`` field MUST be in the
-codegen's reserved set, otherwise a YAML param could shadow a typed-extension
-key on the wire and trip ``_build_problem_payload``'s collision detector at
-request time as a 500.
+The codegen forbids YAML-declared params from colliding with the RFC 7807
+envelope keys plus every ``ProblemExtras`` field name. The two sources
+cannot import each other (cross-workspace), so the contract is enforced
+by hand-sync. This test pins the contract: every ``ProblemExtras`` field
+MUST be in the codegen's reserved set, otherwise a YAML param could
+shadow a typed-extension key on the wire and trip
+``_build_problem_payload``'s collision detector at request time as a 500.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ _RFC7807_ENVELOPE_FIELDS: Final[frozenset[str]] = frozenset(
 
 
 def test_rfc7807_envelope_field_names_are_reserved_in_codegen() -> None:
-    """The seven RFC 7807 + LIP envelope keys MUST be in RESERVED_PARAM_NAMES.
+    """The RFC 7807 + LIP envelope keys MUST be in RESERVED_PARAM_NAMES.
 
     The codegen and the runtime ``_build_problem_payload`` both spread params
     at the root of the wire body. A YAML-declared param named ``status`` /

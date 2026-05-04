@@ -41,6 +41,19 @@ tests + a passing `task check`.
   `app/features/inference/repository/ollama_client.py` ->
   `tests/unit/features/inference/repository/test_ollama_client.py`.
 - `tests/contract/test_openapi_shape.py` (OpenAPI canary) and `tests/contract/test_problem_details_contract.py` (RFC 7807 wire shape) for OpenAPI/contract validation.
+- Test package `__init__.py` files are empty by convention; production
+  package `__init__.py` files carry a one-line module docstring describing
+  the package surface.
+
+## Inline Code References in Docstrings and Comments
+
+Use double backticks (Sphinx/RST inline literals) — `` ``OllamaClient`` ``,
+`` ``app/api/deps.py`` `` — for every Python identifier, file path, env
+var, or config key referenced in a docstring or `#` comment. Single
+backticks are reserved for Markdown files (this doc, `README.md`, ADRs).
+The convention disambiguates "this string is a code reference" from
+ordinary prose and keeps a single `grep` pattern useful across the
+codebase.
 
 ## Pydantic Schemas
 
@@ -50,8 +63,8 @@ Each feature owns its wire schemas in `features/<name>/schemas/`. Common file ro
 - `<entity>_response.py` — fields the service returns.
 
 Schemas may import value-objects from `model/` (Message, ModelParams, ContentPart,
-ModelInfo, OllamaChatResult) — `model/` in LIP holds project value-objects, not ORM
-types, since the service has no database. Models never import schemas; that direction
+OllamaChatResult; ModelInfo lands with LIP-E002-F001) — `model/` in LIP holds project
+value-objects, not ORM types, since the service has no database. Models never import schemas; that direction
 stays strict. See the Layer Rules in [CLAUDE.md](../CLAUDE.md) for the authoritative
 statement.
 

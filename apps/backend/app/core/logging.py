@@ -1,10 +1,14 @@
 """Structured logging configuration with structlog.
 
 This module is the SOLE approved location in the codebase for
-``logging.getLogger`` (used at the bottom to silence ``uvicorn.access``).
-The CLAUDE.md "never use logging.getLogger" sacred rule covers
-application code; this bridge to stdlib's logger registry is the
-documented exception. All other code uses ``structlog.get_logger``.
+``logging.getLogger``. There are TWO carve-out call sites at the
+bottom of ``configure_logging``: one binds the JSON handler to the
+root logger, the other silences ``uvicorn.access`` (which would
+otherwise duplicate the ``request_completed`` line emitted by
+``RequestIdMiddleware``). The CLAUDE.md "never use
+logging.getLogger" sacred rule covers application code; this
+bridge to stdlib's logger registry is the documented exception.
+All other code uses ``structlog.get_logger``.
 """
 
 import logging
@@ -39,6 +43,28 @@ def elapsed_ms(start: float, *, now: Callable[[], float] = time.perf_counter) ->
     return int((now() - start) * _MS_PER_SECOND)
 
 
+def ascii_safe(value: str | bytes, *, max_chars: int = EXC_MESSAGE_PREVIEW_MAX_CHARS) -> str:
+    """Return ``value`` ASCII-replaced and truncated to ``max_chars``.
+
+    Centralizes the "ASCII-clean a possibly-control-char-bearing
+    user-supplied string before logging it" idiom that otherwise repeats
+    across :class:`RequestIdMiddleware`, :class:`OllamaClient`, and the
+    validation-error and HTTP-exception handlers. Keeping a single helper
+    means a future regression (forgetting to truncate, dropping the
+    encode step) cannot land in only one of the four call sites — and
+    a future ops dashboard rendering log values into HTML is defended by
+    one place, not four.
+
+    Accepts ``bytes`` directly (avoids a separate encode step at byte-input
+    sites) and ``str`` (pre-existing string with possible control chars).
+    Non-ASCII bytes / chars are replaced with ``?``; control bytes (0x00-
+    0x1F + 0x7F) are also replaced because terminals and HTML renderers
+    treat them as special.
+    """
+    text = value.decode("ascii", errors="replace") if isinstance(value, bytes) else value
+    return text.encode("ascii", "replace").decode("ascii")[:max_chars]
+
+
 _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
     {
         "messages",
@@ -60,6 +86,15 @@ _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
         "completion",
         "assistant_message",
         "model_output",
+        # Generic body / payload names a future debug-investigation diff
+        # might use (``logger.info("oops", body=request_json)``). Operator
+        # discipline catches it at code review; this is the
+        # infrastructure-level backstop.
+        "body",
+        "payload",
+        "request_body",
+        "chat_request",
+        "chat_response",
     },
 )
 """Event-dict keys whose values are unconditionally redacted.
@@ -193,6 +228,7 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     # information that the RequestIdMiddleware request_completed line
     # already carries — and we don't want the unstructured access format
     # polluting JSON output.
-    # This is the one approved use of stdlib logging.getLogger; the
+    # This is one of the two approved uses of stdlib logging.getLogger
+    # in the codebase (the other is the root-handler bind above); the
     # forbidden pattern is using stdlib loggers for application logs.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

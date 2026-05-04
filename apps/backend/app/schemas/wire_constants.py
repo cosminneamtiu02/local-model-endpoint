@@ -39,3 +39,23 @@ constraint. The pattern alone subsumes the length but declaring
 min/max explicitly keeps OpenAPI consumers (which read ``minLength``/
 ``maxLength`` from the schema, not the regex) in lockstep across the
 two response envelopes."""
+
+INSTANCE_PATH_MAX_CHARS: Final[int] = 2048
+"""Cap for ``ProblemDetails.instance`` and the matching truncation in
+:func:`app.api.exception_handlers._bounded_instance`. Hoisted here
+(rather than living in two parallel ``Final[int]`` definitions in
+``schemas/problem_details.py`` and ``api/exception_handlers.py``) so a
+future bump moves both sites in lockstep — the handler's truncation
+must always match the schema's ``max_length`` or a 2049-char path would
+trip ``ProblemDetails`` construction inside the very handler that's
+trying to render it."""
+
+ABOUT_BLANK_TYPE: Final[str] = "about:blank"
+"""RFC 7807 §4.2 ``type`` value for HTTP errors with no extra semantics.
+
+Used by the framework-HTTPException handler (404/405/415/...) and by the
+413 short-circuit in :class:`RequestIdMiddleware` for the same reason —
+both ship un-typed HTTP errors that have no LIP-specific URN. Co-located
+with the other wire-shape constants so the ``ProblemDetails.type``
+regex can build itself from the same literal that the handlers emit
+(no risk of the regex and the emit-site drifting apart)."""

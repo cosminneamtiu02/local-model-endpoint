@@ -63,10 +63,10 @@ class Settings(BaseSettings):
     ``test_settings_extra_forbid_silently_ignores_unknown_env_var``).
     A typo in ``.env`` (e.g. ``LIP_OLLMA_HOST``) is therefore not caught
     at import time. The audit-only ``os.environ`` enumeration in
-    ``app.api.deps.get_settings`` surfaces such typos as a single
-    ``unknown_lip_env_vars_ignored`` structlog warning at first
-    ``get_settings()`` call (the ``@lru_cache(maxsize=1)`` ensures
-    single-fire), so the silent-ignore behavior is observable to operators.
+    ``app.api.deps.audit_lip_env_typos`` (per ADR-014) surfaces such typos
+    as a single ``unknown_lip_env_vars_ignored`` structlog warning when
+    invoked once from ``create_app`` at startup, so the silent-ignore
+    behavior is observable to operators.
     """
 
     # env_prefix="LIP_" disambiguates every env var from Ollama daemon's
@@ -169,7 +169,18 @@ class Settings(BaseSettings):
     # ``ge=1024`` forbids privileged ports — running LIP as root is out
     # of project scope. Raise the lower bound only if a future macOS
     # launchd handoff is added that drops privileges after binding 80/443.
-    bind_port: int = Field(default=8000, ge=1024, le=65535)
+    # Loose ``int`` (not ``StrictInt``): env vars always arrive as strings,
+    # so ``StrictInt`` would reject every valid ``LIP_BIND_PORT=8000`` env
+    # var; the ``ge``/``le`` bounds catch the value-shape concern.
+    bind_port: int = Field(
+        default=8000,
+        ge=1024,
+        le=65535,
+        description=(
+            "Port to bind uvicorn to (1024-65535; privileged ports are out "
+            "of project scope per the ``ge=1024`` constraint)."
+        ),
+    )
 
     @field_validator("log_level", mode="before")
     @classmethod

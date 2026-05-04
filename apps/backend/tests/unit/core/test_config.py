@@ -222,7 +222,11 @@ def test_settings_ollama_host_accepts_private_addresses(
     """Loopback / RFC1918 / mDNS hosts pass without opt-in."""
     monkeypatch.setenv("LIP_OLLAMA_HOST", private_host)
     settings = make_settings()
-    assert settings.ollama_host is not None
+    # Verify the parsed URL preserves the host (rather than the
+    # weaker ``is not None``: ``ollama_host`` is non-Optional with a
+    # default, so a regression that stripped the SSRF allowlist and let
+    # every host through silently passes ``is not None``).
+    assert str(settings.ollama_host).startswith(private_host)
 
 
 @pytest.mark.parametrize(

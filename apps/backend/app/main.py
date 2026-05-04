@@ -1,12 +1,11 @@
 """FastAPI application factory."""
 
-import contextlib
 import time
 from asyncio import CancelledError
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from importlib import metadata as _metadata
-from typing import Final
+from typing import Final, NamedTuple
 
 import structlog
 from fastapi import FastAPI
@@ -20,8 +19,20 @@ from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, configure_logging, e
 logger = structlog.get_logger(__name__)
 
 
-def _resolve_app_version() -> tuple[str, BaseException | None]:
-    """Return ``(version, exc-or-None)`` for the LIP package.
+class _AppVersionResolution(NamedTuple):
+    """Result of ``_resolve_app_version`` — version string + optional exception.
+
+    NamedTuple (rather than a bare tuple) so ``.version`` / ``.error``
+    read sites self-document instead of relying on ``[0]`` / ``[1]``
+    positional indexing in the dispatch helper below.
+    """
+
+    version: str
+    error: BaseException | None
+
+
+def _resolve_app_version() -> _AppVersionResolution:
+    """Return ``_AppVersionResolution(version, error)`` for the LIP package.
 
     Single source of truth shared with ``OllamaClient._build_user_agent`` so
     a future bump in ``pyproject.toml`` flows automatically into both the
@@ -33,20 +44,20 @@ def _resolve_app_version() -> tuple[str, BaseException | None]:
     as JSON in production rather than as orphaned dev-format text mid-stream.
     """
     try:
-        return _metadata.version("lip-backend"), None
+        return _AppVersionResolution(_metadata.version("lip-backend"), None)
     except _metadata.PackageNotFoundError as exc:
-        return "unknown", exc
+        return _AppVersionResolution("unknown", exc)
     except Exception as exc:  # noqa: BLE001 — defense-in-depth at module-singleton boot
         # A corrupted dist-info under editable-install layouts can raise
         # non-PackageNotFoundError (KeyError / ValueError from
         # importlib.metadata internals). Returning the exception keeps the
         # failure visible without crashing module import; the caller emits
         # the structured warning after structlog is configured.
-        return "unknown", exc
+        return _AppVersionResolution("unknown", exc)
 
 
-_APP_VERSION_RESOLUTION: Final[tuple[str, BaseException | None]] = _resolve_app_version()
-_APP_VERSION: Final[str] = _APP_VERSION_RESOLUTION[0]
+_APP_VERSION_RESOLUTION: Final[_AppVersionResolution] = _resolve_app_version()
+_APP_VERSION: Final[str] = _APP_VERSION_RESOLUTION.version
 """LIP package version, computed once per process. See ``_resolve_app_version``."""
 
 
@@ -58,7 +69,7 @@ def _emit_app_version_resolve_failure() -> None:
     dev) rather than the unconfigured-structlog default chain that would
     drop the line silently or render it without redaction processors.
     """
-    exc = _APP_VERSION_RESOLUTION[1]
+    exc = _APP_VERSION_RESOLUTION.error
     if exc is None:
         return
     if isinstance(exc, _metadata.PackageNotFoundError):
@@ -172,11 +183,11 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                 # ``get_app_state`` (the typed ``isinstance`` guard) rather
                 # than returning a torn-down AppState whose OllamaClient
                 # has already had ``__aexit__`` called on it. The
-                # ``contextlib.suppress(AttributeError)`` covers the path
-                # where ``application.state.context`` was never assigned
+                # ``suppress(AttributeError)`` covers the path where
+                # ``application.state.context`` was never assigned
                 # (resource construction raised before the
                 # ``application.state.context = state`` assignment above).
-                with contextlib.suppress(AttributeError):
+                with suppress(AttributeError):
                     delattr(application.state, "context")
     except CancelledError:
         # Clean SIGTERM / Ctrl-C cancellation during teardown is normal;
@@ -199,9 +210,13 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # ``exception`` is. ``entered_yield`` discriminates startup vs
         # shutdown so the event name routes to the correct runbook.
         #
-        # ``Exception`` (not ``BaseException``) so ``CancelledError`` /
-        # ``KeyboardInterrupt`` / ``SystemExit`` propagate through their own
-        # arms — cancellation is normal shutdown traffic and should not page.
+        # ``Exception`` (not ``BaseException``) so ``CancelledError``
+        # propagates through its own arm above — cancellation is normal
+        # shutdown traffic and should not page.
+        # ``KeyboardInterrupt`` / ``SystemExit`` ride past both arms and
+        # only the outer ``finally`` (``app_shutdown_completed`` with
+        # ``reason="exception"``) sees them; that's intentional, paging
+        # on operator-initiated SIGINT would also be alert-fatigue.
         event_name = "app_shutdown_failed" if entered_yield else "app_startup_failed"
         logger.critical(
             event_name,
