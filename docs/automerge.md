@@ -13,8 +13,8 @@ Dependabot-authored PRs that pass all required status checks are automatically s
 | Auto-merge workflow | [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml) | **Who** gets auto-merged (scoped by PR author + a repo variable) |
 | Lockfile sync workflow | [.github/workflows/dependabot-lockfile-sync.yml](../.github/workflows/dependabot-lockfile-sync.yml) | **Fixes** Dependabot's lockfile-gap bug so the auto-merge pipeline can succeed |
 | Ruleset | `main-protection` (Settings → Rules → Rulesets) | **What** has to be green before any merge |
-| Auto-merge variable | `DEPENDABOT_AUTOMERGE_ENABLED` (Settings → Actions → Variables) | **Whether** the auto-merge workflow is armed |
-| Lockfile sync variable | `DEPENDABOT_LOCKFILE_SYNC_ENABLED` (Settings → Actions → Variables) | **Whether** the sync workflow is armed |
+| Auto-merge variable | `DEPENDABOT_AUTOMERGE_ENABLED` (Settings → Secrets and variables → Actions → Variables tab) | **Whether** the auto-merge workflow is armed |
+| Lockfile sync variable | `DEPENDABOT_LOCKFILE_SYNC_ENABLED` (Settings → Secrets and variables → Actions → Variables tab) | **Whether** the sync workflow is armed |
 | Lockfile sync PAT | `DEPENDABOT_LOCKFILE_SYNC_PAT` (Settings → Secrets and variables → **Dependabot** tab) | **Authentication** the sync workflow uses to push lockfile fixes back (must be a PAT, not `GITHUB_TOKEN`; must live in the Dependabot secret store, not the Actions one — Dependabot-triggered workflows cannot read Actions-context secrets) |
 
 If any single one of these is missing, misconfigured, or out of sync with the others, the invariant breaks. This document explains each, explains how they compose, and walks through the three historical incidents that taught us why every piece is necessary.

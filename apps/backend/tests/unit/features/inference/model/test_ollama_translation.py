@@ -95,7 +95,7 @@ def test_translate_message_url_only_image_raises_not_implemented() -> None:
 
 
 def test_translate_message_emits_audios_array_for_base64_audio_content() -> None:
-    """F002 [RESOLVED]: audios array on the message object, mirroring images."""
+    """Audio parts collect into the message-level ``audios`` array (mirrors images)."""
     msg = Message(role="user", content=[TextContent(text="describe"), AudioContent(base64="aaa")])
     assert translate_message(msg) == {
         "role": "user",
@@ -191,7 +191,7 @@ def test_translate_params_emits_all_six_sampling_fields_with_max_tokens_renamed(
 
 
 def test_translate_params_includes_think_in_options() -> None:
-    """F002 [RESOLVED]: `think` rides inside the options dict; locked placement."""
+    """``think`` rides inside the options dict; locked placement (single canonical site)."""
     assert translate_params(ModelParams(think=True)) == {"think": True}
 
 
@@ -296,9 +296,9 @@ def test_build_chat_result_defaults_token_counts_when_missing() -> None:
 def test_build_chat_result_raises_value_error_on_missing_message() -> None:
     """F003 catches at a higher layer; F002 lets the failure surface.
 
-    ValueError (not KeyError) per round-7 lane-1 — Python reserves KeyError
-    for genuine mapping-key misses and the failure-mapping layer needs one
-    unified exception type for the malformed-Ollama-frame category.
+    ValueError (not KeyError) — Python reserves KeyError for genuine
+    mapping-key misses, and the failure-mapping layer needs one unified
+    exception type for the malformed-Ollama-frame category.
     """
     with pytest.raises(ValueError, match="missing 'message'"):
         build_chat_result({})
@@ -310,9 +310,9 @@ def test_build_chat_result_raises_value_error_on_missing_message_content() -> No
 
 
 def test_build_chat_result_raises_value_error_on_non_object_message() -> None:
-    """Round-7 lane-14: a future Ollama protocol drift (``message`` as
-    null/list/string) must surface as the same typed ValueError instead
-    of a TypeError that the failure-mapping layer would not recognize."""
+    """A future Ollama protocol drift (``message`` as null/list/string)
+    must surface as the same typed ValueError, not a TypeError that the
+    failure-mapping layer would not recognize."""
     with pytest.raises(ValueError, match="non-object"):
         build_chat_result({"message": None})
 

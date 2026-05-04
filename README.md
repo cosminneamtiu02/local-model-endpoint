@@ -12,7 +12,7 @@ and [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 - **Backend**: Python 3.13, FastAPI, Pydantic v2, asyncio, httpx, structlog
 - **Inference backend**: Ollama running natively on macOS (Gemma 4 E2B in v1)
 - **Testing**: pytest + pytest-asyncio + Schemathesis
-- **Tooling**: Taskfile, Ruff, Pyright, import-linter, uv, pre-commit, pytest-cov
+- **Tooling**: Taskfile, Ruff, Pyright, import-linter, uv, pre-commit, pytest-cov, pip-audit, detect-secrets
 
 ## Quick Start
 

@@ -60,6 +60,13 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     # Log host/port separately rather than the full URL so a future
     # userinfo-bearing form (unusual for Ollama, possible behind a reverse
     # proxy) cannot leak credentials into stdout.
+    # NOTE: ``bind_host`` / ``bind_port`` reflect the configured Settings
+    # values (driven by ``LIP_BIND_HOST`` / ``LIP_BIND_PORT``), not the
+    # actual uvicorn-bound socket. ``python -m app`` threads them into
+    # ``uvicorn.run`` so they match in production; an ad-hoc
+    # ``uvicorn app.main:app --host X --port Y`` invocation would advertise
+    # the Settings values here while uvicorn binds elsewhere — uvicorn's
+    # own startup line is the source of truth for the actual bind.
     logger.info(
         "app_startup",
         phase="lifespan",

@@ -9,7 +9,7 @@ version: 1
 # type_uri (urn:lip:error:<kebab-code>) is derived in codegen, not declared here.
 #
 # ──────────────────────────────────────────────────────────────────────────────
-# Code naming → class naming (lane 8.9)
+# Code naming → class naming
 # ──────────────────────────────────────────────────────────────────────────────
 # Codes here are SCREAMING_SNAKE_CASE strings. The codegen
 # (``packages/error-contracts/scripts/generate.py:_code_to_class_name``)

@@ -142,13 +142,14 @@ jobs:
       - name: Guard against self-triggered loops
         id: loop_guard
         run: |
+          set -euo pipefail
           LAST_AUTHOR=$(git log -1 --format='%ae' HEAD)
           echo "Last commit author email: $LAST_AUTHOR"
           if echo "$LAST_AUTHOR" | grep -qF "41898282+github-actions"; then
             echo "Last commit is from github-actions[bot]; this workflow already ran on a previous event. Skipping to prevent loop."
-            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Detect which manifests changed
@@ -158,6 +159,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
           echo "Diffing $BASE_SHA..$HEAD_SHA"
 
           CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
@@ -180,8 +182,8 @@ jobs:
             NEEDS_UV_ERROR_CONTRACTS=true
           fi
 
-          echo "needs_uv_backend=$NEEDS_UV_BACKEND" >> $GITHUB_OUTPUT
-          echo "needs_uv_error_contracts=$NEEDS_UV_ERROR_CONTRACTS" >> $GITHUB_OUTPUT
+          echo "needs_uv_backend=$NEEDS_UV_BACKEND" >> "$GITHUB_OUTPUT"
+          echo "needs_uv_error_contracts=$NEEDS_UV_ERROR_CONTRACTS" >> "$GITHUB_OUTPUT"
 
           if [ "$NEEDS_UV_BACKEND" = "false" ] && [ "$NEEDS_UV_ERROR_CONTRACTS" = "false" ]; then
             echo "No manifest files changed. This PR probably touches only lockfiles or other files already in sync; nothing to do."
@@ -193,6 +195,14 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: '{apps/backend,packages/error-contracts}/uv.lock'
+          # Pin to the same Python interpreter ci.yml uses (3.13.13). Without
+          # the pin, ``uv lock`` runs under whatever 3.13.x ``setup-uv``
+          # downloads at job time — typically the most recent. If 3.13.14
+          # ships before the matrix is bumped, the regenerated ``uv.lock``
+          # could resolve against 3.13.14 while CI's ``uv sync --frozen``
+          # validates under 3.13.13, producing the exact divergence this
+          # workflow exists to prevent.
+          python-version: "3.13.13"
 
       - name: Regenerate backend uv.lock
         if: steps.loop_guard.outputs.skip != 'true' && steps.changed.outputs.needs_uv_backend == 'true'
@@ -207,6 +217,7 @@ jobs:
       - name: Commit and push lockfile updates
         if: steps.loop_guard.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 

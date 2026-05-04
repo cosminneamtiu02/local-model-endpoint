@@ -331,7 +331,7 @@ def _validate_description_safe_for_docstring(code: str, description: str) -> Non
 # the raise site, not user-supplied free-form), so spreading them at root
 # level on the wire body cannot leak operator-private data.
 #
-# Lane 8.3: scoped per-code rather than as a flat name set so a name like
+# Scoped per-code rather than as a flat name set so a name like
 # ``reason`` cannot accidentally launder into a *different* 5xx error's
 # string param surface. Each entry is (error_code, param_name) — a future
 # error declaring ``reason`` must be re-allowlisted explicitly here, with
@@ -412,13 +412,12 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
 
     seen_class_names: set[str] = set()
     for code, spec in errors.items():
-        # Validate code format (lane 8.5): SCREAMING_SNAKE_CASE strict.
-        # The regex disallows leading/trailing underscores AND consecutive
+        # Validate code format: SCREAMING_SNAKE_CASE strict. The regex
+        # disallows leading/trailing underscores AND consecutive
         # underscores ("FOO__BAR" is rejected). Each segment must start
         # with an uppercase letter and may contain digits afterwards.
-        # Mirror this regex in app/schemas/problem_details.py's `code`
-        # Field pattern when AGENT-SCHEMAS lands lane 8.5's wire-side edit
-        # (the schemas file is owned by AGENT-SCHEMAS — left to that lane).
+        # The wire-side mirror lives in ``app/schemas/problem_details.py``
+        # (the ``code`` Field pattern); update both together.
         if not re.match(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$", code):
             msg = (
                 f"Error code must be SCREAMING_SNAKE_CASE with no leading/"
@@ -741,7 +740,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
 
     # Generate _registry.py (sorted, error classes only).
     #
-    # Lane 8.1: ``DomainError`` is the value type of ``ERROR_CLASSES``
+    # ``DomainError`` is the value type of ``ERROR_CLASSES``
     # (``dict[str, type[DomainError]]``) and the concrete error classes
     # imported below subclass it; importing it at module scope alongside
     # the concrete error classes keeps the registry's type annotation

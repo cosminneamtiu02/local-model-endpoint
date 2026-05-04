@@ -15,7 +15,7 @@ from app.features.inference.model.caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CH
 def test_audio_content_accepts_url_only() -> None:
     part = AudioContent.model_validate({"url": "https://example.com/clip.wav"})
     assert part.type == "audio"
-    # ``part.url`` is now AnyHttpUrl (round-7 lane-16 SSRF defense).
+    # ``part.url`` is AnyHttpUrl (SSRF defense).
     assert str(part.url) == "https://example.com/clip.wav"
     assert part.base64 is None
 
@@ -36,8 +36,8 @@ def test_audio_content_accepts_base64_only() -> None:
 def test_audio_content_rejects_both_url_and_base64() -> None:
     with pytest.raises(ValidationError, match="exactly one"):
         # ``model_validate`` (not direct kwargs) keeps pyright strict happy
-        # under the round-7 AnyHttpUrl tightening (kwargs would force a
-        # ``str`` literal through an ``AnyHttpUrl`` parameter).
+        # under the AnyHttpUrl typing — direct kwargs would force a ``str``
+        # literal through an ``AnyHttpUrl`` parameter.
         AudioContent.model_validate(
             {"url": "https://example.com/clip.wav", "base64": "UklGRiQAAABXQVZF"},
         )

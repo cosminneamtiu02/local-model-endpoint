@@ -8,7 +8,7 @@ codes, wrong version) — the generator would silently produce an empty
 ``_generated/`` tree and pass the diff check on a green-but-empty state.
 
 These tests pin the structural floor: the YAML must declare
-``version: 1`` and at least the ten round-7 codes; every code must
+``version: 1`` and at least the baseline of 10 codes; every code must
 carry a non-empty description and an HTTP status in the 400-599 range.
 """
 
@@ -22,7 +22,7 @@ import pytest
 # errors.yaml requires updating one constant rather than every test.
 _ERRORS_YAML_PATH = Path(__file__).parents[5] / "packages" / "error-contracts" / "errors.yaml"
 
-# Round-7 baseline. A future code addition is permitted (assert with >=);
+# Baseline floor. A future code addition is permitted (assert with >=);
 # a code removal is a wire-contract change that must come with an
 # explicit test update + ADR. Tracking the exact baseline catches both
 # silent removals AND an "I generated zero codes" regression at once.
@@ -70,7 +70,7 @@ def test_errors_yaml_declares_supported_version(errors_data: dict[str, object]) 
 def test_errors_yaml_declares_at_least_round7_baseline_codes(
     errors_data: dict[str, object],
 ) -> None:
-    """The YAML must declare at least the round-7 baseline of 10 codes.
+    """The YAML must declare at least the baseline of 10 codes.
 
     Catches a regression where a YAML refactor strips all codes (the
     generator emits zero files, ``task check:errors`` passes the

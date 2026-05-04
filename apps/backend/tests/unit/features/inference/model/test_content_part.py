@@ -20,7 +20,7 @@ def test_content_part_routes_text_dict_to_text_content() -> None:
 def test_content_part_routes_image_dict_to_image_content() -> None:
     part = _ADAPTER.validate_python({"type": "image", "url": "https://example.com/x"})
     assert isinstance(part, ImageContent)
-    # ``part.url`` is AnyHttpUrl after the round-7 lane-16 SSRF defense.
+    # ``part.url`` is AnyHttpUrl (SSRF defense).
     assert str(part.url) == "https://example.com/x"
 
 

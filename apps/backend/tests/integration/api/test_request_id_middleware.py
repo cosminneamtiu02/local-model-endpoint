@@ -2,8 +2,8 @@
 
 Uses /health as a benign sink to drive the middleware behaviour; the
 endpoint itself is covered by ``test_health.py``. Splitting this out of
-test_health.py mirrors the production module name (lane-4 finding) so a
-reviewer hunting for X-Request-ID coverage greps the obvious filename.
+test_health.py mirrors the production module name so a reviewer hunting
+for X-Request-ID coverage greps the obvious filename.
 """
 
 from httpx import AsyncClient
@@ -44,7 +44,7 @@ async def test_oversize_content_length_rejected_with_413_problem_json(client: As
     the typed exception-handler chain (which sits below it in the stack).
     The bound is read from the module constant rather than re-derived as a
     literal so a future cap bump doesn't silently desync the test from the
-    source-of-truth boundary (lane-20 finding 20.5).
+    source-of-truth boundary.
     """
     oversize = _MAX_REQUEST_BODY_BYTES + 1
     response = await client.post(

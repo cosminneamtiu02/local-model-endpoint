@@ -18,7 +18,10 @@ router = APIRouter(tags=["health"])
 # entry remains for /health as the global error-shape advertisement.
 _PROBLEM_RESPONSE: Final[dict[str, Any]] = {
     "model": ProblemDetails,
-    "description": "Problem details (RFC 7807)",
+    "description": (
+        "RFC 7807 problem+json envelope used by the global error contract; "
+        "this route does not raise typed errors."
+    ),
     "content": {"application/problem+json": {}},
 }
 
@@ -29,7 +32,11 @@ _PROBLEM_RESPONSE: Final[dict[str, Any]] = {
 # here makes the wire contract self-documenting in /openapi.json.
 _HEALTH_OK_RESPONSE: Final[dict[str, Any]] = {
     "model": HealthResponse,
-    "description": "Liveness probe — process is alive",
+    "description": (
+        "Process-liveness probe; does not test Ollama daemon health. "
+        "Returns 200 as long as the FastAPI process is up. A future "
+        "readiness probe (LIP-E006-F001) will land at a separate route."
+    ),
     "content": {"application/json": {}},
 }
 

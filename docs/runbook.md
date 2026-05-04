@@ -45,9 +45,10 @@ Service: http://127.0.0.1:8000 (defaults; override via `LIP_BIND_HOST` / `LIP_BI
 All runtime configuration is through `pydantic-settings`. The full canonical list
 of env vars lives in [`apps/backend/.env.example`](../apps/backend/.env.example);
 the table below summarizes the production-relevant ones. The `.env` file is
-resolved relative to the runtime cwd — `task dev` cd's into `apps/backend/` first,
-so the lookup is `apps/backend/.env`. Running `python -m app` from the repo root
-will not find a `.env`; always launch via `task dev` (or `cd apps/backend` first).
+loaded from `apps/backend/.env` regardless of the runtime cwd — the path is
+anchored against `app/core/config.py`'s on-disk location via
+`Path(__file__).parents[2]`, so `task dev`, `python -m app` from the repo root,
+and `python -m app` from any other cwd all read the same file.
 
 | Env var | Default | Meaning |
 |---|---|---|
@@ -120,7 +121,9 @@ daemon under the already-installed plist.
 
 ### Service won't start
 
-- Check that `pyproject.toml` and `uv.lock` are in sync: `uv sync --dev`
+- Check that `pyproject.toml` and `uv.lock` are in sync: `task check:lockfile`
+  (read-only verification — runs `uv lock --check`. Do **not** use
+  `uv sync --dev` for a sync check; it silently rewrites `uv.lock`.)
 - Check that Python 3.13 is available: `uv python install 3.13`
 
 ### Tests fail with import errors

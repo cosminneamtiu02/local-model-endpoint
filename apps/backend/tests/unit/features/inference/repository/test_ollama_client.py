@@ -6,7 +6,7 @@ Covers acceptance criteria from LIP-E003-F001 unit-test scenarios:
 - async context manager support
 - close() idempotency
 - _request("GET", ...) and _request("POST", ..., json=...) plumbing
-- cancellation logging contract (Lane 2.1)
+- cancellation logging contract
 """
 
 from __future__ import annotations
@@ -180,7 +180,7 @@ async def test_request_propagates_connect_error_via_mock_transport() -> None:
         await client.close()
 
 
-# ── _decode_ollama_json malformed-frame branches (round-10 L14 10.5) ──
+# ── _decode_ollama_json malformed-frame branches ─────────────────────
 
 
 def test_decode_ollama_json_rejects_non_json_content_type() -> None:
@@ -222,7 +222,7 @@ def test_decode_ollama_json_rejects_non_object_payload() -> None:
         _decode_ollama_json(response)
 
 
-# ── _request input/state guards (round-10 L14) ──────────────────────
+# ── _request input/state guards ──────────────────────────────────────
 
 
 async def test_request_rejects_relative_path_with_value_error() -> None:
@@ -257,7 +257,7 @@ async def test_request_rejects_use_after_close_with_runtime_error() -> None:
         await client._request("GET", "/api/tags")
 
 
-# ── Cancellation contract (Lane 2.1) ─────────────────────────────────
+# ── Cancellation contract ────────────────────────────────────────────
 
 
 async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() -> None:

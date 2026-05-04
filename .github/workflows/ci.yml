@@ -30,6 +30,12 @@ jobs:
         working-directory: apps/backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # ci.yml jobs only verify (no git push); strip the persisted
+          # GITHUB_TOKEN from the cloned repo's .git/config to remove
+          # unused write surface — defense-in-depth vs a malicious dev
+          # dep that might exfiltrate the runner's git config.
+          persist-credentials: false
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
@@ -128,6 +134,12 @@ jobs:
         working-directory: packages/error-contracts
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # ci.yml jobs only verify (no git push); strip the persisted
+          # GITHUB_TOKEN from the cloned repo's .git/config to remove
+          # unused write surface — defense-in-depth vs a malicious dev
+          # dep that might exfiltrate the runner's git config.
+          persist-credentials: false
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
@@ -191,6 +203,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # ci.yml jobs only verify (no git push); strip the persisted
+          # GITHUB_TOKEN from the cloned repo's .git/config to remove
+          # unused write surface — defense-in-depth vs a malicious dev
+          # dep that might exfiltrate the runner's git config.
+          persist-credentials: false
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0

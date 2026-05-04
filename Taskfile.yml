@@ -188,9 +188,16 @@ tasks:
     # detect-secrets as a dep). The baseline path is relative to the
     # working tree root, where ``.secrets.baseline`` actually lives.
     cmds:
+      # ``git ls-files -z | xargs -0`` is the canonical safe pattern: any
+      # tracked path containing whitespace (none today, but a future asset
+      # could) would otherwise word-split through the bare ``$(git ls-files)``
+      # substitution and pass two broken paths to detect-secrets. ``-r``
+      # makes xargs a no-op on an empty list rather than running the hook
+      # with zero arguments (which would scan every file under the cwd).
       - >
-        uv tool run --from detect-secrets==1.5.0
-        detect-secrets-hook --baseline .secrets.baseline $(git ls-files)
+        git ls-files -z |
+        xargs -0 -r uv tool run --from detect-secrets==1.5.0
+        detect-secrets-hook --baseline .secrets.baseline
 
   check:coverage:
     desc: Run full test suite with coverage and enforce the fail_under gate

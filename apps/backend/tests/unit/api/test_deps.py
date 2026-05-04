@@ -1,9 +1,8 @@
 """Unit tests for FastAPI dependency factories in app/api/deps.py.
 
 The defensive ``isinstance(state, AppState)`` guard inside
-``get_app_state`` was filed as a TDD gap by lane-7 in round 7 — the
-defensive raise existed without a failing test partner. These tests
-exercise the misconfigured-app branches so a future refactor of
+``get_app_state`` exists without a TDD partner unless these tests run —
+they exercise the misconfigured-app branches so a future refactor of
 AppState construction cannot break the type-narrowing without a red bar.
 """
 

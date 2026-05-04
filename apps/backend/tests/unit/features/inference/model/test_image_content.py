@@ -17,8 +17,8 @@ from app.features.inference.model.image_content import ImageContent
 def test_image_content_accepts_url_only() -> None:
     part = ImageContent.model_validate({"url": "https://example.com/cat.png"})
     assert part.type == "image"
-    # ``part.url`` is now a Pydantic AnyHttpUrl (round-7 lane-16 SSRF
-    # defense) so compare via ``str()`` to match the wire form.
+    # ``part.url`` is a Pydantic AnyHttpUrl (SSRF defense), so compare
+    # via ``str()`` to match the wire form.
     assert str(part.url) == "https://example.com/cat.png"
     assert part.base64 is None
 

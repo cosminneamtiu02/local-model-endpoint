@@ -34,7 +34,14 @@ def get_settings() -> Settings:
     actual = {name for name in os.environ if name.startswith(env_prefix)}
     unknown = sorted(actual - declared)
     if unknown:
-        logger.warning("unknown_lip_env_vars_ignored", env_vars=unknown)
+        # ``phase="startup"`` keeps this warning grep-compatible with the
+        # rest of the lifecycle taxonomy (lifespan logs carry
+        # ``phase="lifespan"``, request logs carry ``phase="request"``).
+        # ``get_settings()`` first-fires inside ``create_app`` BEFORE the
+        # lifespan binds ``phase``, so the field would otherwise be missing
+        # exactly on the line operators grep when triaging
+        # "why didn't my env override take effect?".
+        logger.warning("unknown_lip_env_vars_ignored", env_vars=unknown, phase="startup")
     return settings
 
 
@@ -48,6 +55,15 @@ def get_app_state(request: Request) -> AppState:
     """
     state: object = getattr(request.app.state, "context", None)
     if not isinstance(state, AppState):
+        # Emit a named diagnostic before the typed raise so operators
+        # paging on ``domain_error_5xx_raised`` can distinguish "AppState
+        # invariant violated" (lifespan never ran / late request after
+        # teardown — different runbook) from "real handler crash".
+        logger.warning(
+            "app_state_unavailable",
+            path=request.url.path,
+            has_context_attr=hasattr(request.app.state, "context"),
+        )
         # ruff's RSE102 prefers ``raise X`` over ``raise X()`` for
         # parameterless exception classes — Python auto-instantiates and
         # the no-parens form makes the intent obvious.

@@ -465,11 +465,9 @@ def _http_code_for_status(status_code: int) -> str:
     # ``HTTP_ERROR`` is a string literal, not a class-bound code: there is
     # no DomainError subclass for it because the framework path never
     # raises a typed ``HttpError`` (Starlette emits bare HTTPException for
-    # unmodeled 4xx, and this handler wraps them into RFC 7807 with the
-    # ``about:blank`` ``type`` per RFC 7807 §4.2). The class that used to
-    # exist (round-9 lane 8.3) was dead — the wire ``code`` shipped from
-    # ``HttpError.code`` which was never raised; the literal here keeps
-    # the wire shape identical without the ghost class.
+    # unmodeled 4xx, and this handler wraps them into RFC 7807 with
+    # ``type="about:blank"`` per RFC 7807 §4.2). The literal keeps the
+    # wire shape stable without inventing a ghost class.
     return "HTTP_ERROR"
 
 

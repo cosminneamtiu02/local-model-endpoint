@@ -113,7 +113,7 @@ async def test_chat_renames_max_tokens_to_num_predict_in_options() -> None:
 
 
 async def test_chat_places_think_inside_options_per_f002_spec() -> None:
-    """LIP-E003-F002 [RESOLVED]: ``think`` rides inside ``options`` (locked placement)."""
+    """``think`` rides inside ``options`` on the wire (locked placement)."""
     body, _, _ = await _send_and_capture(params=ModelParams(think=True))
     assert body["options"]["think"] is True
     # think must NOT appear at the top level
@@ -153,7 +153,7 @@ async def test_chat_emits_body_keys_in_spec_order() -> None:
 # The five canonical ModelParams shapes the wire-invariant tests sweep over.
 # Extracted to a module-level constant so ``test_chat_always_sets_stream_false``
 # and ``test_chat_never_sends_tools_keep_alive_or_format_keys`` parametrize
-# over the same list (drift-proof) — Lane 5.9.
+# over the same list (drift-proof).
 _FIVE_PARAM_SHAPES = [
     pytest.param(ModelParams(), id="bare"),
     pytest.param(ModelParams(temperature=0.5), id="temperature-only"),

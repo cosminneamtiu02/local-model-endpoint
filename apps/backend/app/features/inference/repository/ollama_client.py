@@ -38,6 +38,9 @@ DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(
     write=None,
     pool=5.0,
 )
+# httpx.Timeout / httpx.Limits are immutable in 0.28.1 (verified — both
+# expose read-only attributes). Module-level sharing across all OllamaClient
+# instances is safe; re-verify on every httpx upgrade.
 
 # Single Ollama target serialized through one in-flight slot — pool sized to
 # match the F001 semaphore (max_in_flight=1) so a regression that leaks the
@@ -312,7 +315,7 @@ class OllamaClient:
         # Field order intentionally mirrors the Ollama /api/chat spec
         # example body (model, messages, options, stream) so wire dumps
         # are reviewable side-by-side with upstream API docs. ``think``
-        # rides inside ``options`` per LIP-E003-F002 [RESOLVED].
+        # rides inside ``options`` (see ``translate_params``).
         body: dict[str, Any] = {
             "model": model_tag,
             "messages": [translate_message(m) for m in messages],
@@ -356,6 +359,7 @@ class OllamaClient:
             "ollama_call_started",
             model_name=model_tag,
             message_count=len(messages),
+            option_keys=option_keys,
         )
         start = time.perf_counter()
         try:
