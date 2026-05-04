@@ -30,10 +30,10 @@ apps/backend/
 │   ├── core/               -- config.py, logging.py. Cross-cutting infrastructure.
 │   ├── api/                -- middleware (request_id only), exception handler, health, shared deps.
 │   ├── exceptions/         -- DomainError base (base.py) + generated subclasses (_generated/).
-│   ├── schemas/            -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse. Shared response shapes (RFC 7807 problem+json + liveness).
+│   ├── schemas/            -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants. Shared response shapes (RFC 7807 problem+json + liveness); wire_constants centralizes the UUID regex / REQUEST_ID_LENGTH used across multiple wire schemas (ADR-014).
 │   └── features/
 │       └── <feature>/      -- One folder per feature. Self-contained vertical slice.
-│           ├── model/          -- Pydantic value-objects (Message, ModelParams, ModelInfo)
+│           ├── model/          -- Pydantic value-objects (Message, ModelParams; ModelInfo lands with LIP-E002-F001)
 │           ├── repository/     -- Ollama HTTP client wrapper (the "data" boundary)
 │           ├── service/        -- Inference orchestration (Semaphore, registry lookup)
 │           ├── router/         -- FastAPI endpoints

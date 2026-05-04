@@ -13,8 +13,11 @@ import pytest
 
 @pytest.fixture
 def valid_request_id() -> str:
-    """UUID-shaped request_id matching the wire-contract pattern enforced by
-    both the middleware and ProblemDetails.request_id."""
+    """UUID-shaped request_id matching the wire-contract regex.
+
+    The regex is enforced by both ``RequestIdMiddleware`` and
+    ``ProblemDetails.request_id``.
+    """
     return "00000000-0000-4000-8000-000000000abc"
 
 

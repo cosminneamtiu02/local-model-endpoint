@@ -318,6 +318,8 @@ async def test_aexit_propagates_close_error_when_body_did_not_raise() -> None:
         msg = "simulated aclose failure"
         raise RuntimeError(msg)
 
+    # type: ignore[method-assign]: monkey-patch close() to simulate an aclose
+    # failure; the close-failure logging path needs the assignment.
     client.close = _broken_close  # type: ignore[method-assign]
     with capture_logs() as captured, pytest.raises(RuntimeError, match="simulated aclose failure"):
         async with client:
@@ -344,6 +346,8 @@ async def test_aexit_suppresses_close_error_when_body_already_raised() -> None:
         msg = "secondary close failure"
         raise RuntimeError(msg)
 
+    # type: ignore[method-assign]: monkey-patch close() to simulate a
+    # close-time failure that must NOT mask the body's primary exception.
     client.close = _broken_close  # type: ignore[method-assign]
     with capture_logs() as captured, pytest.raises(ValueError, match="primary body error"):
         async with client:

@@ -118,7 +118,15 @@ tasks:
       # Idempotency guard: assert ruff format wouldn't rewrite the codegen
       # output. Without this, a future codegen change that emits a too-long
       # line gets re-wrapped by ruff format on a developer's machine but
-      # would not be caught here at CI time.
+      # would not be caught here at CI time. The inline ``cd
+      # apps/backend &&`` prefix is intentional here (rather than the
+      # ``dir: "{{.BACKEND_DIR}}"`` directive used elsewhere) because the
+      # task as a whole runs from the repo root — earlier steps in the
+      # ``cmds:`` list use repo-root paths (``apps/backend/app/exceptions/
+      # _generated/``) for ``git diff`` and ``git ls-files``. Splitting
+      # this into a separate sub-task with ``dir:`` would land worse than
+      # the inline ``cd``: two task-graph nodes for what reads as a
+      # single check.
       - cd apps/backend && uv run --frozen ruff format --check app/exceptions/_generated/
 
   check:plist:

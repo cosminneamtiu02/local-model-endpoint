@@ -54,19 +54,13 @@ concurrency:
   group: dependabot-automerge-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Workflow-level default: minimal scopes. The privileged write scopes
+# are scoped narrowly to the automerge job below so the token is only
+# minted with write surface when the kill-switch + author guard both
+# evaluate true. A compromised step prior to the guard (none today, but
+# defense-in-depth) would not see write permissions if the guard fails.
 permissions:
-  # `permissions:` blocks are declarative, not additive. Specifying any
-  # scope sets every UNlisted scope to `none` for this workflow's
-  # GITHUB_TOKEN -- including the defaults you would otherwise inherit.
-  # `gh pr merge --auto` (which calls the `enablePullRequestAutoMerge`
-  # GraphQL mutation) needs both `contents: write` AND `pull-requests:
-  # write`; omitting `contents` produces a misleading "Resource not
-  # accessible by integration (enablePullRequestAutoMerge)" error.
-  # The actual squash-merge commit is still produced by GitHub's native
-  # merge engine when required checks pass; this token only queues the
-  # merge intent.
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   automerge:
@@ -75,6 +69,22 @@ jobs:
     # ~1 second. 2 minutes leaves headroom for runner cold-start without
     # masking a hung API call as a long-running step.
     timeout-minutes: 2
+    permissions:
+      # Job-level scopes are minted only when the job's ``if:`` evaluates
+      # true, so flipping ``DEPENDABOT_AUTOMERGE_ENABLED`` to ``"false"``
+      # also withholds the token's write surface — not just the merge
+      # call. ``permissions:`` blocks are declarative, not additive:
+      # specifying any scope sets every UNlisted scope to ``none``.
+      # ``gh pr merge --auto`` (which calls the
+      # ``enablePullRequestAutoMerge`` GraphQL mutation) needs both
+      # ``contents: write`` AND ``pull-requests: write``; omitting
+      # ``contents`` produces a misleading "Resource not accessible by
+      # integration (enablePullRequestAutoMerge)" error. The actual
+      # squash-merge commit is still produced by GitHub's native merge
+      # engine when required checks pass; this token only queues the
+      # merge intent.
+      contents: write
+      pull-requests: write
     # Check the PR author, not github.actor. github.actor is whoever
     # triggered the current event -- if a human clicks "Update branch"
     # in the UI, github.actor becomes that human, and this job would

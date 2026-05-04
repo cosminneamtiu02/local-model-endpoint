@@ -43,7 +43,7 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
 app/core/           -- config, logging
 app/api/            -- middleware, exception handler, health, shared deps
 app/exceptions/     -- DomainError hierarchy (base + _generated/)
-app/schemas/        -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse (RFC 7807 problem+json + liveness shape)
+app/schemas/        -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants (RFC 7807 problem+json + liveness shape; wire_constants centralizes UUID/REQUEST_ID_LENGTH per ADR-014)
 app/features/<feature>/ -- model, repository, service, router, schemas/  (target shape)
 ```
 
@@ -58,8 +58,9 @@ no scaffolding before the feature lands).
 LIP has no persistent database. The vertical-slice template's four layers are
 preserved but with redefined semantics for a no-DB feature:
 
-- `model/` — Pydantic value-objects (Message, ModelParams, ModelInfo).
-  *Not* SQLAlchemy ORM models.
+- `model/` — Pydantic value-objects (Message, ModelParams, ContentPart,
+  OllamaChatResult; ModelInfo lands with LIP-E002-F001). *Not* SQLAlchemy
+  ORM models.
 - `repository/` — the Ollama HTTP client wrapper. The "data-access" boundary
   in this project is *talking to Ollama*, not a database.
 - `service/` — inference orchestration including the `asyncio.Semaphore(1)`.
@@ -74,8 +75,8 @@ preserved but with redefined semantics for a no-DB feature:
 - Schemas may import value-objects from `model/`. The original "schemas never
   import models" rule decoupled wire shapes from SQLAlchemy ORM models; LIP has
   no DB and `model/` holds project value-objects (Message, ModelParams,
-  ContentPart, ModelInfo, OllamaChatResult), not ORM types. Models never
-  import schemas — that direction stays strict.
+  ContentPart, OllamaChatResult; ModelInfo lands with LIP-E002-F001), not ORM
+  types. Models never import schemas — that direction stays strict.
 - core/ never imports from features/.
 - exceptions/ never imports from features/.
 
@@ -83,8 +84,8 @@ preserved but with redefined semantics for a no-DB feature:
 
 - Never use `print`. Use structlog.
 - Never use `logging.getLogger`. Use structlog. The single production
-  carve-outs are `app/core/logging.py:188` (root-handler bind) and
-  `app/core/logging.py:199` (uvicorn.access silencer); both are documented
+  carve-outs are `app/core/logging.py:187` (root-handler bind) and
+  `app/core/logging.py:198` (uvicorn.access silencer); both are documented
   in the module docstring. Adding a third stdlib-logger site requires
   updating this rule and the module docstring in lockstep.
 - Never use f-string log messages. Use structlog's key=value pairs:
@@ -97,9 +98,10 @@ preserved but with redefined semantics for a no-DB feature:
 - Never write a `try/except` that silently swallows errors. If you catch, re-raise or log.
 - Never edit files in `exceptions/_generated/`. Edit errors.yaml, run task errors:generate.
 - Never use `os.environ` or `os.getenv`. Use pydantic-settings. The single
-  production carve-out is `audit_lip_env_typos()` in `app/api/deps.py`,
-  which enumerates env-var NAMES (not values) once at startup to surface
-  typo'd `LIP_*` env vars that pydantic-settings silently ignores.
+  production carve-out is `audit_lip_env_typos()` in `app/api/deps.py`
+  (per [docs/decisions.md ADR-014](docs/decisions.md)), which enumerates
+  env-var NAMES (not values) once at startup to surface typo'd `LIP_*`
+  env vars that pydantic-settings silently ignores.
 - Never use `datetime.now()` without `tz=`. Use `datetime.now(UTC)`.
 - Never use `datetime.utcnow()`.
 - Never put business logic in route handlers. Handlers call one service method.

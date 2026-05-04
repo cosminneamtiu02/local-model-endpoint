@@ -26,10 +26,15 @@ dependencies = [
     # uvicorn's explicit transitive subset is pinned here (rather than via
     # the ``uvicorn[standard]`` convenience extra) so the dep audit and
     # Dependabot can both see exactly which transitives are load-bearing.
-    # ``websockets`` and ``python-dotenv`` (also pulled by ``[standard]``)
-    # are intentionally NOT listed — LIP has no WebSocket routes (CLAUDE.md
-    # "Conventions (planned, not yet implemented) — WebSockets") and reads
-    # env via pydantic-settings, never via dotenv.
+    # ``websockets`` (also pulled by ``[standard]``) is intentionally NOT
+    # listed — LIP has no WebSocket routes (CLAUDE.md "Conventions
+    # (planned, not yet implemented) — WebSockets"). ``python-dotenv``
+    # IS in the lockfile (it's a required runtime dep of
+    # ``pydantic-settings``) but the project never imports it: settings
+    # only loads ``.env`` lazily when the ``env_file=`` source is
+    # configured, which it is via ``SettingsConfigDict(env_file=...)``.
+    # The ``no dotenv import`` claim is a code-side discipline, not a
+    # lockfile-absence claim.
     "uvicorn==0.46.0",
     "httptools==0.7.1",
     "uvloop==0.22.1",

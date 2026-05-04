@@ -17,7 +17,7 @@ construction — the layering rule "repository -> model" applies one way:
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, assert_never, cast
 
 import structlog
 
@@ -54,17 +54,29 @@ _OLLAMA_TO_LIP_FINISH: Final[Mapping[str, FinishReason]] = MappingProxyType(
 )
 
 
-def _flatten_content_parts(
-    parts: "Sequence[ContentPart]",
-) -> tuple[list[str], list[str], list[str]]:
+class _FlattenedParts(NamedTuple):
+    """Output of :func:`_flatten_content_parts` — three same-typed lists by name.
+
+    NamedTuple (rather than a bare tuple) so the unpack site self-documents
+    which list is which; positional unpacking still works for the existing
+    call site.
+    """
+
+    text_parts: list[str]
+    images: list[str]
+    audios: list[str]
+
+
+def _flatten_content_parts(parts: "Sequence[ContentPart]") -> _FlattenedParts:
     """Split a multimodal content list into (text, images, audios) base64 buckets.
 
     URL-only image/audio parts raise NotImplementedError so an upstream
     layer is forced to pre-encode them.
 
     Pyright strict + the closed Literal discriminator on ContentPart make
-    the match exhaustive: adding a fourth variant without extending this
-    block fails type checking, so no silent fallthrough.
+    the match exhaustive: ``assert_never(part)`` on the catch-all arm
+    forces type-check failure if a fourth variant is added without
+    extending this block.
     """
     text_parts: list[str] = []
     images: list[str] = []
@@ -83,7 +95,9 @@ def _flatten_content_parts(
                     error_message = "URL-only AudioContent is not supported; supply base64."
                     raise NotImplementedError(error_message)
                 audios.append(part.base64)
-    return text_parts, images, audios
+            case _:
+                assert_never(part)
+    return _FlattenedParts(text_parts, images, audios)
 
 
 def _attach_media_to_message(
@@ -210,14 +224,14 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     # to a tool-capable model. Today's models (Gemma 4 E2B) don't emit them,
     # but warning when the frame appears keeps the silent-drop observable
     # so an operator notices the model upgrade before puzzling over an
-    # empty content string. Single ``.get`` then narrow — avoids the prior
-    # double-lookup pattern (LBYL via .get + EAFP via [...]).
+    # empty content string. The ``cast`` widens ``list[Unknown]`` (from the
+    # ``raw_message: dict[str, Any]`` narrowing) to ``list[object]`` so
+    # pyright strict accepts ``len(...)`` without an unknown-argument error.
     candidate = raw_message.get("tool_calls")
-    tool_calls: list[object] | None = (
-        cast("list[object]", candidate) if isinstance(candidate, list) else None
-    )
-    if tool_calls:
-        logger.warning("ollama_tool_calls_ignored", count=len(tool_calls))
+    if isinstance(candidate, list):
+        tool_calls = cast("list[object]", candidate)
+        if tool_calls:
+            logger.warning("ollama_tool_calls_ignored", count=len(tool_calls))
     return OllamaChatResult(
         content=content,
         prompt_tokens=response_json.get("prompt_eval_count", 0),

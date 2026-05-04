@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Self, cast
 import httpx
 import structlog
 
-from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, elapsed_ms
+from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, ascii_safe, elapsed_ms
 from app.features.inference.model.ollama_translation import (
     build_chat_result,
     translate_message,
@@ -104,15 +104,19 @@ def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
 class OllamaClient:
     """Lifecycle-managed httpx.AsyncClient for talking to Ollama.
 
-    Constructed at app lifespan startup; the underlying ``httpx.AsyncClient``
-    is acquired in ``__aenter__`` and closed at ``__aexit__`` so the
-    AsyncExitStack owns the connection lifecycle from acquisition. The
-    private ``_request`` is the lower-level seam other adapter methods build
-    on top of from *within* this class. External callers go through ``chat``
-    (or a future typed sibling) — ``_request`` and ``_client`` are
-    single-underscore by convention. Tests are exempt from ``SLF001`` via
-    the per-file-ignores in pyproject.toml; non-test code accessing them is
-    a lint failure.
+    Constructed at app lifespan startup. The underlying
+    ``httpx.AsyncClient`` is built in ``__init__`` (httpx's pool is
+    lazily allocated on first request, so this is cheap) and closed at
+    ``__aexit__`` (or via explicit ``close()``); ``__aenter__`` is the
+    lifecycle log marker, not the acquisition site. The AsyncExitStack
+    in ``app.api.router_registry.lifespan_resources`` owns the close
+    side via ``async with`` so the connection lifecycle is bounded by
+    the FastAPI app's lifespan window. The private ``_request`` is the
+    lower-level seam other adapter methods build on top of from *within*
+    this class. External callers go through ``chat`` (or a future typed
+    sibling) — ``_request`` and ``_client`` are single-underscore by
+    convention. Tests are exempt from ``SLF001`` via the per-file-ignores
+    in pyproject.toml; non-test code accessing them is a lint failure.
     """
 
     def __init__(
@@ -179,16 +183,14 @@ class OllamaClient:
             trust_env=False,
             transport=transport,
         )
-        # Debug-level construction trace so operators can verify wire-config
-        # (TLS, redirects, pool, timeout) under -v without adding info noise.
-        logger.debug(
-            "ollama_client_constructed",
-            base_url=self._loggable_base_url,
-            follow_redirects=False,
-            trust_env=False,
-            max_connections=DEFAULT_LIMITS.max_connections,
-            read_timeout_s=DEFAULT_TIMEOUT.read,
-        )
+        # No construction-time log: ``__aenter__`` (the actual lifecycle
+        # entry, see ``ollama_client_lifecycle_entered`` below) is the
+        # canonical lifecycle event AND it lands inside the
+        # ``phase="lifespan"`` contextvar binding established by
+        # ``router_registry.lifespan_resources``. Logging from ``__init__``
+        # would have to emit before that binding when the class is
+        # instantiated outside an ``async with`` (as in tests), shipping
+        # a wire-config line without ``phase`` context.
 
     def _build_user_agent(self) -> str:
         """Return an RFC 7231 product-token User-Agent string for Ollama logs.
@@ -382,11 +384,25 @@ class OllamaClient:
             # failures without string-matching on ``exc_type``. Defaults to
             # ``"unknown"`` so a future exception family that escapes the
             # enumerated categories surfaces as a known-unknown rather than
-            # silently mis-bucketing.
+            # silently mis-bucketing. ``httpx.RequestError`` (the parent of
+            # ``TimeoutException``/``NetworkError``/``ProtocolError``/
+            # ``ProxyError``/``DecodingError``/``TooManyRedirects``) is the
+            # documented httpx idiom for "any non-2xx-status transport
+            # failure"; using the parent here makes the bucket robust
+            # against future httpx hierarchy growth without per-subtype
+            # maintenance. ``HTTPStatusError`` is checked first because it
+            # ALSO inherits from ``HTTPError`` but carries a typed status,
+            # which we want as a separate bucket. ``NotImplementedError``
+            # is a known consumer-input shape (URL-only ImageContent, etc.)
+            # that the translation layer raises before any wire I/O — give
+            # it a dedicated bucket so dashboards can distinguish a
+            # consumer-input bug from a wedged process.
             if isinstance(call_exc, httpx.HTTPStatusError):
                 failure_category = "http_status"
-            elif isinstance(call_exc, httpx.TimeoutException | httpx.NetworkError):
+            elif isinstance(call_exc, httpx.RequestError):
                 failure_category = "transport"
+            elif isinstance(call_exc, NotImplementedError):
+                failure_category = "unsupported_input"
             elif isinstance(call_exc, ValueError):
                 failure_category = "malformed_frame"
             else:
@@ -406,9 +422,7 @@ class OllamaClient:
                 "ollama_call_failed",
                 model_name=model_tag,
                 exc_type=type(call_exc).__name__,
-                exc_message=str(call_exc)
-                .encode("ascii", "replace")
-                .decode("ascii")[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
+                exc_message=ascii_safe(str(call_exc), max_chars=EXC_MESSAGE_PREVIEW_MAX_CHARS),
                 failure_category=failure_category,
                 ollama_status_code=ollama_status_code,
                 duration_ms=duration_ms,

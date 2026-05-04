@@ -94,7 +94,9 @@ target verifies committed generated files match the YAML.
 across four files (one class each) to satisfy the sacred one-class-per-file rule.
 `ProblemDetails` implements RFC 7807 problem+json; `ProblemExtras` is the typed
 extension-key container; `ValidationErrorDetail` is the per-field shape inside
-validation problem+json; `HealthResponse` is the liveness payload.
+validation problem+json; `HealthResponse` is the liveness payload. A fifth file
+`wire_constants` centralizes the UUID regex and `REQUEST_ID_LENGTH` reused across
+the request_id middleware and `ProblemDetails`/`ProblemExtras` (per ADR-014).
 
 ---
 
@@ -193,11 +195,11 @@ to fuzz.
 ## CI/CD
 
 ### CI Workflow ([.github/workflows/ci.yml](../.github/workflows/ci.yml))
-Three jobs: `backend-checks` (ruff + pyright + import-linter + pytest unit/integration/
-contract + coverage gate + pip-audit), `error-contracts` (Python codegen + tests + diff
-verification + lint/format/audit), and `darwin-checks` (macOS-only `plutil` validation
-of the launchd plist template). All three are hard gates on the `main-protection`
-ruleset.
+Three jobs: `backend-checks` (lockfile-freshness + ruff + pyright + import-linter +
+pytest unit/integration/contract + coverage gate + pip-audit + secret scan),
+`error-contracts` (Python codegen + tests + diff verification + lint/format/audit),
+and `darwin-checks` (macOS-only `plutil` validation of the launchd plist template).
+All three are hard gates on the `main-protection` ruleset.
 
 ### Dependabot ([.github/dependabot.yml](../.github/dependabot.yml))
 Four update blocks: `pip` for `apps/backend`, `pip` for `packages/error-contracts`,
@@ -227,10 +229,11 @@ detect-secrets are exposed as standalone targets too.
 Pre-commit: detect-secrets, trailing-whitespace, end-of-file-fixer,
 check-yaml/json, check-added-large-files, ruff (lint, no auto-fix) +
 ruff-format, and a Taskfile-syntax local hook.
-Pre-push: full pytest suite (backend unit + integration + contract;
-error-contracts unit) + pyright + import-linter (slow checks per
-ADR-009 tier; pre-commit/-push installed together via
-`default_install_hook_types`).
+Pre-push: backend unit tests + error-contracts unit tests only (per
+ADR-009 + lane 10.6; the slower pyright/import-linter/integration/
+contract gates live in CI to avoid double-running and the `--no-verify`
+pressure that double-running creates). Pre-commit/-push installed
+together via `default_install_hook_types`.
 
 ### Editor & VCS Config
 LF line endings, 4-space Python, generated files marked `linguist-generated`, pinned

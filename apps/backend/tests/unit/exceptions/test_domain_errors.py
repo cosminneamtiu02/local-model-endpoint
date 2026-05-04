@@ -93,7 +93,7 @@ def test_conflict_constructs_with_default_detail() -> None:
 
 
 def test_internal_error_detail_returns_detail_template() -> None:
-    """Parameterless errors return their detail_template (or fall back to title) from detail()."""
+    """Parameterless errors return their detail_template from detail()."""
     err = InternalError()
     assert err.code == "INTERNAL_ERROR"
     assert err.http_status == 500

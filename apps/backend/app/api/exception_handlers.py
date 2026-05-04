@@ -62,7 +62,7 @@ content-negotiated; the ``title`` and ``detail`` strings (per RFC 7807 §3.1
 import itertools
 import uuid
 from http import HTTPStatus
-from typing import Any, Final, cast
+from typing import Any, Final, NamedTuple, cast
 
 import structlog
 from fastapi import FastAPI, Request
@@ -71,7 +71,8 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
-from app.api._constants import ABOUT_BLANK_TYPE, CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
+from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
+from app.core.logging import ascii_safe
 from app.exceptions import (
     DomainError,
     InternalError,
@@ -81,7 +82,7 @@ from app.exceptions import (
 )
 from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
 from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHARS
-from app.schemas.wire_constants import UUID_REGEX
+from app.schemas.wire_constants import ABOUT_BLANK_TYPE, INSTANCE_PATH_MAX_CHARS, UUID_REGEX
 
 logger = structlog.get_logger(__name__)
 
@@ -91,35 +92,56 @@ field name from Pydantic's error data. Centralized so the three sites that
 synthesize "we don't know which field failed" (empty loc, empty errors list,
 abnormal-empty-errors fallback) stay in lockstep."""
 
-_INSTANCE_MAX_CHARS: Final[int] = 2048
-"""Cap mirroring ``ProblemDetails.instance``'s ``max_length=2048``.
+_DISCRIMINATOR_PREVIEW_MAX_CHARS: Final[int] = 64
+"""Cap on each Pydantic error-discriminator string in the abnormal-empty-errors
+warning. Symmetric with ``EXC_MESSAGE_PREVIEW_MAX_CHARS`` — keeps a single log
+line bounded even if Pydantic ever produces multi-KB ``type`` values."""
 
-Bounds ``request.url.path`` before it lands as the ``instance`` field on
-ProblemDetails so a pathological URL (well under uvicorn's request-line
-limit but past the schema cap) cannot fail ProblemDetails construction
-inside an exception handler — the schema ValidationError would otherwise
-escape the handler, get caught by ``ServerErrorMiddleware``, and ship a
-bare-text 500 with no X-Request-ID."""
+_DISCRIMINATOR_LOG_LIMIT: Final[int] = 5
+"""Max number of Pydantic error-discriminators to emit in the
+abnormal-empty-errors warning. Keeps the operator-facing log line bounded
+on a pathological Pydantic upstream regression (the warning is for the
+"empty errors list" path, but a future Pydantic bug emitting 10k errors
+would otherwise inflate this single warning)."""
 
 
 def _bounded_instance(request: Request) -> str:
-    """Return ``request.url.path`` truncated to ``_INSTANCE_MAX_CHARS``.
+    """Return ``request.url.path`` truncated to ``INSTANCE_PATH_MAX_CHARS``.
 
     Symmetric with the ``RequestIdMiddleware`` 413 path's ``bounded_path``
     truncation, so both halves of the error envelope (middleware-emitted
     body-too-large + handler-emitted typed errors) ship a uniformly
-    bounded ``instance`` field.
+    bounded ``instance`` field. Sources the cap from
+    ``app.schemas.wire_constants`` so a future bump moves both the
+    schema's ``max_length`` and this truncation in lockstep — a
+    pathological URL well under uvicorn's request-line limit but past
+    the schema cap would otherwise fail ProblemDetails construction
+    inside an exception handler.
     """
-    return request.url.path[:_INSTANCE_MAX_CHARS]
+    return request.url.path[:INSTANCE_PATH_MAX_CHARS]
 
 
-def _resolve_request_id(request: Request) -> tuple[str, bool]:
+class _RequestIdResolution(NamedTuple):
+    """Output of :func:`_resolve_request_id` — id + middleware-missed flag.
+
+    NamedTuple (rather than a bare ``tuple[str, bool]``) so the five
+    handler call sites read ``.request_id`` / ``.missed_middleware``
+    when they prefer name-access; positional destructure still works
+    (``request_id, missed_middleware = _resolve_request_id(request)``)
+    so the existing call sites stay terse.
+    """
+
+    request_id: str
+    missed_middleware: bool
+
+
+def _resolve_request_id(request: Request) -> _RequestIdResolution:
     """Read the request ID set by :class:`RequestIdMiddleware`.
 
-    Returns ``(request_id, missed_middleware)``. The bool is True only on the
-    fallback path so callers can compensate for the missing middleware (e.g.
-    explicitly stamp the ``X-Request-ID`` response header that the middleware
-    would otherwise have set).
+    Returns ``_RequestIdResolution(request_id, missed_middleware)``. The
+    bool is True only on the fallback path so callers can compensate for
+    the missing middleware (e.g. explicitly stamp the ``X-Request-ID``
+    response header that the middleware would otherwise have set).
 
     Returning a fallback UUID instead of a static ``"unknown"`` string keeps
     every emitted ``request_id`` field uniformly UUID-shaped, which matters
@@ -132,12 +154,10 @@ def _resolve_request_id(request: Request) -> tuple[str, bool]:
     ``request_id`` field.
     """
     request_id = getattr(request.state, "request_id", None)
-    # The regex is the primary validator: ``re.Pattern.match("")`` returns None
-    # for the UUID pattern, so the previous defensive ``and request_id``
-    # truthiness clause was redundant. ``isinstance`` narrows ``str`` for
-    # pyright; the pattern handles emptiness.
+    # ``isinstance`` narrows ``str`` for pyright; ``UUID_REGEX.match("")``
+    # returns ``None`` so the regex alone handles the empty-string case.
     if isinstance(request_id, str) and UUID_REGEX.match(request_id) is not None:
-        return request_id, False
+        return _RequestIdResolution(request_id, missed_middleware=False)
     fallback = str(uuid.uuid4())
     # Bind request_id + method + path + a fallback-marker so every subsequent
     # log line for this request carries routing context AND advertises the
@@ -152,13 +172,12 @@ def _resolve_request_id(request: Request) -> tuple[str, bool]:
         request_id_source="fallback",
     )
     # ``path`` and ``method`` ride in via ``merge_contextvars`` from the
-    # bind two lines above, so the call-site kwargs would be the same value
-    # twice — drop the redundancy.
+    # bind two lines above, so they don't need to be passed again here.
     logger.warning(
         "request_id_missing_in_state",
         fallback_request_id=fallback,
     )
-    return fallback, True
+    return _RequestIdResolution(fallback, missed_middleware=True)
 
 
 def _stamp_request_id_header_if_missed(
@@ -390,11 +409,15 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # ``validation_errors[].field`` into HTML.
     validation_errors: list[ValidationErrorDetail] = [
         ValidationErrorDetail(
-            field=".".join(str(loc) for loc in e["loc"])
-            .encode("ascii", "replace")
-            .decode("ascii")[:FIELD_MAX_CHARS]
+            field=ascii_safe(
+                ".".join(str(loc) for loc in e["loc"]),
+                max_chars=FIELD_MAX_CHARS,
+            )
             or _UNKNOWN_FIELD_SENTINEL,
-            reason=str(e["msg"])[:REASON_MAX_CHARS],
+            # Symmetric ASCII-clean on ``reason`` (Pydantic's ``e["msg"]``
+            # interpolates user-supplied values into messages, so it's the
+            # higher-risk vector for control chars than ``field`` was).
+            reason=ascii_safe(str(e["msg"]), max_chars=REASON_MAX_CHARS),
         )
         for e in raw_errors
     ]
@@ -413,10 +436,9 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         # triage payload so the operator can reproduce the upstream bug.
         # Include content-type / content-length so operators can distinguish
         # "Pydantic upstream bug" from "consumer sent unparseable JSON" or a
-        # content-type mismatch. ASCII-clean the header values via
-        # ``encode("ascii", "replace").decode("ascii")`` so a maliciously
-        # crafted non-ASCII header byte cannot inject control chars into
-        # the rendered ConsoleRenderer output.
+        # content-type mismatch. ``ascii_safe`` neutralizes any non-ASCII
+        # header bytes so a maliciously crafted header cannot inject
+        # control chars into the rendered ConsoleRenderer output.
         raw_content_type = request.headers.get("content-type", "")
         raw_content_length = request.headers.get("content-length", "")
         logger.warning(
@@ -428,10 +450,14 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
             # (``string_too_long`` / ``union_tag_invalid`` / ...) operators
             # need to triage the abnormal-empty-errors path.
             raw_error_discriminators=[
-                str(e.get("type", "unknown"))[:64] for e in itertools.islice(raw_errors, 5)
+                ascii_safe(
+                    str(e.get("type", "unknown")),
+                    max_chars=_DISCRIMINATOR_PREVIEW_MAX_CHARS,
+                )
+                for e in itertools.islice(raw_errors, _DISCRIMINATOR_LOG_LIMIT)
             ],
-            content_type=raw_content_type.encode("ascii", "replace").decode("ascii"),
-            content_length=raw_content_length.encode("ascii", "replace").decode("ascii"),
+            content_type=ascii_safe(raw_content_type),
+            content_length=ascii_safe(raw_content_length),
         )
 
     detail_override: str | None = None
@@ -454,13 +480,17 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # details were produced" message. With >1 errors they only describe the
     # first error and contradict ``detail``'s "see validation_errors[]"
     # pointer. Suppressing in both abnormal cases keeps the wire body
-    # internally consistent.
+    # internally consistent. Pass ``validation_errors`` as ``None`` (rather
+    # than ``[]``) on the empty path so ``ProblemExtras.model_dump(
+    # exclude_none=True)`` drops the key from the wire body — an empty list
+    # alongside the "no per-field details were produced" detail message
+    # would ship a contradictory wire shape.
     problem = _build_problem_payload(
         domain_err,
         request,
         request_id,
         detail_override=detail_override,
-        extras=ProblemExtras(validation_errors=validation_errors),
+        extras=ProblemExtras(validation_errors=validation_errors or None),
         suppress_typed_params=len(validation_errors) != 1,
     )
     response = _problem_response(problem)
@@ -707,8 +737,9 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # user middleware stack today, so ``X-Request-ID`` is always missing on
     # this path. If a future Starlette release moves catch-all ``Exception``
     # back inside the user stack (encode/starlette#1438/#1715), flip this
-    # to ``missed=_missed`` to consult the resolver state.
-    _ = _missed  # explicitly retained — see comment above.
+    # to ``missed=_missed`` to consult the resolver state. The
+    # underscore-prefixed ``_missed`` name above marks the local as
+    # intentionally retained for that future flip.
     _stamp_request_id_header_if_missed(response, request_id, missed=True)
     return response
 

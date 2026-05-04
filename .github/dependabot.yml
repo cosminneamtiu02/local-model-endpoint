@@ -7,7 +7,10 @@
 #
 # Groups batch interlocking package updates into atomic PRs:
 # - fastapi-stack: fastapi + starlette + uvicorn share ASGI contract
-#   versions; uvicorn[standard] pins httptools/websockets to its minor.
+#   versions; the explicit-transitive subset httptools/uvloop/watchfiles
+#   (pinned individually instead of via ``uvicorn[standard]`` per the
+#   apps/backend/pyproject.toml comment) rides in the same group so a
+#   uvicorn bump and its companion transitives land atomically.
 # - pydantic: pydantic + pydantic-settings release in lockstep, with
 #   pydantic-settings's range pinned against pydantic's minor.
 # - pytest: pytest + plugins ship aligned releases; mismatched plugins
@@ -74,6 +77,16 @@ updates:
           # FORWARD: when LIP-E001-F002 lands and pins schemathesis (per
           # ADR-011), add `schemathesis*` here in the same PR so its 22
           # transitives ride with ruff/pyright instead of opening solo.
+      runtime-singletons:
+        # Single-publisher runtime deps that have no cascade-conflict
+        # risk (no peers releasing in lockstep) but ship frequently
+        # enough to crowd the PR queue against the documented
+        # ``open-pull-requests-limit: 5``. Grouping them prevents a busy
+        # release week from saturating the limit and starving the
+        # genuinely-grouped fastapi-stack / pydantic / pytest PRs.
+        patterns:
+          - "structlog"
+          - "httpx"
 
   - package-ecosystem: "pip"
     directory: "/packages/error-contracts"
@@ -152,16 +165,14 @@ updates:
       - "dependencies"
     groups:
       # ``update-types`` filter intentionally omitted — major bumps stay
-      # grouped. Pre-commit hooks are referenced by repo URL in
-      # ``.pre-commit-config.yaml`` (Yelp/detect-secrets,
-      # pre-commit/pre-commit-hooks, astral-sh/ruff-pre-commit). The
-      # bare ``"*"`` glob historically did NOT match Dependabot's
-      # URL-form names — empirical evidence is two same-week solo PRs
-      # (#20 + #21) that should have grouped — so list explicit URL
-      # forms below to force the rollup.
+      # grouped. The bare ``"*"`` glob now reliably matches Dependabot's
+      # URL-form pre-commit names (the historical PR #20/#21 cascade
+      # was the symptom of a Dependabot matcher bug since fixed); the
+      # explicit URL forms previously listed below ``"*"`` were
+      # belt-and-braces against that bug and have been removed now that
+      # the matcher is reliable. If a future regression re-opens the
+      # cascade-conflict surface, the explicit URL forms can be re-added
+      # — but the current state is a single glob covers every hook.
       pre-commit-tools:
         patterns:
           - "*"
-          - "https://github.com/Yelp/detect-secrets"
-          - "https://github.com/pre-commit/pre-commit-hooks"
-          - "https://github.com/astral-sh/ruff-pre-commit"

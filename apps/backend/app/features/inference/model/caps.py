@@ -50,3 +50,14 @@ METADATA_KEY_MAX_LENGTH: Final[int] = 64
 # bound must be symmetric — keeping it here means a future cap bump on the
 # request side automatically tightens the response side too.
 MODEL_NAME_MAX_LENGTH: Final[int] = 128
+
+# Defense-in-depth cap on Ollama-reported token counts. Ollama's
+# ``prompt_eval_count`` / ``eval_count`` are model-controlled (not
+# consumer-controlled), so this is not a DoS-by-untrusted-input surface,
+# but a defective Ollama frame returning a pathologically large value
+# (>= 32-bit signed int max) currently propagates verbatim through
+# ``OllamaChatResult`` and into the wire response. 1_000_000 is well
+# above realistic Gemma 4 E2B output token counts (128K-token context)
+# while bounding the malformed-frame surface symmetric with the other
+# caps in this file.
+TOKEN_COUNT_MAX: Final[int] = 1_000_000

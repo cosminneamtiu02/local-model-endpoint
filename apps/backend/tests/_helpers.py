@@ -1,6 +1,6 @@
 """Shared test helpers — assertion shortcuts that would otherwise drift across files.
 
-Imported by tests in both `tests/unit/exceptions/` and `tests/integration/` so
+Imported by tests in both ``tests/unit/exceptions/`` and ``tests/integration/`` so
 the canonical RFC 7807 wire-shape invariants (status, content-type, code,
 content-language, optionally request_id correlation) are pinned in exactly one
 place. Adding a new invariant (or relaxing an existing one) is a single edit

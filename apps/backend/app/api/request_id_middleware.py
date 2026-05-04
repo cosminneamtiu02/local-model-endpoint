@@ -22,10 +22,10 @@ import structlog
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.api._constants import ABOUT_BLANK_TYPE, CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
-from app.core.logging import elapsed_ms
+from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
+from app.core.logging import ascii_safe, elapsed_ms
 from app.schemas import ProblemDetails
-from app.schemas.wire_constants import UUID_REGEX
+from app.schemas.wire_constants import ABOUT_BLANK_TYPE, UUID_REGEX
 
 # Request paths that are too noisy to log per-request (health checks
 # fire on a tight poll loop and would dominate the log volume). The
@@ -156,11 +156,13 @@ class RequestIdMiddleware:
             (v for k, v in scope.get("headers", []) if k == b"x-request-id"),
             b"",
         )
-        # ASCII-only decode with replacement: any byte outside printable
-        # ASCII (CRLF, NUL, extended-latin) becomes �, neutralizing
-        # log-injection vectors that ConsoleRenderer would otherwise emit
-        # raw.
-        client_id = client_id_raw.decode("ascii", errors="replace")
+        # ``ascii_safe`` decodes with byte-level replacement and ASCII-cleans
+        # the result so any byte outside printable ASCII (CRLF, NUL,
+        # extended-latin) becomes ``?`` — neutralizes log-injection vectors
+        # that ConsoleRenderer would otherwise emit raw. ``max_chars`` is
+        # left at the default; the regex match below caps the practical
+        # length to ``REQUEST_ID_LENGTH`` regardless.
+        client_id = ascii_safe(client_id_raw)
         # Walrus memoizes ``ord(c)`` across the two-arm comparison so the per-
         # char hot path on every request resolves with one ``ord()`` call.
         if any((o := ord(c)) < _C0_CONTROL_UPPER or o == _DEL_CHAR for c in client_id):

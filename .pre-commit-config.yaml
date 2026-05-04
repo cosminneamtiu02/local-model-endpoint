@@ -1,3 +1,9 @@
+# ``minimum_pre_commit_version`` matches the floor that
+# ``default_install_hook_types`` requires (added in 3.2.0). A fresh-clone
+# developer running an older pre-commit binary would otherwise silently
+# skip the pre-push install — surfacing the version requirement here
+# fails loudly instead of degrading the safety net.
+minimum_pre_commit_version: "3.2.0"
 # ``default_install_hook_types`` makes the pre-push-staged hooks (pytest,
 # pyright, import-linter below) install on a plain ``pre-commit install``.
 # Without this, a fresh-clone developer who does not also run
@@ -22,6 +28,12 @@ repos:
       - id: check-json
       - id: check-added-large-files
         args: ["--maxkb=500"]
+      # ``detect-private-key`` is filename + content match,
+      # complementary to ``detect-secrets`` above (which is
+      # entropy-/regex-based). Catches an empty ``id_rsa`` or a
+      # partial-paste ``.pem`` that lacks the standard BEGIN header
+      # — exactly the case the entropy scanner misses.
+      - id: detect-private-key
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.12

@@ -8,18 +8,14 @@ AppState construction cannot break the type-narrowing without a red bar.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 import structlog
 from fastapi import FastAPI
+from starlette.requests import Request
 
 from app.api.app_state import AppState
 from app.api.deps import audit_lip_env_typos, get_app_state, get_ollama_client, get_settings
 from app.exceptions import InternalError
-
-if TYPE_CHECKING:
-    from fastapi import Request
 
 
 def _request_for(app: FastAPI) -> Request:
@@ -29,8 +25,6 @@ def _request_for(app: FastAPI) -> Request:
     else on the Request object is irrelevant. Building from the ASGI scope
     avoids depending on TestClient and keeps these tests pure-unit.
     """
-    from starlette.requests import Request as _Request
-
     scope: dict[str, object] = {
         "type": "http",
         "app": app,
@@ -39,7 +33,7 @@ def _request_for(app: FastAPI) -> Request:
         "path": "/",
         "query_string": b"",
     }
-    return _Request(scope)  # pyright: ignore[reportArgumentType]  # minimal scope is intentional
+    return Request(scope)  # pyright: ignore[reportArgumentType]  # minimal scope is intentional
 
 
 def test_get_app_state_when_context_missing_raises_internal_error() -> None:
@@ -60,9 +54,11 @@ def test_get_app_state_when_context_missing_raises_internal_error() -> None:
 
 
 def test_get_app_state_when_context_wrong_type_raises_internal_error() -> None:
-    """A wrong-typed ``app.state.context`` (e.g. raw dict from a stale test
-    fixture) must also surface as InternalError, not as an attribute error
-    deep inside ``get_ollama_client``."""
+    """A wrong-typed ``app.state.context`` must surface as InternalError.
+
+    e.g. a raw dict left over from a stale test fixture must NOT surface
+    as an attribute error deep inside ``get_ollama_client``.
+    """
     app = FastAPI()
     app.state.context = {"ollama_client": "not-actually-a-client"}
     request = _request_for(app)
@@ -92,10 +88,10 @@ async def test_get_app_state_returns_lifespan_appstate_on_happy_path() -> None:
 
 
 async def test_get_ollama_client_delegates_through_get_app_state() -> None:
-    """``get_ollama_client`` is a thin reader on top of ``get_app_state`` —
-    test it returns the same client identity that AppState carries.
+    """``get_ollama_client`` returns the same client identity that AppState carries.
 
-    Wrapped in ``async with`` for the same pool-leak reason as the sibling
+    It is a thin reader on top of ``get_app_state``. Wrapped in
+    ``async with`` for the same pool-leak reason as the sibling
     happy-path test above.
     """
     from app.features.inference import OllamaClient
@@ -111,9 +107,11 @@ async def test_get_ollama_client_delegates_through_get_app_state() -> None:
 def test_audit_lip_env_typos_warns_on_unknown_lip_env_var(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A typo'd ``LIP_*`` env var should surface as a structlog warning
-    (CLAUDE.md "never add an env var without adding it to Settings"), since
-    pydantic-settings 2.14 silently ignores extras at the env-source layer.
+    """A typo'd ``LIP_*`` env var should surface as a structlog warning.
+
+    CLAUDE.md "never add an env var without adding it to Settings"
+    relies on this audit, since pydantic-settings 2.14 silently ignores
+    extras at the env-source layer.
     """
     monkeypatch.setenv("LIP_BOGUS_TYPO_VAR", "x")
     with structlog.testing.capture_logs() as captured:
@@ -144,8 +142,10 @@ def test_get_settings_construction_no_longer_emits_warnings(
     re-introduce the orphaned-non-JSON-line bug this split fixed.
     """
     monkeypatch.setenv("LIP_BOGUS_TYPO_VAR", "x")
-    get_settings.cache_clear()
+    # No leading/trailing ``cache_clear()``: the autouse
+    # ``_reset_settings_cache`` fixture in ``tests/conftest.py`` already
+    # clears the cache before every test, so manual clears here would be
+    # dead defensive code (matches the ``test_config.py`` convention).
     with structlog.testing.capture_logs() as captured:
         get_settings()
-    get_settings.cache_clear()
     assert captured == []

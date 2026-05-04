@@ -77,9 +77,25 @@ RESERVED_PARAM_NAMES: Final[frozenset[str]] = frozenset(
 RUFF_LINE_LENGTH: Final[int] = 100
 
 # HTTP status range — codes outside [400, 599] are not error responses per
-# RFC 9110 §15.5/§15.6 and have no place in errors.yaml.
+# RFC 9110 §15.5/§15.6 and have no place in errors.yaml. ``HTTP_5XX_FLOOR``
+# is the boundary the codegen uses to gate the PII-safe-allowlist check
+# at codegen time; the wider 400-599 range is the YAML-validation gate.
 HTTP_ERROR_STATUS_MIN: Final[int] = 400
 HTTP_ERROR_STATUS_MAX: Final[int] = 599
+HTTP_5XX_FLOOR: Final[int] = 500
+
+# Compiled regex patterns hoisted to module scope (mirrors
+# ``apps/backend/app/schemas/wire_constants.py``'s precompile-at-module-
+# scope discipline). Codegen is cold-path so the perf delta is academic;
+# the consistency keeps a single grep pattern useful for "where do regexes
+# live in this codebase".
+_ERROR_KEY_INDENT_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^(\s+)(\w+)\s*:\s*(?:#.*)?$",
+)
+_PASCAL_CASE_BOUNDARY_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?<!^)([A-Z])")
+_SCREAMING_SNAKE_CODE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^[A-Z][A-Z0-9]*(_[A-Z][A-Z0-9]*)*$",
+)
 
 
 def _code_to_class_name(code: str) -> str:
@@ -109,7 +125,7 @@ def _class_to_snake(name: str) -> str:
     ``_code_to_class_name``; do NOT use on arbitrary PascalCase strings
     (``IOError`` would become ``i_o_error``).
     """
-    return re.sub(r"(?<!^)([A-Z])", r"_\1", name).lower()
+    return _PASCAL_CASE_BOUNDARY_PATTERN.sub(r"_\1", name).lower()
 
 
 def _detect_duplicate_keys(raw_text: str) -> None:
@@ -128,7 +144,6 @@ def _detect_duplicate_keys(raw_text: str) -> None:
     # whitespace style). We also remember the indent depth of the first
     # error key so a deeper-indented sibling block is skipped, but a
     # 4-space-indented `errors:` body is still detected.
-    error_key_pattern = re.compile(r"^(\s+)(\w+)\s*:\s*(?:#.*)?$")
     error_indent: int | None = None
 
     for line in lines:
@@ -138,7 +153,7 @@ def _detect_duplicate_keys(raw_text: str) -> None:
             error_indent = None
             continue
         if in_errors:
-            m = error_key_pattern.match(stripped)
+            m = _ERROR_KEY_INDENT_PATTERN.match(stripped)
             if m:
                 indent = len(m.group(1))
                 if error_indent is None:
@@ -364,7 +379,7 @@ def _validate_no_5xx_string_params(code: str, http_status: int, params: _ParamsM
     *specific* error code. New 5xx string params MUST extend that
     allowlist with explicit justification.
     """
-    if http_status < 500:  # noqa: PLR2004 — 500 is the HTTP 5xx floor; not a magic constant
+    if http_status < HTTP_5XX_FLOOR:
         return
     forbidden = [
         name
@@ -415,10 +430,14 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
         # Validate code format: SCREAMING_SNAKE_CASE strict. The regex
         # disallows leading/trailing underscores AND consecutive
         # underscores ("FOO__BAR" is rejected). Each segment must start
-        # with an uppercase letter and may contain digits afterwards.
-        # The wire-side mirror lives in ``app/schemas/problem_details.py``
-        # (the ``code`` Field pattern); update both together.
-        if not re.match(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$", code):
+        # with an uppercase letter and may contain digits afterwards
+        # ("X_42" is rejected because the second segment starts with a
+        # digit). The wire-side mirror lives in
+        # ``app/schemas/problem_details.py`` (the ``code`` Field
+        # pattern); update both together — a drift-guard test in
+        # ``apps/backend/tests/unit/exceptions/test_screaming_snake_pattern_drift_guard.py``
+        # mechanically verifies they match.
+        if not _SCREAMING_SNAKE_CODE_PATTERN.match(code):
             msg = (
                 f"Error code must be SCREAMING_SNAKE_CASE with no leading/"
                 f"trailing/double underscores: {code}"

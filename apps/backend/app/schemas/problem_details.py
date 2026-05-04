@@ -35,7 +35,12 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.wire_constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
+from app.schemas.wire_constants import (
+    ABOUT_BLANK_TYPE,
+    INSTANCE_PATH_MAX_CHARS,
+    REQUEST_ID_LENGTH,
+    UUID_PATTERN_STR,
+)
 
 # Per-string length caps, symmetric with ValidationErrorDetail's
 # field=512 / reason=2048 caps. Bounds response amplification on the
@@ -43,7 +48,6 @@ from app.schemas.wire_constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
 # could otherwise ship multi-KB problem+json bodies.
 _TITLE_MAX_CHARS: Final[int] = 128
 _DETAIL_MAX_CHARS: Final[int] = 4096
-_INSTANCE_MAX_CHARS: Final[int] = 2048
 _CODE_MAX_CHARS: Final[int] = 128
 # Longest realistic URN form: ``urn:lip:error:`` (14 chars) + ~100 chars
 # of kebab tail. 160 is a comfortable ceiling.
@@ -66,8 +70,11 @@ class ProblemDetails(BaseModel):
         # framework-level HTTP errors (RFC 7807 §4.2) or ``urn:lip:error:<code>``
         # for typed DomainErrors. A direct ``ProblemDetails(type="oops", ...)``
         # construction now fails the schema instead of shipping a body that
-        # violates the URN convention consumers pattern-match on.
-        pattern=r"^(about:blank|urn:lip:error:[a-z0-9-]+)$",
+        # violates the URN convention consumers pattern-match on. The
+        # ``about:blank`` literal is sourced from ``wire_constants`` so the
+        # schema regex and the framework-HTTPException handler emit-site
+        # cannot drift apart.
+        pattern=rf"^({ABOUT_BLANK_TYPE}|urn:lip:error:[a-z0-9-]+)$",
         max_length=_TYPE_MAX_CHARS,
     )
     title: str = Field(
@@ -93,7 +100,7 @@ class ProblemDetails(BaseModel):
         # middleware truncates path previews in logs but the schema is
         # the last line keeping multi-KB ``instance`` strings off the wire.
         min_length=1,
-        max_length=_INSTANCE_MAX_CHARS,
+        max_length=INSTANCE_PATH_MAX_CHARS,
         pattern=r"^/",
     )
     code: str = Field(
@@ -102,10 +109,11 @@ class ProblemDetails(BaseModel):
         # already enforces on errors.yaml — defense-in-depth so a future
         # contributor adding an HTTPException-status-to-code mapping with
         # a kebab/camel value fails at the schema, not silently on the wire.
-        # The pattern forbids leading/trailing underscores and double
-        # underscores so codegen and the wire schema agree on the
-        # canonical form.
-        pattern=r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$",
+        # The pattern forbids leading/trailing underscores, double
+        # underscores, AND digit-only segments after the first letter
+        # (e.g. ``X_42`` is rejected) so codegen and the wire schema agree
+        # on the canonical form.
+        pattern=r"^[A-Z][A-Z0-9]*(_[A-Z][A-Z0-9]*)*$",
         max_length=_CODE_MAX_CHARS,
     )
     request_id: str = Field(
