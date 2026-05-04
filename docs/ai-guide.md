@@ -49,7 +49,7 @@ cannot import features and cannot import each other; the inference feature's `mo
 
 ## What's NOT Built — feature-dev work
 
-LIP feature nodes have landed in code as of round 7: LIP-E001-F001 inference envelopes,
+LIP feature nodes have landed in code: LIP-E001-F001 inference envelopes,
 LIP-E003-F001 lifespan-managed OllamaClient, LIP-E003-F002 envelope↔Ollama translation,
 LIP-E004-F004 problem+json, and LIP-E005-F003 launchd plist. The exact status set
 shifts as features advance from `verifiable` to `implemented` — `grep -n '^status:'

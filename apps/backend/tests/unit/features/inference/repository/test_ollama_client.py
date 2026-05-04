@@ -23,6 +23,7 @@ from app.features.inference.model.model_params import ModelParams
 from app.features.inference.repository.ollama_client import (
     DEFAULT_TIMEOUT,
     OllamaClient,
+    _decode_ollama_json,
 )
 
 
@@ -177,6 +178,83 @@ async def test_request_propagates_connect_error_via_mock_transport() -> None:
             await client._request("GET", "/api/tags")
     finally:
         await client.close()
+
+
+# ── _decode_ollama_json malformed-frame branches (round-10 L14 10.5) ──
+
+
+def test_decode_ollama_json_rejects_non_json_content_type() -> None:
+    """Non-JSON content-type surfaces as ValueError, not a confusing decode error.
+
+    Builds the malformed-frame category the failure-mapping layer
+    (LIP-E003-F003) translates uniformly. A regression that drops the
+    content-type guard would let an HTML-error-page response through and
+    fail with a less-actionable JSONDecodeError.
+    """
+    response = httpx.Response(
+        200,
+        headers={"content-type": "text/html; charset=utf-8"},
+        content=b"<html>maintenance</html>",
+    )
+    with pytest.raises(ValueError, match="non-JSON content-type"):
+        _decode_ollama_json(response)
+
+
+def test_decode_ollama_json_rejects_malformed_json_body() -> None:
+    """A malformed JSON body surfaces as ValueError chaining the decoder cause."""
+    response = httpx.Response(
+        200,
+        headers={"content-type": "application/json"},
+        content=b"{not json",
+    )
+    with pytest.raises(ValueError, match="non-JSON body under stream=False"):
+        _decode_ollama_json(response)
+
+
+def test_decode_ollama_json_rejects_non_object_payload() -> None:
+    """A JSON array (or any non-object) at the top level is malformed for /api/chat."""
+    response = httpx.Response(
+        200,
+        headers={"content-type": "application/json"},
+        json=[1, 2, 3],
+    )
+    with pytest.raises(ValueError, match="non-object JSON body"):
+        _decode_ollama_json(response)
+
+
+# ── _request input/state guards (round-10 L14) ──────────────────────
+
+
+async def test_request_rejects_relative_path_with_value_error() -> None:
+    """A relative ``path`` would silently RFC-3986-merge against ``base_url``.
+
+    With ``base_url="http://localhost:11434"`` (no trailing slash), passing
+    ``"api/chat"`` (no leading slash) replaces the last path segment instead
+    of appending. Today's only call site (``chat`` -> ``"/api/chat"``) is
+    fine, but the seam guards future siblings.
+    """
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, json={}),
+    )
+    client = OllamaClient(base_url="http://example.invalid", transport=transport)
+    try:
+        with pytest.raises(ValueError, match="path must be absolute"):
+            await client._request("GET", "api/tags")
+    finally:
+        await client.close()
+
+
+async def test_request_rejects_use_after_close_with_runtime_error() -> None:
+    """A leaked Depends-resolved reference arriving after lifespan teardown
+    must surface a typed signal, not httpx's untyped internal RuntimeError.
+    """
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, json={}),
+    )
+    client = OllamaClient(base_url="http://example.invalid", transport=transport)
+    await client.close()
+    with pytest.raises(RuntimeError, match="OllamaClient cannot be used after close"):
+        await client._request("GET", "/api/tags")
 
 
 # ── Cancellation contract (Lane 2.1) ─────────────────────────────────

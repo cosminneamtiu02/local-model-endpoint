@@ -137,21 +137,21 @@ Run in well under 10 seconds. Cover:
 - **`tests/unit/core/`** — `test_config.py`: pydantic-settings parsing + clamps.
 - **`tests/unit/exceptions/`** — `test_base.py` (DomainError ergonomics),
   `test_domain_errors.py` (per-code construction), `test_registry.py`
-  (`ERROR_CLASSES` lookup invariants), `test_exception_handlers.py`
-  (exception-handler unit tests; mirrors `app/api/exception_handlers.py`),
-  plus `test_errors_yaml_invariants.py`, `test_params_frozen_invariant.py`,
-  and `test_problem_extras_drift_guard.py` for codegen and ProblemExtras
-  drift coverage.
-- **`tests/unit/schemas/`** — `test_problem_details.py`, `test_validation_error_detail.py`
-  for the RFC 7807 wire shapes.
-- **`tests/unit/features/inference/`** — value-object and schema unit tests:
-  `test_message.py`, `test_model_params.py`, `test_content_part.py`,
-  `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
-  `test_inference_request.py`, `test_inference_response.py`,
-  `test_response_metadata.py`, `test_ollama_chat_result.py`,
-  `test_inference_schema_shapes.py`, plus `repository/test_ollama_client.py` and
-  `repository/test_ollama_translation.py` for the typed httpx client wrapper
-  and envelope↔Ollama translation.
+  (`ERROR_CLASSES` lookup invariants), plus `test_errors_yaml_invariants.py`,
+  `test_params_frozen_invariant.py`, and `test_problem_extras_drift_guard.py`
+  for codegen and ProblemExtras drift coverage. (The exception-handler unit
+  test lives at `tests/unit/api/test_exception_handlers.py`, mirroring
+  `app/api/exception_handlers.py`.)
+- **`tests/unit/schemas/`** — `test_health_response.py`, `test_problem_details.py`,
+  `test_problem_extras.py`, `test_validation_error_detail.py` (one test file per
+  schema-package class).
+- **`tests/unit/features/inference/`** — mirrors `app/features/inference/`:
+  - `model/` — `test_message.py`, `test_model_params.py`, `test_content_part.py`,
+    `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
+    `test_ollama_chat_result.py`, `test_ollama_translation.py`
+  - `schemas/` — `test_inference_request.py`, `test_inference_response.py`,
+    `test_response_metadata.py`, `test_inference_schema_shapes.py`
+  - `repository/` — `test_ollama_client.py` (typed httpx wrapper)
 - **`tests/unit/launchd/`** — `test_ollama_plist.py` parses
   `infra/launchd/com.lip.ollama.plist.tmpl` with `plistlib` and asserts the
   five Ollama env vars + binary path + log paths.
@@ -160,7 +160,9 @@ Run in well under 10 seconds. Cover:
 httpx.AsyncClient via ASGITransport against the FastAPI app in-process. No DB, no
 Testcontainers. Covers:
 
-- `api/test_health.py` — `/health` liveness and request-ID middleware echo.
+- `api/test_health.py` — `/health` liveness shape.
+- `api/test_request_id_middleware.py` — request-ID propagation, header echo,
+  contextvar binding, body-size DoS guard.
 - `test_problem_details.py` — RFC 7807 problem+json envelope shapes through the
   registered handlers (DomainError, RequestValidationError, StarletteHTTPException,
   generic Exception).
@@ -216,10 +218,11 @@ generation/check, plus on-demand `check:audit` (pip-audit) and `check:coverage`
 
 ### Pre-commit Hooks ([.pre-commit-config.yaml](../.pre-commit-config.yaml))
 Pre-commit: detect-secrets, trailing-whitespace, end-of-file-fixer,
-check-yaml/json, check-added-large-files, ruff (`--fix`) + ruff-format,
-and a Taskfile-syntax local hook.
-Pre-push: pytest unit (backend + error-contracts) + pyright + import-linter
-(slow checks per ADR-009 tier; pre-commit/-push installed together via
+check-yaml/json, check-added-large-files, ruff (lint, no auto-fix) +
+ruff-format, and a Taskfile-syntax local hook.
+Pre-push: full pytest suite (backend unit + integration + contract;
+error-contracts unit) + pyright + import-linter (slow checks per
+ADR-009 tier; pre-commit/-push installed together via
 `default_install_hook_types`).
 
 ### Editor & VCS Config

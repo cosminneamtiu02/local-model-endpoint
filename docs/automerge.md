@@ -105,7 +105,7 @@ GitHub sets autoMergeRequest on the PR
   │
   ▼
 GitHub waits for ALL ruleset conditions to be green:
-  - 2 required status checks pass
+  - 3 required status checks pass (backend-checks, error-contracts, darwin-checks)
   - Branch up to date with main
   - All conversations resolved
   │

@@ -254,6 +254,31 @@ def test_settings_ollama_host_accepts_external_with_acknowledgement(
     assert settings.allow_external_ollama is True
 
 
+@pytest.mark.parametrize(
+    "userinfo_url",
+    [
+        "http://user@127.0.0.1:11434",
+        "http://user:pass@127.0.0.1:11434",  # pragma: allowlist secret — test fixture
+    ],
+)
+def test_settings_ollama_host_rejects_url_userinfo(
+    monkeypatch: pytest.MonkeyPatch,
+    userinfo_url: str,
+) -> None:
+    """``ollama_host`` URLs with embedded userinfo are rejected at Settings.
+
+    The model_validator clamp at config.py:213-219 strips a vector where
+    httpx exception strings (``ollama_call_failed`` log messages, error
+    response bodies) could surface ``user:pass`` credentials. ``AnyHttpUrl``
+    accepts userinfo by default; without this guard an operator who pastes
+    a credentialed URL into ``LIP_OLLAMA_HOST`` would leak those creds at
+    every connect failure.
+    """
+    monkeypatch.setenv("LIP_OLLAMA_HOST", userinfo_url)
+    with pytest.raises(ValidationError, match="userinfo"):
+        make_settings()
+
+
 def test_is_private_host_classifier_covers_ipv6_and_ula() -> None:
     """The ipaddress-backed classifier catches IPv6 link-local + ULA cases.
 

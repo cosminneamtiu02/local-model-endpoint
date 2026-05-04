@@ -126,7 +126,10 @@ class OllamaClient:
             f"{parsed.scheme}://{host_only}:{port}" if port else f"{parsed.scheme}://{host_only}"
         )
 
-        # Defer ``httpx.AsyncClient`` construction to ``__aenter__`` so the
+        # ``base_url`` retained for diagnostics; the live ``httpx.AsyncClient``
+        # below holds the parsed form. ``__aenter__``/``__aexit__`` are pure
+        # logging+close hooks — construction is eager so an unparseable URL
+        # fails loudly here, not at the first request.
         self._base_url = base_url
         # User-Agent is computed per-instance so the ``PackageNotFoundError``
         # fallback is reachable from unit tests via monkeypatch on the
@@ -263,7 +266,23 @@ class OllamaClient:
         params: Mapping[str, str] | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> httpx.Response:
-        """Low-level passthrough to httpx — used by sibling adapter features."""
+        """Low-level passthrough to httpx — used by sibling adapter features.
+
+        Guards: ``path`` must be absolute (start with ``/``) so the future
+        addition of ``base_url=".../v1"`` cannot silently RFC-3986-merge a
+        relative ``"api/chat"`` into the wrong endpoint. ``self._client`` must
+        not be closed — a leaked Depends-resolved reference arriving after
+        lifespan teardown otherwise surfaces as httpx's untyped
+        ``RuntimeError("Cannot send a request, as the client has been
+        closed.")`` rather than a typed signal the failure-mapping layer
+        (LIP-E003-F003) can translate.
+        """
+        if not path.startswith("/"):
+            error_message = f"path must be absolute (start with /), got {path!r}"
+            raise ValueError(error_message)
+        if self._client.is_closed:
+            error_message = "OllamaClient cannot be used after close()"
+            raise RuntimeError(error_message)
         return await self._client.request(
             method,
             path,
@@ -366,7 +385,13 @@ class OllamaClient:
             # cancellation continues to propagate (BaseException narrowing
             # protects structured concurrency — never suppress).
             duration_ms = int((time.perf_counter() - start) * 1000)
-            logger.warning(
+            # ``info`` (not ``warning``): consumer-disconnect cancellation is
+            # expected traffic on a multi-consumer LAN service; logging at
+            # warning would inflate the warning-rate baseline operators
+            # dashboard against real failures. Lifespan-shutdown cancellation
+            # is rarer but still normal — both fire here at info, peer to
+            # ``ollama_call_completed``.
+            logger.info(
                 "ollama_call_cancelled",
                 model=model_tag,
                 exc_type=type(cancel_exc).__name__,
