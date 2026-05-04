@@ -91,7 +91,7 @@ class ModelParams(BaseModel):
     think: bool = Field(
         default=False,
         description=(
-            "Enable Ollama thinking mode (LIP-E003-F002 [RESOLVED]). Forwarded "
-            "via the Ollama options block alongside sampling fields."
+            "Enable Ollama thinking mode. Forwarded via the Ollama options "
+            "block alongside sampling fields."
         ),
     )

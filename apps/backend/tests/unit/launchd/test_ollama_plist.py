@@ -30,7 +30,7 @@ EXPECTED_ENV: dict[str, str] = {
 
 # Top-level structural keys the plist must declare. Mirror EXPECTED_ENV's
 # table form so a future contributor adding a structural key updates one
-# constant rather than writing a new test (Lane 5.13).
+# constant rather than writing a new test.
 EXPECTED_TOPLEVEL: dict[str, object] = {
     "Label": "com.lip.ollama",
     "ProcessType": "Background",
@@ -101,7 +101,7 @@ def test_toplevel_keys_match_v1_calibration(
     key: str,
     expected: object,
 ) -> None:
-    """Each top-level structural key matches its expected value (Lane 5.13)."""
+    """Each top-level structural key matches its expected value."""
     assert key in parsed_plist, f"missing top-level key {key}"
     assert parsed_plist[key] == expected, f"{key} expected {expected!r}, got {parsed_plist[key]!r}"
 

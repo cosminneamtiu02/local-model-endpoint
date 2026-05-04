@@ -117,8 +117,7 @@ def translate_message(msg: "Message") -> dict[str, Any]:
     String-content messages pass through unchanged. List-content
     (multimodal) messages are flattened: text parts joined with the
     ``\\n\\n`` separator, image/audio base64 payloads collected into
-    ``images`` / ``audios`` arrays on the same message object per
-    LIP-E003-F002 [RESOLVED].
+    ``images`` / ``audios`` arrays on the same message object.
     """
     if isinstance(msg.content, str):
         return {"role": msg.role, "content": msg.content}
@@ -126,9 +125,7 @@ def translate_message(msg: "Message") -> dict[str, Any]:
     text_parts, images, audios = _flatten_content_parts(msg.content)
     # Ollama /api/chat exposes ``content`` as a single string (no rich-parts
     # array on the wire). Two-newline join keeps the resulting prompt
-    # human-readable when several text parts share a turn, per LIP-E003-F002
-    # [RESOLVED]; the choice is documented here so a reader looking at the
-    # wire dump can match it back to the source-of-truth decision.
+    # human-readable when several text parts share a turn.
     ollama_msg: dict[str, Any] = {"role": msg.role, "content": "\n\n".join(text_parts)}
     _attach_media_to_message(ollama_msg, msg.role, images, audios)
     return ollama_msg
@@ -139,8 +136,7 @@ def translate_params(params: "ModelParams") -> dict[str, Any]:
 
     Only consumer-set fields are forwarded; registry defaults are merged
     upstream. ``think`` rides inside ``options`` alongside the sampling
-    fields per LIP-E003-F002 [RESOLVED] (single canonical placement; no
-    per-Ollama-version branching).
+    fields (single canonical placement; no per-Ollama-version branching).
     """
     consumer_overrides = params.model_dump(exclude_unset=True)
     return {_PARAM_RENAMES.get(k, k): v for k, v in consumer_overrides.items()}

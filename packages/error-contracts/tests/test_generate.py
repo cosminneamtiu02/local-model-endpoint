@@ -3,12 +3,13 @@
 import ast
 import importlib.util
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 
-def _load_class_to_snake() -> object:
+def _load_class_to_snake() -> Callable[[str], str]:
     """Import generate.py by file path so the private ``_class_to_snake``
     helper can be exercised directly without rewiring the package as
     importable. Returns the bound function rather than the module so the
@@ -43,7 +44,7 @@ def test_class_to_snake_pins_pascal_case_translation(pascal: str, expected_snake
     confusing late-stage drift in ``check:errors``.
     """
     class_to_snake = _load_class_to_snake()
-    assert class_to_snake(pascal) == expected_snake  # type: ignore[operator]
+    assert class_to_snake(pascal) == expected_snake
 
 
 SAMPLE_YAML = """
@@ -280,9 +281,9 @@ def test_codegen_emits_detail_method_with_template_substitution(
     assert 'detail_template: ClassVar[str] = "Widget {widget_id} does not exist."' in content
     assert "def detail(self) -> str:" in content
     # Parameterized branch type-narrows via cast (survives `python -O`) then
-    # formats. Round-7 lane-3 fix: cast targets the CONCRETE *Params class
-    # so a future schema typo is a static error at the format-string call
-    # site, not a silent string-format failure at runtime.
+    # formats. The cast targets the CONCRETE *Params class so a future
+    # schema typo is a static error at the format-string call site, not a
+    # silent string-format failure at runtime.
     assert 'cast("ExampleNotFoundParams", self.params)' in content
     assert "params.model_dump()" in content
 
@@ -400,7 +401,7 @@ def test_codegen_emits_template_format_call_for_parameterized_errors(
 
     content = (output_dir / "example_not_found_error.py").read_text()
     # Body type-narrows via cast (survives `python -O`) then renders the
-    # template. Round-7 lane-3 fix: cast targets the CONCRETE *Params class.
+    # template. The cast targets the CONCRETE *Params class.
     assert 'params = cast("ExampleNotFoundParams", self.params)' in content
     assert "self.detail_template.format(**params.model_dump())" in content
 

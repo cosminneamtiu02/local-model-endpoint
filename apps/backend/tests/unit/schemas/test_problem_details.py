@@ -13,8 +13,8 @@ class _BaseKwargs(TypedDict):
     """Canonical kwargs shape for ProblemDetails construction in tests.
 
     Typed so pyright strict can narrow ``**_base_kwargs()`` spreads at
-    every call site without falling back to ``dict[str, object]`` (which
-    would be Unknown under the round-7 ``AnyHttpUrl`` tightening).
+    every call site without falling back to ``dict[str, object]``
+    (Unknown under the AnyHttpUrl typing).
     """
 
     type: str
@@ -57,8 +57,7 @@ def test_problem_details_allows_arbitrary_extension_fields() -> None:
     """extra='allow' accepts typed-params extensions and validation_errors[]."""
     # ``model_validate`` keeps the extras-spread path strictly typed: kwargs
     # spread (``**_base_kwargs(), max_waiters=...``) cannot be statically
-    # typed under the round-7 AnyHttpUrl tightening because pyright can't
-    # express "TypedDict + arbitrary extra keys".
+    # typed because pyright can't express "TypedDict + arbitrary extra keys".
     pd = ProblemDetails.model_validate(
         {**_base_kwargs(), "max_waiters": 4, "current_waiters": 5},
     )

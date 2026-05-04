@@ -35,7 +35,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas._constants import UUID_PATTERN_STR
+from app.schemas._constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
 
 # Per-string length caps, symmetric with ValidationErrorDetail's
 # field=512 / reason=2048 caps. Bounds response amplification on the
@@ -48,7 +48,6 @@ _CODE_MAX_CHARS: Final[int] = 128
 # Longest realistic URN form: ``urn:lip:error:`` (14 chars) + ~100 chars
 # of kebab tail. 160 is a comfortable ceiling.
 _TYPE_MAX_CHARS: Final[int] = 160
-_REQUEST_ID_LENGTH: Final[int] = 36
 
 
 class ProblemDetails(BaseModel):
@@ -119,6 +118,6 @@ class ProblemDetails(BaseModel):
         # length floors but the explicit min/max keeps OpenAPI docs and
         # static-analysis caps in sync.
         pattern=UUID_PATTERN_STR,
-        min_length=_REQUEST_ID_LENGTH,
-        max_length=_REQUEST_ID_LENGTH,
+        min_length=REQUEST_ID_LENGTH,
+        max_length=REQUEST_ID_LENGTH,
     )

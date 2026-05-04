@@ -137,21 +137,24 @@ Fifteen contracts protect the layer boundaries:
 ### Unit Tests ([apps/backend/tests/unit/](../apps/backend/tests/unit/))
 Run in well under 10 seconds. Cover:
 
-- **`tests/unit/core/`** — `test_config.py`: pydantic-settings parsing + clamps.
+- **`tests/unit/core/`** — `test_config.py` (pydantic-settings parsing + clamps),
+  `test_logging.py` (structlog pipeline configuration).
+- **`tests/unit/api/`** — `test_deps.py` (Settings factory + DI wiring),
+  `test_exception_handlers.py` (DomainError → ProblemDetails serialization).
 - **`tests/unit/exceptions/`** — `test_base.py` (DomainError ergonomics),
   `test_domain_errors.py` (per-code construction), `test_registry.py`
   (`ERROR_CLASSES` lookup invariants), plus `test_errors_yaml_invariants.py`,
   `test_params_frozen_invariant.py`, and `test_problem_extras_drift_guard.py`
-  for codegen and ProblemExtras drift coverage. (The exception-handler unit
-  test lives at `tests/unit/api/test_exception_handlers.py`, mirroring
-  `app/api/exception_handlers.py`.)
+  for codegen and ProblemExtras drift coverage.
 - **`tests/unit/schemas/`** — `test_health_response.py`, `test_problem_details.py`,
   `test_problem_extras.py`, `test_validation_error_detail.py` (one test file per
   schema-package class).
 - **`tests/unit/features/inference/`** — mirrors `app/features/inference/`:
   - `model/` — `test_message.py`, `test_model_params.py`, `test_content_part.py`,
     `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
-    `test_ollama_chat_result.py`, `test_ollama_translation.py`
+    `test_ollama_chat_result.py`, `test_ollama_translation.py`. The internal
+    helpers `_validators.py`, `caps.py`, and `finish_reason.py` are exercised
+    transitively through these test files (no dedicated test files).
   - `schemas/` — `test_inference_request.py`, `test_inference_response.py`,
     `test_response_metadata.py`, `test_inference_schema_shapes.py`
   - `repository/` — `test_ollama_client.py` (typed httpx wrapper)

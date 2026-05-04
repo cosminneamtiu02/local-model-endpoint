@@ -30,10 +30,16 @@ def _resolve_app_version() -> str:
     try:
         return _metadata.version("lip-backend")
     except _metadata.PackageNotFoundError:
-        # Editable install context where importlib.metadata can't see the
-        # dist-info — surface as ``unknown`` rather than crash the factory.
-        # Same fallback shape OllamaClient uses; the warning lives there
-        # so this helper stays pure-data for ``FastAPI(version=...)``.
+        logger.warning("app_version_resolve_failed", reason="package_not_found")
+        return "unknown"
+    except Exception:  # noqa: BLE001 — defense-in-depth at module-singleton boot
+        # A corrupted dist-info under editable-install layouts can raise
+        # non-PackageNotFoundError (KeyError / ValueError from
+        # importlib.metadata internals). Without this arm the failure
+        # crashes ``create_app`` at import time, before structlog has a
+        # handler attached — log via structlog and degrade rather than
+        # silently take down every worker boot.
+        logger.warning("app_version_resolve_failed", reason="unexpected", exc_info=True)
         return "unknown"
 
 
@@ -54,6 +60,13 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     # Log host/port separately rather than the full URL so a future
     # userinfo-bearing form (unusual for Ollama, possible behind a reverse
     # proxy) cannot leak credentials into stdout.
+    # NOTE: ``bind_host`` / ``bind_port`` reflect the configured Settings
+    # values (driven by ``LIP_BIND_HOST`` / ``LIP_BIND_PORT``), not the
+    # actual uvicorn-bound socket. ``python -m app`` threads them into
+    # ``uvicorn.run`` so they match in production; an ad-hoc
+    # ``uvicorn app.main:app --host X --port Y`` invocation would advertise
+    # the Settings values here while uvicorn binds elsewhere — uvicorn's
+    # own startup line is the source of truth for the actual bind.
     logger.info(
         "app_startup",
         phase="lifespan",
@@ -87,11 +100,21 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             logger.info("lifespan_resources_ready", phase="lifespan", env=settings.app_env)
             try:
                 yield
+            except asyncio.CancelledError:
+                # SIGTERM / Ctrl-C surfaces here as CancelledError raised by
+                # uvicorn's signal handler. Discriminated from the broader
+                # ``except BaseException`` arm so the ``app_shutdown`` line
+                # records ``reason="cancelled"`` (not ``"exception"``) on the
+                # clean-shutdown path; operator filters keying on
+                # ``reason="exception"`` then page only on real failures.
+                shutdown_reason = "cancelled"
+                raise
             except BaseException:
                 # Shutdown reason captured here so the ``app_shutdown`` line
-                # in the outer ``finally`` records whether the body unwound
-                # cleanly or was interrupted (SIGTERM / exception inside the
-                # request loop). Re-raises so the cause still surfaces.
+                # in the outer ``finally`` records that the body raised a
+                # non-cancellation exception (e.g. a stuck route handler that
+                # surfaces during teardown). Re-raises so the cause still
+                # surfaces to the outer arms.
                 shutdown_reason = "exception"
                 raise
             finally:

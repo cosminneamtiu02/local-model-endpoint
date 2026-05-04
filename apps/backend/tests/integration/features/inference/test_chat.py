@@ -113,7 +113,7 @@ async def test_chat_renames_max_tokens_to_num_predict_in_options() -> None:
 
 
 async def test_chat_places_think_inside_options_per_f002_spec() -> None:
-    """LIP-E003-F002 [RESOLVED]: ``think`` rides inside ``options`` (locked placement)."""
+    """``think`` rides inside ``options`` on the wire (locked placement)."""
     body, _, _ = await _send_and_capture(params=ModelParams(think=True))
     assert body["options"]["think"] is True
     # think must NOT appear at the top level
@@ -153,7 +153,7 @@ async def test_chat_emits_body_keys_in_spec_order() -> None:
 # The five canonical ModelParams shapes the wire-invariant tests sweep over.
 # Extracted to a module-level constant so ``test_chat_always_sets_stream_false``
 # and ``test_chat_never_sends_tools_keep_alive_or_format_keys`` parametrize
-# over the same list (drift-proof) — Lane 5.9.
+# over the same list (drift-proof).
 _FIVE_PARAM_SHAPES = [
     pytest.param(ModelParams(), id="bare"),
     pytest.param(ModelParams(temperature=0.5), id="temperature-only"),
@@ -248,7 +248,7 @@ async def test_chat_propagates_http_status_error_for_every_non_2xx(
 
 @pytest.mark.parametrize(
     "timeout_cls",
-    [httpx.ReadTimeout, httpx.ConnectTimeout],
+    [httpx.ReadTimeout, httpx.ConnectTimeout, httpx.WriteTimeout, httpx.PoolTimeout],
     ids=lambda c: c.__name__,
 )
 async def test_chat_propagates_timeout_uncaught(
@@ -256,12 +256,15 @@ async def test_chat_propagates_timeout_uncaught(
 ) -> None:
     """OllamaClient.chat re-raises every httpx timeout class verbatim.
 
-    Parametrized over the two timeout classes documented in
-    ``OllamaClient.DEFAULT_TIMEOUT`` (``connect`` and ``read``) so a future
-    addition of ``WriteTimeout`` / ``PoolTimeout`` (also documented httpx
-    timeout subclasses) extends coverage by adding one row, not by writing
-    another full near-clone test function. Mirrors the existing
-    parametrize-over-status-code pattern in this file.
+    Parametrized over all four httpx timeout subclasses. Each maps to one
+    of the bounds in ``OllamaClient.DEFAULT_TIMEOUT``: ``ConnectTimeout``
+    -> ``connect=5s``, ``ReadTimeout`` -> ``read=600s``, ``WriteTimeout``
+    -> ``write=None`` (still raises if upstream forces it),
+    ``PoolTimeout`` -> ``pool=5s`` (load-bearing today: F001 semaphore + 1
+    pool slot means a regression that adds a sibling adapter call surfaces
+    here as a loud PoolTimeout rather than a silent hang). All four share
+    the ``httpx.TimeoutException`` base, so the handler can synthesize
+    them uniformly.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:

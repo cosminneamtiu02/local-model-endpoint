@@ -4,16 +4,18 @@ These run as the canary for "did the OpenAPI even generate correctly."
 The full Schemathesis fuzz across endpoints arrives with LIP-E001-F002; this file exercises
 the spec endpoints directly so mis-shaped output is caught before fuzz
 attempts to load it.
+
+Uses the per-test ``client`` fixture from ``tests/contract/conftest.py``
+(rather than the module-singleton ``app.main:app``) so the autouse
+Settings-env scrub in the root conftest takes effect — symmetric with
+the integration tier's hermeticity policy.
 """
 
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-
-def test_openapi_spec_is_valid() -> None:
+def test_openapi_spec_is_valid(client: TestClient) -> None:
     """The OpenAPI spec should be valid and contain the expected endpoints."""
-    client = TestClient(app, raise_server_exceptions=False)
     response = client.get("/openapi.json")
     assert response.status_code == 200
 
@@ -31,9 +33,10 @@ def test_openapi_spec_is_valid() -> None:
     # /v1/ has no operations and is not present in the spec.
 
 
-def test_health_endpoint_conforms_to_spec() -> None:
-    """Health endpoint should return the expected shape."""
-    client = TestClient(app, raise_server_exceptions=False)
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+# ``test_health_endpoint_conforms_to_spec`` was removed: it duplicated
+# ``tests/integration/api/test_health.py::test_health_returns_200`` (same
+# request, same hardcoded body assertion, no actual spec-conformance
+# logic). The integration tier already pins the wire shape; the
+# contract tier owns spec-shape canaries (``test_openapi_spec_is_valid``
+# above) and the cross-route ProblemDetails contract in
+# ``test_problem_details_contract.py``.

@@ -24,9 +24,9 @@ def test_response_metadata_constructs_with_all_eight_fields(
 def test_response_metadata_rejects_non_uuid_request_id(
     valid_response_metadata_kwargs: dict[str, object],
 ) -> None:
-    """The schema-level UUID pattern is the round-7 defense-in-depth pin
-    so a future code path building ResponseMetadata without going through
-    the middleware-stamped UUID cannot ship a malformed correlation ID."""
+    """The schema-level UUID pattern is defense-in-depth: a future code
+    path building ResponseMetadata without going through the
+    middleware-stamped UUID cannot ship a malformed correlation ID."""
     kwargs = dict(valid_response_metadata_kwargs)
     kwargs["request_id"] = "req-abc"
     with pytest.raises(ValidationError, match="request_id"):

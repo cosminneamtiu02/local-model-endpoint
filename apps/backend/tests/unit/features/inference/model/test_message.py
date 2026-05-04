@@ -55,7 +55,7 @@ def test_message_rejects_invalid_role() -> None:
 
 @pytest.mark.parametrize("role", ["user", "assistant", "system"])
 def test_message_accepts_each_allowed_role_with_string_content(role: str) -> None:
-    """Lane 5.4 dedup — the three near-duplicate per-role tests collapsed."""
+    """Parametrized over allowed roles to avoid three near-duplicate per-role tests."""
     msg = Message(role=role, content="hi")
     assert msg.role == role
 
@@ -115,13 +115,13 @@ def test_message_rejects_oversize_content_list() -> None:
 
 
 def test_message_rejects_oversize_string_content() -> None:
-    """Lane 5.3 — boundary computed from the shared cap (oversize = max + 1)."""
+    """Boundary computed from the shared cap (oversize = max + 1) so a future cap bump auto-tracks."""
     oversize = TEXT_PART_MAX_CHARS + 1
     with pytest.raises(ValidationError):
         Message(role="user", content="x" * oversize)
 
 
-# ── Lane 5.14: boundary-inclusive accept tests ─────────────────────────
+# ── Boundary-inclusive accept tests ──────────────────────────────────
 
 
 def test_message_accepts_string_content_at_max_length() -> None:

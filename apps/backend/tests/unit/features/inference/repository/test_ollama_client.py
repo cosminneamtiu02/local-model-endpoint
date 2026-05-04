@@ -6,7 +6,7 @@ Covers acceptance criteria from LIP-E003-F001 unit-test scenarios:
 - async context manager support
 - close() idempotency
 - _request("GET", ...) and _request("POST", ..., json=...) plumbing
-- cancellation logging contract (Lane 2.1)
+- cancellation logging contract
 """
 
 from __future__ import annotations
@@ -180,7 +180,7 @@ async def test_request_propagates_connect_error_via_mock_transport() -> None:
         await client.close()
 
 
-# ── _decode_ollama_json malformed-frame branches (round-10 L14 10.5) ──
+# ── _decode_ollama_json malformed-frame branches ─────────────────────
 
 
 def test_decode_ollama_json_rejects_non_json_content_type() -> None:
@@ -222,7 +222,7 @@ def test_decode_ollama_json_rejects_non_object_payload() -> None:
         _decode_ollama_json(response)
 
 
-# ── _request input/state guards (round-10 L14) ──────────────────────
+# ── _request input/state guards ──────────────────────────────────────
 
 
 async def test_request_rejects_relative_path_with_value_error() -> None:
@@ -257,7 +257,7 @@ async def test_request_rejects_use_after_close_with_runtime_error() -> None:
         await client._request("GET", "/api/tags")
 
 
-# ── Cancellation contract (Lane 2.1) ─────────────────────────────────
+# ── Cancellation contract ────────────────────────────────────────────
 
 
 async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() -> None:
@@ -299,3 +299,91 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
         failed_events = [e for e in captured if e.get("event") == "ollama_call_failed"]
         assert len(cancelled_events) == 1, captured
         assert failed_events == [], captured
+
+
+# ── __aexit__ close-failure path (Lane 14.2) ─────────────────────────
+
+
+async def test_aexit_propagates_close_error_when_body_did_not_raise() -> None:
+    """``__aexit__`` propagates a close-time error when the body was clean.
+
+    Body-error preservation rule (per ``OllamaClient.__aexit__`` docstring):
+    when ``_exc is None`` (no body error to mask) and ``aclose()`` raises,
+    let the close error surface — a silently-failed close is itself a bug.
+    """
+    transport = httpx.MockTransport(lambda _r: httpx.Response(200, json={}))
+    client = OllamaClient(base_url="http://ollama.test", transport=transport)
+
+    async def _broken_close() -> None:
+        msg = "simulated aclose failure"
+        raise RuntimeError(msg)
+
+    client.close = _broken_close  # type: ignore[method-assign]
+    with capture_logs() as captured, pytest.raises(RuntimeError, match="simulated aclose failure"):
+        async with client:
+            pass
+
+    failed = [e for e in captured if e.get("event") == "ollama_client_close_failed"]
+    assert len(failed) == 1, captured
+    assert failed[0]["exc_type"] == "RuntimeError"
+    closed = [e for e in captured if e.get("event") == "ollama_client_closed"]
+    assert closed == [], captured
+
+
+async def test_aexit_suppresses_close_error_when_body_already_raised() -> None:
+    """``__aexit__`` swallows close-time errors when the body raised first.
+
+    The body's exception must reach the caller; the close-time error is
+    logged but not re-raised so it cannot mask the body's E1 — the
+    documented body-error preservation invariant.
+    """
+    transport = httpx.MockTransport(lambda _r: httpx.Response(200, json={}))
+    client = OllamaClient(base_url="http://ollama.test", transport=transport)
+
+    async def _broken_close() -> None:
+        msg = "secondary close failure"
+        raise RuntimeError(msg)
+
+    client.close = _broken_close  # type: ignore[method-assign]
+    with capture_logs() as captured, pytest.raises(ValueError, match="primary body error"):
+        async with client:
+            msg = "primary body error"
+            raise ValueError(msg)
+
+    failed = [e for e in captured if e.get("event") == "ollama_client_close_failed"]
+    assert len(failed) == 1, captured
+    closed = [e for e in captured if e.get("event") == "ollama_client_closed"]
+    assert closed == [], captured
+
+
+# ── _build_user_agent fallback (Lane 14.3) ───────────────────────────
+
+
+async def test_build_user_agent_falls_back_when_package_metadata_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An editable install where importlib.metadata cannot resolve
+    ``lip-backend`` should produce a ``lip-backend/unknown httpx/...`` UA
+    AND emit ``ollama_user_agent_version_missing`` so the substitution
+    is visible in logs.
+    """
+    from importlib import metadata as _metadata
+
+    def _raise_not_found(_name: str) -> str:
+        raise _metadata.PackageNotFoundError("lip-backend")
+
+    monkeypatch.setattr(
+        "app.features.inference.repository.ollama_client._metadata.version",
+        _raise_not_found,
+    )
+    with capture_logs() as captured:
+        client = OllamaClient(base_url="http://localhost:11434")
+        try:
+            assert client._user_agent.startswith("lip-backend/unknown httpx/")
+        finally:
+            await client.close()
+
+    warnings = [e for e in captured if e.get("event") == "ollama_user_agent_version_missing"]
+    assert len(warnings) == 1, captured
+    assert warnings[0]["package_name"] == "lip-backend"
+    assert warnings[0]["fallback_version"] == "unknown"

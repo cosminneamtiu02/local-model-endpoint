@@ -1,9 +1,8 @@
 """Unit tests for FastAPI dependency factories in app/api/deps.py.
 
 The defensive ``isinstance(state, AppState)`` guard inside
-``get_app_state`` was filed as a TDD gap by lane-7 in round 7 — the
-defensive raise existed without a failing test partner. These tests
-exercise the misconfigured-app branches so a future refactor of
+``get_app_state`` exists without a TDD partner unless these tests run —
+they exercise the misconfigured-app branches so a future refactor of
 AppState construction cannot break the type-narrowing without a red bar.
 """
 
@@ -52,7 +51,11 @@ def test_get_app_state_when_context_missing_raises_internal_error() -> None:
     """
     app = FastAPI()
     request = _request_for(app)
-    with pytest.raises(InternalError):
+    # ``match=`` pins the typed code so a future second InternalError
+    # raise-site in ``get_app_state`` cannot silently shadow this branch's
+    # contract — the test asserts *which* invariant fired, not just that
+    # ``InternalError`` was raised somewhere.
+    with pytest.raises(InternalError, match=InternalError.code):
         get_app_state(request)
 
 
@@ -63,7 +66,7 @@ def test_get_app_state_when_context_wrong_type_raises_internal_error() -> None:
     app = FastAPI()
     app.state.context = {"ollama_client": "not-actually-a-client"}
     request = _request_for(app)
-    with pytest.raises(InternalError):
+    with pytest.raises(InternalError, match=InternalError.code):
         get_app_state(request)
 
 

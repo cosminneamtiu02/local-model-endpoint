@@ -25,9 +25,9 @@ def test_registry_contains_all_canonical_error_codes() -> None:
     (QUEUE_FULL, INFERENCE_TIMEOUT, ADAPTER_CONNECTION_FAILURE,
     REGISTRY_NOT_FOUND, MODEL_CAPABILITY_NOT_SUPPORTED) plus one HTTP-status
     code added for ``_handle_http_exception`` source-of-truth alignment
-    (METHOD_NOT_ALLOWED). Round-9 lane 8.3 removed the dead ``HTTP_ERROR``
-    class — the wire ``code: "HTTP_ERROR"`` still ships from a string
-    literal in ``_http_code_for_status`` for the generic-4xx path.
+    (METHOD_NOT_ALLOWED). The wire ``code: "HTTP_ERROR"`` ships from a
+    string literal in ``_http_code_for_status`` for the generic-4xx
+    framework path; there is no DomainError class for it.
     """
     expected = {
         "NOT_FOUND": NotFoundError,

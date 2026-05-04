@@ -1,5 +1,6 @@
 """Lifecycle-managed httpx.AsyncClient wrapper for talking to Ollama."""
 
+import asyncio
 import json as _json
 import time
 from importlib import metadata as _metadata
@@ -37,6 +38,9 @@ DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(
     write=None,
     pool=5.0,
 )
+# httpx.Timeout / httpx.Limits are immutable in 0.28.1 (verified — both
+# expose read-only attributes). Module-level sharing across all OllamaClient
+# instances is safe; re-verify on every httpx upgrade.
 
 # Single Ollama target serialized through one in-flight slot — pool sized to
 # match the F001 semaphore (max_in_flight=1) so a regression that leaks the
@@ -311,7 +315,7 @@ class OllamaClient:
         # Field order intentionally mirrors the Ollama /api/chat spec
         # example body (model, messages, options, stream) so wire dumps
         # are reviewable side-by-side with upstream API docs. ``think``
-        # rides inside ``options`` per LIP-E003-F002 [RESOLVED].
+        # rides inside ``options`` (see ``translate_params``).
         body: dict[str, Any] = {
             "model": model_tag,
             "messages": [translate_message(m) for m in messages],
@@ -355,6 +359,7 @@ class OllamaClient:
             "ollama_call_started",
             model_name=model_tag,
             message_count=len(messages),
+            option_keys=option_keys,
         )
         start = time.perf_counter()
         try:
@@ -387,14 +392,19 @@ class OllamaClient:
                 message_count=len(messages),
             )
             raise
-        except BaseException as cancel_exc:
+        except (asyncio.CancelledError, GeneratorExit) as cancel_exc:
             # Cancellation (consumer disconnect, lifespan shutdown) bypasses
             # the Exception arm above, which is correct for propagation, but
             # would otherwise leave NO log evidence the call started reaching
             # Ollama. Emit a single ``ollama_call_cancelled`` line so the
             # operator can correlate via request_id, then re-raise so the
-            # cancellation continues to propagate (BaseException narrowing
-            # protects structured concurrency — never suppress).
+            # cancellation continues to propagate. Narrowed to the actual
+            # cancellation primitives (``asyncio.CancelledError`` for task
+            # cancel, ``GeneratorExit`` for async-generator close) rather
+            # than ``BaseException``: ``KeyboardInterrupt`` and ``SystemExit``
+            # mean the process is dying and don't need a per-call log line —
+            # they propagate uncaught, which is the canonical
+            # structured-concurrency pattern.
             duration_ms = elapsed_ms(start)
             # ``info`` (not ``warning``): consumer-disconnect cancellation is
             # expected traffic on a multi-consumer LAN service; logging at

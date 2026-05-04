@@ -74,7 +74,7 @@ before merge.
 
 ## ADR-010: Dependabot Auto-Merge Exception to Manual-Squash Rule
 
-**Status:** Accepted (currently dormant — DEPENDABOT_AUTOMERGE_ENABLED not set)
+**Status:** Accepted (live — `DEPENDABOT_AUTOMERGE_ENABLED='true'` since 2026-04-27)
 **Date:** 2026-04-12
 
 The "every merge uses the green Squash button manually" rule has exactly one exception:
@@ -83,9 +83,9 @@ Dependabot PRs that arrive green are automatically squash-merged when
 exclusively via the manual Squash button.
 
 The mechanism is [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml),
-which runs on every `pull_request` event, short-circuits unless the PR's author is
-`dependabot[bot]` and `vars.DEPENDABOT_AUTOMERGE_ENABLED == 'true'`, and calls
-`gh pr merge --auto --squash`. GitHub's native auto-merge queue then merges each such PR
+which runs on every `pull_request` open / synchronize / reopen event, short-circuits
+unless the PR's author is `dependabot[bot]` and `vars.DEPENDABOT_AUTOMERGE_ENABLED == 'true'`,
+and calls `gh pr merge --auto --squash`. GitHub's native auto-merge queue then merges each such PR
 if and only if every required status check on the `main-protection` ruleset is green and
 every conversation is resolved — the exact same gates a human faces when clicking the
 button.
@@ -103,9 +103,10 @@ for the checks the ruleset declares required. If no ruleset exists, or the rules
 no required status checks, `--auto` has nothing to wait for and merges immediately
 regardless of CI state — including merging a PR with failing checks. To prevent this,
 the workflow is gated on the `DEPENDABOT_AUTOMERGE_ENABLED` repo variable. The variable
-must be set to `"true"` only after the `main-protection` ruleset has been created with
-all required status checks. Until then, the workflow's `if:` evaluates false and the job
-is a no-op. The variable also serves as the emergency kill switch.
+was flipped to `"true"` on 2026-04-27 once the `main-protection` ruleset existed with
+all three required status checks (`backend-checks`, `error-contracts`, `darwin-checks`)
+configured. The variable also serves as the emergency kill switch — flipping it back to
+`"false"` disables the auto-merge stack cleanly without touching the workflow itself.
 
 **Rationale:** The invariant the project cares about is "main is always green," not
 "a human physically clicked the button." Dependabot PRs are the highest-volume,

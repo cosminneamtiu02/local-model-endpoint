@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.inference.model.caps import MODEL_NAME_MAX_LENGTH
 from app.features.inference.model.finish_reason import FinishReason
-from app.schemas._constants import UUID_PATTERN_STR
+from app.schemas._constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
 
 
 class ResponseMetadata(BaseModel):
@@ -22,11 +22,17 @@ class ResponseMetadata(BaseModel):
     model: str = Field(min_length=1, max_length=MODEL_NAME_MAX_LENGTH)
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
-    # ``UUID_PATTERN_STR`` is the shared correlation-ID pattern; mirrored
-    # here so the response envelope rejects a malformed request_id even
-    # if a future code path builds ResponseMetadata without going through
-    # the middleware-stamped request_id.
-    request_id: str = Field(pattern=UUID_PATTERN_STR)
+    # ``UUID_PATTERN_STR`` + ``REQUEST_ID_LENGTH`` mirror :class:`ProblemDetails.request_id`
+    # so both response envelopes ship the same OpenAPI ``minLength``/``maxLength``
+    # alongside the regex. Pattern alone subsumes the length floors but
+    # declaring them explicitly keeps generated-client validators (which
+    # read length, not the regex) in lockstep across the success and
+    # error envelopes.
+    request_id: str = Field(
+        pattern=UUID_PATTERN_STR,
+        min_length=REQUEST_ID_LENGTH,
+        max_length=REQUEST_ID_LENGTH,
+    )
     latency_ms: int = Field(ge=0)
     queue_wait_ms: int = Field(ge=0)
     finish_reason: FinishReason

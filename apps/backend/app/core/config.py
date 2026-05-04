@@ -111,15 +111,13 @@ class Settings(BaseSettings):
     # the host to localhost / RFC1918 / link-local / ULA / mDNS unless
     # allow_external_ollama is set.
     #
-    # The default is constructed at class-definition time (rather than
-    # via ``default_factory``) because AnyHttpUrl is immutable, so the
-    # shared-instance footgun that mutable defaults have doesn't apply.
-    # The ``validate_default=True`` model_config flag re-validates the
-    # default on each construction, so the constructor cost is paid
-    # once at import + once per Settings() call regardless of which
-    # default form is chosen.
+    # ``default_factory`` (not ``default``) so URL parsing runs at model-init
+    # time rather than at module-import time. AnyHttpUrl is immutable so the
+    # shared-instance footgun does not apply, but a typo in the literal
+    # would otherwise crash interpreter import before structlog has any
+    # handler attached. ``validate_default=True`` re-validates per construction.
     ollama_host: AnyHttpUrl = Field(
-        default=AnyHttpUrl("http://localhost:11434"),
+        default_factory=lambda: AnyHttpUrl("http://localhost:11434"),
         description=(
             "Ollama backend URL. Validated against the loopback / RFC1918 / "
             "link-local / ULA / mDNS clamp unless ``allow_external_ollama`` "
@@ -151,13 +149,14 @@ class Settings(BaseSettings):
     bind_host: str = Field(
         default="127.0.0.1",
         description="Interface to bind uvicorn to (loopback / private LAN).",
-        # min_length=1 dropped: an empty bind_host is already rejected by
-        # ``_check_safety_invariants`` (``is_private_host("")`` returns
-        # False) with the more actionable error "bind_host='' is not
-        # loopback / private LAN..." than Pydantic's generic "String
-        # should have at least 1 character". One way to do each thing —
-        # the safety-invariant validator owns the "is this a usable
-        # bind target" call.
+        # ``env_ignore_empty=True`` in model_config means an empty
+        # ``LIP_BIND_HOST=`` env var is treated as missing and falls back
+        # to the default; ``min_length=1`` here catches the direct-init
+        # ``Settings(bind_host="")`` path that pydantic-settings does not
+        # filter, surfacing it as a typed ValidationError at the boundary
+        # instead of degrading to ``_check_safety_invariants``'s emptiness
+        # check. ``max_length=253`` is the RFC 1035 hostname cap.
+        min_length=1,
         max_length=253,
     )
     # ``ge=1024`` forbids privileged ports — running LIP as root is out

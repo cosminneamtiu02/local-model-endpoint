@@ -3,16 +3,17 @@
 The OpenAPI-spec smoke tests live in :mod:`tests.contract.test_openapi_shape`.
 A real Schemathesis fuzz suite will land alongside the LIP feature router
 (LIP-E001-F002) when there are operations to fuzz against.
+
+Uses the per-test ``client`` fixture from ``tests/contract/conftest.py``
+so each test sees a freshly-built FastAPI instance with the autouse
+Settings-env scrub applied.
 """
 
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-
-def test_openapi_publishes_problem_details_component() -> None:
+def test_openapi_publishes_problem_details_component(client: TestClient) -> None:
     """ProblemDetails appears as a named component once a route references it."""
-    client = TestClient(app, raise_server_exceptions=False)
     spec = client.get("/openapi.json").json()
     schemas = spec.get("components", {}).get("schemas", {})
     assert "ProblemDetails" in schemas, (
@@ -21,9 +22,8 @@ def test_openapi_publishes_problem_details_component() -> None:
     )
 
 
-def test_problem_details_component_has_rfc7807_fields_and_extensions() -> None:
+def test_problem_details_component_has_rfc7807_fields_and_extensions(client: TestClient) -> None:
     """All five RFC 7807 standard fields plus code + request_id appear in the schema."""
-    client = TestClient(app, raise_server_exceptions=False)
     spec = client.get("/openapi.json").json()
     pd_schema = spec["components"]["schemas"]["ProblemDetails"]
     properties = pd_schema.get("properties", {})
@@ -36,9 +36,8 @@ def test_problem_details_component_has_rfc7807_fields_and_extensions() -> None:
         assert field in properties, f"Missing LIP extension: {field}"
 
 
-def test_problem_details_component_allows_additional_properties() -> None:
+def test_problem_details_component_allows_additional_properties(client: TestClient) -> None:
     """extra='allow' must serialize to additionalProperties: true (or schema)."""
-    client = TestClient(app, raise_server_exceptions=False)
     spec = client.get("/openapi.json").json()
     pd_schema = spec["components"]["schemas"]["ProblemDetails"]
     additional = pd_schema.get("additionalProperties")
@@ -48,7 +47,7 @@ def test_problem_details_component_allows_additional_properties() -> None:
     )
 
 
-def test_health_route_declares_problem_details_default_response() -> None:
+def test_health_route_declares_problem_details_default_response(client: TestClient) -> None:
     """The /health route advertises ProblemDetails on its OpenAPI ``default`` response.
 
     The route uses ``responses={"default": ...}`` instead of enumerating
@@ -58,7 +57,6 @@ def test_health_route_declares_problem_details_default_response() -> None:
     is liveness-only and never raises (so listing 500/503 as endpoint-
     specific responses would imply behavior that doesn't exist).
     """
-    client = TestClient(app, raise_server_exceptions=False)
     spec = client.get("/openapi.json").json()
     health = spec["paths"]["/health"]["get"]
     responses = health.get("responses", {})
@@ -81,14 +79,13 @@ def test_health_route_declares_problem_details_default_response() -> None:
     )
 
 
-def test_problem_details_response_advertises_content_language_en() -> None:
+def test_problem_details_response_advertises_content_language_en(client: TestClient) -> None:
     """Any error response must carry Content-Language: en per RFC 7807 §3.1.
 
     The integration suite already asserts this on a typed-handler path; the
     contract tier locks it for any framework-generated error too (e.g. 404
     from a missing route).
     """
-    client = TestClient(app, raise_server_exceptions=False)
     response = client.get("/this-route-definitely-does-not-exist")
     assert response.status_code == 404
     assert response.headers.get("content-language") == "en"

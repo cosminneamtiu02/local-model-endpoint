@@ -30,7 +30,11 @@ from app.schemas._constants import UUID_REGEX
 # Request paths that are too noisy to log per-request (health checks
 # fire on a tight poll loop and would dominate the log volume). The
 # request_id binding still happens; only the trailing access line is
-# skipped.
+# skipped. Add a path here ONLY if (a) its 2xx volume would dominate
+# logs in steady state AND (b) degraded (4xx/5xx) responses on that path
+# are still operator-actionable (the suppress rule below preserves the
+# degraded-response signal). A future ``/readyz`` (LIP-E006-F001) is
+# NOT a candidate — operators want every readyz failure visible.
 _ACCESS_LOG_SUPPRESSED_PATHS: Final[frozenset[str]] = frozenset({"/health"})
 
 # C0 control characters and DEL — anything in this range injected into
@@ -153,7 +157,7 @@ class RequestIdMiddleware:
             b"",
         )
         # ASCII-only decode with replacement: any byte outside printable
-        # ASCII (CRLF, NUL, extended-latin) becomes �, neutralising
+        # ASCII (CRLF, NUL, extended-latin) becomes �, neutralizing
         # log-injection vectors that ConsoleRenderer would otherwise emit
         # raw.
         client_id = client_id_raw.decode("ascii", errors="replace")
@@ -170,7 +174,7 @@ class RequestIdMiddleware:
         method = str(scope.get("method", ""))
         path = str(scope.get("path", ""))
 
-        rejected_client_id = client_id and match_result is None
+        rejected_client_id = bool(client_id) and match_result is None
         if match_result is not None:
             preview = ""
             request_id = client_id
@@ -208,8 +212,14 @@ class RequestIdMiddleware:
             # signal beyond the bare preview when a control-char rewrite
             # collapsed the value to "<non-printable>". ``request_id_source``
             # flows in via ``merge_contextvars`` from the bind above (no
-            # need to pass it again at the call site).
+            # need to pass it again at the call site). ``had_rejected_client_id``
+            # is also bound on contextvars so the trailing ``request_completed``
+            # line carries it — operators can grep ``select(.event ==
+            # "request_completed" and .had_rejected_client_id == true)`` for
+            # "consumer with bad header that we re-stamped" without
+            # self-joining the warning + completed log streams.
             had_control_chars = client_id == "<non-printable>"
+            structlog.contextvars.bind_contextvars(had_rejected_client_id=True)
             logger.warning(
                 "request_id_rejected_client_value",
                 supplied_value_preview=preview,
@@ -225,23 +235,6 @@ class RequestIdMiddleware:
 
         captured_status: int = 0
         start = time.perf_counter()
-
-        # Body-size DoS guard: reject early before Starlette buffers the
-        # whole body into memory. Content-Length is the primary signal
-        # (always set by HTTP/1.1 fixed-size requests); chunked uploads
-        # without a length header are not a current LIP profile (LAN-local
-        # backend clients send fixed-size JSON), so the absence of
-        # Content-Length is permitted.
-        content_length = _content_length_from_scope(scope)
-        if content_length is not None and content_length > _MAX_REQUEST_BODY_BYTES:
-            logger.warning(
-                "request_body_too_large",
-                content_length=content_length,
-                limit=_MAX_REQUEST_BODY_BYTES,
-            )
-            await _send_413_problem_json(send, request_id, path)
-            return
-
         request_id_header = (b"x-request-id", request_id.encode("ascii"))
 
         async def send_with_request_id(message: Message) -> None:
@@ -259,6 +252,28 @@ class RequestIdMiddleware:
 
         unhandled_exc: BaseException | None = None
         try:
+            # Body-size DoS guard runs INSIDE the try so the trailing
+            # ``request_completed`` line in the finally block fires for
+            # 413s too — operators dashboarding on per-request rate /
+            # status_code distribution would otherwise silently undercount
+            # the 413 surface. Content-Length is the primary signal
+            # (always set by HTTP/1.1 fixed-size requests); chunked
+            # uploads without a length header are not a current LIP
+            # profile (LAN-local backend clients send fixed-size JSON),
+            # so absence is permitted.
+            content_length = _content_length_from_scope(scope)
+            if content_length is not None and content_length > _MAX_REQUEST_BODY_BYTES:
+                logger.warning(
+                    "request_body_too_large",
+                    content_length=content_length,
+                    limit=_MAX_REQUEST_BODY_BYTES,
+                )
+                await _send_413_problem_json(send, request_id, path)
+                # Stamp the captured status manually since the 413 path
+                # bypasses ``send_with_request_id`` (it wraps neither the
+                # response.start nor calls into ``self.app``).
+                captured_status = int(HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+                return
             await self.app(scope, receive, send_with_request_id)
         except BaseException as exc:
             # Capture and re-raise so Starlette's outer ServerErrorMiddleware
@@ -287,23 +302,22 @@ class RequestIdMiddleware:
             )
             if not suppress:
                 duration_ms = elapsed_ms(start)
-                client = scope.get("client")
                 # ``method`` / ``path`` flow through ``merge_contextvars`` from
-                # the bind above; not re-passed here. ``client_ip`` (renamed
-                # from the prior ``client_host``) matches the industry
-                # "remote IP" convention used by uvicorn access / RFC 7239 /
-                # common log format and disambiguates against the DNS-style
-                # ``ollama_host`` field on other log lines. ``client_port``
-                # is the ephemeral peer port — needed to disambiguate two
-                # simultaneous LAN connections from the same consumer.
-                # Both are fine to log unconditionally for this
-                # single-developer LAN profile (consumers are self-owned).
+                # the bind above; not re-passed here. ``client_ip`` matches
+                # the industry "remote IP" convention used by uvicorn access /
+                # RFC 7239 / common log format and disambiguates against the
+                # DNS-style ``ollama_host`` field on other log lines.
+                # ``client_port`` is the ephemeral peer port — needed to
+                # disambiguate two simultaneous LAN connections from the
+                # same consumer. Both are fine to log unconditionally for
+                # this single-developer LAN profile (consumers are self-owned).
+                client_ip, client_port = scope.get("client") or (None, None)
                 logger.info(
                     "request_completed",
                     status_code=effective_status,
                     duration_ms=duration_ms,
-                    client_ip=client[0] if client else None,
-                    client_port=client[1] if client else None,
+                    client_ip=client_ip,
+                    client_port=client_port,
                 )
 
 
