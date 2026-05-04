@@ -127,6 +127,7 @@ jobs:
         env:
           PAT: ${{ secrets.DEPENDABOT_LOCKFILE_SYNC_PAT }}
         run: |
+          set -euo pipefail
           if [ -z "$PAT" ]; then
             echo "::error::DEPENDABOT_LOCKFILE_SYNC_PAT secret is not set, but DEPENDABOT_LOCKFILE_SYNC_ENABLED variable is 'true'. Either create a fine-grained PAT scoped to this repo (Contents:RW, Pull requests:RW) and save it as DEPENDABOT_LOCKFILE_SYNC_PAT, or unset the variable with: gh variable set DEPENDABOT_LOCKFILE_SYNC_ENABLED --body 'false'"
             exit 1
@@ -144,9 +145,19 @@ jobs:
         run: |
           set -euo pipefail
           LAST_AUTHOR=$(git log -1 --format='%ae' HEAD)
+          LAST_SUBJECT=$(git log -1 --format='%s' HEAD)
           echo "Last commit author email: $LAST_AUTHOR"
+          echo "Last commit subject: $LAST_SUBJECT"
+          # Two independent guards: the user-id check is the fast path
+          # (catches every github-actions[bot] commit), and the
+          # commit-subject check is the durable fallback (works even if
+          # GitHub ever rotates the actions bot user-id, which is rare
+          # but documented). Either one matching short-circuits the run.
           if echo "$LAST_AUTHOR" | grep -qF "41898282+github-actions"; then
             echo "Last commit is from github-actions[bot]; this workflow already ran on a previous event. Skipping to prevent loop."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif echo "$LAST_SUBJECT" | grep -qF "chore(deps): regenerate lockfiles after dependabot bump"; then
+            echo "Last commit subject matches this workflow's own message; this workflow already ran. Skipping to prevent loop."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -161,6 +172,19 @@ jobs:
         run: |
           set -euo pipefail
           echo "Diffing $BASE_SHA..$HEAD_SHA"
+
+          # Fail-safe: a missing object (fetch-depth too shallow on a
+          # long-history PR) would otherwise produce empty diff output
+          # and the workflow would no-op silently. Surface it as an
+          # explicit error so the operator sees the fetch-depth issue.
+          if ! git rev-parse --verify "$BASE_SHA" >/dev/null 2>&1; then
+            echo "::error::base SHA $BASE_SHA not present in fetched history; bump fetch-depth on the checkout step."
+            exit 1
+          fi
+          if ! git rev-parse --verify "$HEAD_SHA" >/dev/null 2>&1; then
+            echo "::error::head SHA $HEAD_SHA not present in fetched history; bump fetch-depth on the checkout step."
+            exit 1
+          fi
 
           CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
           echo "Changed files:"
@@ -248,11 +272,19 @@ jobs:
           # and a real push failure (auth/scope/network) that should
           # surface as a workflow error. The prior unconditional
           # ``|| exit 0`` masked credential errors as silent successes.
+          # Lane 10.4: ``--force-with-lease=<ref>:<sha>`` bounds the push
+          # to the same head this run started from. If Dependabot
+          # force-pushes a rebased version of the PR mid-execution
+          # (``@dependabot rebase``), the lease check fails and the push
+          # is rejected — preventing a stale lockfile from clobbering a
+          # rebased manifest.
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
           push_status=0
-          push_output=$(git push 2>&1) || push_status=$?
+          push_output=$(git push --force-with-lease="$HEAD_REF:$HEAD_SHA" 2>&1) || push_status=$?
           if [ "$push_status" != 0 ]; then
-            if echo "$push_output" | grep -q "non-fast-forward"; then
-              echo "Concurrent push detected; another lockfile-sync run will reconcile."
+            if echo "$push_output" | grep -qE "non-fast-forward|stale info"; then
+              echo "Concurrent push or upstream rebase detected; another lockfile-sync run will reconcile."
               exit 0
             fi
             echo "$push_output"

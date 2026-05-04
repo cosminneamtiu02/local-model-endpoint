@@ -95,6 +95,84 @@ task format
 - Liveness: `GET /health` -> `{"status": "ok"}`
 - Readiness: will be added by LIP-E006-F001 when the warm-up signal lands during feature-dev.
 
+## Logs & triage
+
+Production runs `LIP_APP_ENV=production` and emits one JSON line per log
+event. Operator triage is jq-based: every event name is snake_case and
+every line carries a `request_id` (from `RequestIdMiddleware`) so a
+single request can be correlated across handler + adapter + access log.
+
+### Standard fields on every line
+
+| Field | Meaning |
+|---|---|
+| `event` | snake_case event name (see taxonomy below) |
+| `level` | `debug` / `info` / `warning` / `error` / `critical` |
+| `timestamp` | ISO 8601 UTC |
+| `logger` | dotted module path |
+| `request_id` | UUID set by `RequestIdMiddleware` (or by `_resolve_request_id`'s fallback if the middleware was misconfigured) |
+| `phase` | `lifespan` / `startup` / `request` (set on every line via contextvars) |
+
+Per-request lines additionally carry `method`, `path`,
+`request_id_source` (`client` if the consumer supplied a valid
+`X-Request-ID`, `generated` if LIP minted one, `fallback` if the
+middleware was missing), `had_rejected_client_id=True` when a malformed
+`X-Request-ID` header was rejected, `error_code` (when an error fired),
+and `duration_ms` on the trailing `request_completed` line.
+
+### Lifecycle event taxonomy
+
+| Event | When it fires | Level |
+|---|---|---|
+| `app_startup` | First line of `lifespan` after `configure_logging` | `info` |
+| `lifespan_resources_ready` | After `OllamaClient` is constructed and bound to `app.state.context` | `info` |
+| `app_shutdown` | Inner `finally` of lifespan (carries `reason="clean"|"cancelled"|"exception"`) | `info` |
+| `app_shutdown_completed` | Outer `finally` after `lifespan_resources` exits | `info` |
+| `app_startup_cancelled` / `app_shutdown_cancelled` | `CancelledError` arm (SIGTERM, Ctrl-C) | `info` |
+| `app_startup_failed` / `app_shutdown_failed` | Resource construction or teardown failure | `critical` |
+
+Operator paging keys on `level=critical`. The two `*_failed` events
+above are the ONLY allowed `critical` sites in the codebase.
+
+### Per-request triage
+
+Find a single request by id:
+
+```sh
+jq 'select(.request_id == "00000000-0000-4000-8000-000000000abc")' < /var/log/lip.jsonl
+```
+
+Find every 5xx in a window:
+
+```sh
+jq 'select(.event | endswith("_5xx_raised"))' < /var/log/lip.jsonl
+```
+
+The `*_5xx_raised` infix is uniform across the typed-domain-error and
+catch-all branches (`domain_error_5xx_raised`, `internal_error_5xx_raised`,
+`http_exception_5xx_raised`).
+
+Find slow inference calls:
+
+```sh
+jq 'select(.event == "ollama_call_completed" and .duration_ms > 5000)' < /var/log/lip.jsonl
+```
+
+Find requests where the consumer supplied a malformed `X-Request-ID`:
+
+```sh
+jq 'select(.event == "request_completed" and .had_rejected_client_id == true)' < /var/log/lip.jsonl
+```
+
+### What never appears in logs
+
+- `messages[].content`, prompt text, model output, `tool_calls.arguments`
+  (CLAUDE.md: "Never log message content"; the
+  `_redact_sensitive_keys` processor in `app/core/logging.py` is the
+  defense-in-depth backstop).
+- Consumer-supplied metadata values (only counts / durations / model IDs
+  / finish reasons appear on inference paths).
+
 ## Ollama agent
 
 Operator commands for the user-scope `launchd` agent that keeps the Ollama

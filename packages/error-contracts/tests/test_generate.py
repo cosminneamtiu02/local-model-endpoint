@@ -391,6 +391,62 @@ errors:
         load_and_validate(path)
 
 
+def test_codegen_rejects_missing_description(tmp_path: Path, output_dir: Path) -> None:
+    """Codegen requires description on every error.
+
+    Symmetric with the missing-title and missing-detail_template tests
+    above. Without this test a regression that drops ``description``
+    from the required-fields tuple would silently make descriptions
+    optional, and the codegen would emit fallback ``Error: CODE.``-style
+    docstrings that drift from any source of truth.
+    """
+    yaml_text = """
+version: 1
+errors:
+  NO_DESC:
+    http_status: 400
+    title: No Description
+    detail_template: "x"
+    params: {}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=r"NO_DESC.*missing required field 'description'"):
+        load_and_validate(path)
+
+
+def test_codegen_rejects_description_over_cap(tmp_path: Path, output_dir: Path) -> None:
+    """Codegen enforces the 512-char cap on description.
+
+    Pinning the cap from the backend side reciprocally enforces the
+    codegen contract — a future relaxation in the codegen would also
+    have to relax this test, surfacing the behavior change in a
+    review-able diff rather than as silent multi-paragraph descriptions
+    flowing into generated docstrings.
+    """
+    long_description = "x" * 513
+    yaml_text = f"""
+version: 1
+errors:
+  TOO_LONG_DESC:
+    http_status: 400
+    description: "{long_description}"
+    title: Too Long
+    detail_template: "x"
+    params: {{}}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=r"TOO_LONG_DESC.*description exceeds 512-char cap"):
+        load_and_validate(path)
+
+
 def test_codegen_emits_template_format_call_for_parameterized_errors(
     sample_errors_path: Path, output_dir: Path
 ) -> None:

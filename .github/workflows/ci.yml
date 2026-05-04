@@ -68,6 +68,11 @@ jobs:
           python-version: "3.13.13"
 
       - name: Install dependencies
+        # No ``--all-extras`` because neither workspace declares
+        # ``[project.optional-dependencies]`` today. FORWARD: when
+        # LIP-E001-F002 lands and adds ``schemathesis`` (per ADR-011), if
+        # that lands as an extras group rather than a dev-dep, this line
+        # must add ``--all-extras`` so CI installs the fuzz-test deps.
         run: uv sync --frozen --dev
 
       # Lockfile freshness: a manifest change without a corresponding
