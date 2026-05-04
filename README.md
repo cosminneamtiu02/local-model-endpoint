@@ -47,7 +47,7 @@ task dev
 | Command | Description |
 |---|---|
 | `task dev` | Start backend with hot reload |
-| `task check` | Run lint, format, lockfile, types, architecture, tests, error contracts, plist, audit |
+| `task check` | Run lint, format, lockfile, types, architecture, tests, coverage, error contracts, plist, audit, secrets |
 | `task test` | Run all tests (unit + integration + contract) |
 | `task test:unit` | Run unit tests |
 | `task test:integration` | Run integration tests (in-process via ASGI transport) |

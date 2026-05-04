@@ -1,5 +1,7 @@
 # Regenerate workspace lockfiles on Dependabot PRs.
 #
+# Policy: ADR-010 (docs/decisions.md) — Dependabot exception to manual-Squash rule.
+#
 # WHY THIS EXISTS
 # ---------------
 # Dependabot's uv support has a known bug equivalent to its pnpm one:
