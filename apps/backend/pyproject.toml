@@ -157,20 +157,26 @@ filterwarnings = [
     # suite.
     "ignore::pytest.PytestUnraisableExceptionWarning:_pytest.unraisableexception",
     # anyio's memory streams emit ResourceWarnings on GC during pytest's
-    # asyncio-teardown sweep; not a LIP bug. Narrowed to the specific
-    # ``anyio.streams.memory`` submodule (the actual emitter) plus the
-    # ``memory_stream`` message text so an unrelated anyio module
-    # emitting a future ResourceWarning surfaces normally. The prior
-    # blanket ``module=anyio`` form silenced every anyio-rooted warning
-    # including ones from anyio.streams.tls / anyio.from_thread, which
-    # would mask a leaked AsyncClient surfacing through anyio internals.
-    "ignore:.*memory[ _]stream.*:ResourceWarning:anyio\\.streams\\.memory",
+    # asyncio-teardown sweep; not a LIP bug. Narrowed to the dedicated
+    # ``anyio.streams.memory`` submodule (the actual emitter) without a
+    # message regex: that submodule only emits memory-stream-shaped
+    # ResourceWarnings, so re-anchoring on the message text adds a
+    # second condition that fail-opens the moment anyio rephrases the
+    # string (e.g. to "MemoryObjectReceiveStream unclosed"). The module
+    # narrowing keeps unrelated anyio modules (anyio.streams.tls /
+    # anyio.from_thread) emitting normally, so a leaked AsyncClient
+    # surfacing through anyio internals still surfaces.
+    "ignore::ResourceWarning:anyio.streams.memory",
 ]
 # No ``markers = [...]`` block — empty list is a no-op under
 # ``--strict-markers`` (set in addopts above), which already rejects unknown
 # markers. Re-add ``markers = ["slow: ..."]`` etc. only when a test actually
 # applies the marker.
 # Forbid test classes — CLAUDE.md sacred rule "Never write a test class".
+# Suppresses class-based collection silently; the loud-fail backstop is
+# the ``pytest_sessionstart`` hook in ``tests/conftest.py`` (the literal
+# class name ``NoTestClassesAllowed`` is a sentinel no realistic test
+# author writes).
 python_classes = ["NoTestClassesAllowed"]
 # Pin discovery patterns to match CLAUDE.md naming convention
 # (`test_<unit>_<scenario>_<expected>`). Default pytest also picks up

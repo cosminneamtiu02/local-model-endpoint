@@ -38,14 +38,14 @@ def errors_data() -> dict[str, object]:
     This test focuses on the structural floor that protects the
     backend's view of the wire contract.
     """
-    # PyYAML is a transitive dep of backend tests via schemathesis; if the
-    # transitive chain ever drops it, this import will fail loudly with a
-    # clear missing-dep message rather than silently skipping the test.
+    # PyYAML is a direct dev dep declared at ``[dependency-groups.dev]``
+    # in ``apps/backend/pyproject.toml``: the codegen package isn't a
+    # backend dep, so the YAML reader is re-declared directly here. The
+    # ``ImportError`` block below is a diagnostic safety net for the case
+    # where a future dev-deps refactor drops pyyaml from the backend
+    # group; ``pragma: no cover`` excludes it from the coverage gate.
     import json
 
-    # Use the json-loadable subset by parsing via a tiny pyyaml-free parser
-    # would be brittle; instead lean on PyYAML when available, with a
-    # clear failure path otherwise.
     try:
         import yaml
     except ImportError as exc:  # pragma: no cover — diagnostic-only

@@ -58,3 +58,33 @@ def test_registry_lookup_for_unknown_code_returns_none() -> None:
     this lookup has a stable behavior to lean on."""
     assert ERROR_CLASSES.get("NEVER_DECLARED_CODE") is None
     assert ERROR_CLASSES.get("") is None
+
+
+def test_registry_type_uri_matches_problem_details_pattern() -> None:
+    """Every ``cls.type_uri`` matches the same regex ``ProblemDetails.type``
+    enforces — build-time guard so a future codegen change that emits a
+    non-conforming URN (e.g. mixed-case, disallowed characters) fails at
+    test time rather than as a request-time ValidationError that ships a
+    bare 500 to the consumer.
+    """
+    import re
+
+    from app.schemas.problem_details import ProblemDetails
+
+    # ProblemDetails.type carries the canonical pattern as a Field
+    # constraint; pull it out via model_fields metadata so the test stays
+    # in lockstep with the schema.
+    field = ProblemDetails.model_fields["type"]
+    pattern_str: str | None = None
+    for meta in field.metadata:
+        candidate = getattr(meta, "pattern", None)
+        if isinstance(candidate, str):
+            pattern_str = candidate
+            break
+    assert pattern_str is not None, "ProblemDetails.type must declare a pattern"
+    pattern = re.compile(pattern_str)
+    for code, cls in ERROR_CLASSES.items():
+        assert pattern.match(cls.type_uri), (
+            f"{code} -> type_uri={cls.type_uri!r} does not match "
+            f"ProblemDetails.type pattern {pattern_str!r}"
+        )

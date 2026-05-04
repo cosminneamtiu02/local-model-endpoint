@@ -15,6 +15,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from typing import Final
 
 from app.schemas import ProblemExtras
 
@@ -57,6 +58,19 @@ def test_problem_extras_field_names_are_reserved_in_codegen() -> None:
     )
 
 
+_RFC7807_ENVELOPE_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "code",
+        "request_id",
+    }
+)
+
+
 def test_rfc7807_envelope_field_names_are_reserved_in_codegen() -> None:
     """The seven RFC 7807 + LIP envelope keys MUST be in RESERVED_PARAM_NAMES.
 
@@ -70,22 +84,30 @@ def test_rfc7807_envelope_field_names_are_reserved_in_codegen() -> None:
     side — so a future renamed envelope field stays in sync with the
     codegen reservation.
     """
-    rfc7807_envelope_fields = frozenset(
-        {
-            "type",
-            "title",
-            "status",
-            "detail",
-            "instance",
-            "code",
-            "request_id",
-        }
-    )
     reserved = _load_codegen_reserved_param_names()
-    missing = rfc7807_envelope_fields - reserved
+    missing = _RFC7807_ENVELOPE_FIELDS - reserved
     assert not missing, (
         f"RFC 7807 envelope fields {sorted(missing)} are not in codegen "
         f"RESERVED_PARAM_NAMES; rename in lockstep with "
         f"packages/error-contracts/scripts/generate.py and "
         f"app/api/exception_handlers._build_problem_payload."
+    )
+
+
+def test_reserved_param_names_has_no_stale_entries() -> None:
+    """``RESERVED_PARAM_NAMES`` is exactly the union of the envelope keys +
+    ``ProblemExtras`` field names — no stale entries left over from a
+    rename. The forward direction (every envelope/extras key IS reserved)
+    is covered by the two sibling tests above; this test catches the
+    reverse direction so a removed field does not leave a phantom
+    reservation that would over-restrict a future YAML param.
+    """
+    reserved = _load_codegen_reserved_param_names()
+    expected = _RFC7807_ENVELOPE_FIELDS | frozenset(ProblemExtras.model_fields)
+    extra = reserved - expected
+    assert not extra, (
+        f"Codegen RESERVED_PARAM_NAMES carries stale entries {sorted(extra)} "
+        f"that are not on the RFC 7807 envelope nor on ProblemExtras. "
+        f"Drop them from packages/error-contracts/scripts/generate.py "
+        f"so legitimate future YAML params are not over-reserved."
     )

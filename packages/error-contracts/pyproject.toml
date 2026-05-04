@@ -42,6 +42,10 @@ filterwarnings = ["error"]
 # match the rest of the monorepo. Without these pins, pytest's defaults
 # allow ``*_test.py`` filenames which would let a contributor land a
 # misnamed test silently.
+# Suppresses class-based collection silently; the loud-fail backstop is
+# the ``pytest_sessionstart`` hook in ``tests/conftest.py`` (the literal
+# class name ``NoTestClassesAllowed`` is a sentinel no realistic test
+# author writes). See ``apps/backend/pyproject.toml`` for the same pin.
 python_classes = ["NoTestClassesAllowed"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]

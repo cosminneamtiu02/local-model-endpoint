@@ -48,7 +48,10 @@ tasks:
     desc: Run ruff check on the error-contracts package
     dir: "{{.ERROR_CONTRACTS_DIR}}"
     cmds:
-      - uv run ruff check scripts/ tests/
+      # ``--frozen`` mirrors the test-target rationale (see comment block
+      # before ``test:``): every dev-tool invocation must run against the
+      # lockfile-resolved env so local check is the canonical mirror of CI.
+      - uv run --frozen ruff check scripts/ tests/
 
   check:format:
     desc: Verify formatting (backend + error-contracts)
@@ -60,13 +63,13 @@ tasks:
     desc: Verify formatting on the backend app
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run ruff format --check app/ tests/
+      - uv run --frozen ruff format --check app/ tests/
 
   check:format:errors:
     desc: Verify formatting on the error-contracts package
     dir: "{{.ERROR_CONTRACTS_DIR}}"
     cmds:
-      - uv run ruff format --check scripts/ tests/
+      - uv run --frozen ruff format --check scripts/ tests/
 
   check:types:
     desc: Run type checker (backend + error-contracts)
@@ -78,19 +81,19 @@ tasks:
     desc: Run pyright on the backend app
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run pyright app/
+      - uv run --frozen pyright app/
 
   check:types:errors:
     desc: Run pyright on the error-contracts package (codegen + tests)
     dir: packages/error-contracts
     cmds:
-      - uv run pyright
+      - uv run --frozen pyright
 
   check:arch:
     desc: Run import-linter architecture checks
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run lint-imports --config architecture/import-linter-contracts.ini
+      - uv run --frozen lint-imports --config architecture/import-linter-contracts.ini
 
   check:test:
     desc: Run unit + integration tests
@@ -116,7 +119,7 @@ tasks:
       # output. Without this, a future codegen change that emits a too-long
       # line gets re-wrapped by ruff format on a developer's machine but
       # would not be caught here at CI time.
-      - cd apps/backend && uv run ruff format --check app/exceptions/_generated/
+      - cd apps/backend && uv run --frozen ruff format --check app/exceptions/_generated/
 
   check:plist:
     desc: Validate launchd plist template schema with plutil -lint (macOS only)
@@ -247,13 +250,13 @@ tasks:
     desc: Run linter
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run ruff check app/ tests/
+      - uv run --frozen ruff check app/ tests/
 
   format:
     desc: Run formatter
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run ruff format app/ tests/
+      - uv run --frozen ruff format app/ tests/
 
   # ── Code Generation ──────────────────────────────────────────
   errors:generate:
@@ -279,10 +282,18 @@ tasks:
       # rendered plist next to the install target then diff before
       # overwriting so an operator-side hand-edit is reported, not silently
       # clobbered (mirrors `task check:errors`'s diff-then-overwrite shape).
+      # ``rm -f`` first clears any pre-existing entry at the staging path
+      # (file or symlink) so a malicious symlink in ~/Library/LaunchAgents/
+      # cannot redirect the rendered plist body to a write-controlled
+      # location. ``os.path.expanduser('~')`` (not ``os.environ['HOME']``)
+      # handles the cron / restricted-launchd-context case where ``HOME``
+      # is unset and resolves via the pwd database instead of crashing
+      # with ``KeyError`` and a confusing traceback.
+      - rm -f ~/Library/LaunchAgents/.com.lip.ollama.plist.next
       - >
         python3 -c "import os, sys, pathlib;
         src = pathlib.Path('infra/launchd/com.lip.ollama.plist.tmpl').read_text();
-        sys.stdout.write(src.replace('__HOME__', os.environ['HOME']))" > ~/Library/LaunchAgents/.com.lip.ollama.plist.next
+        sys.stdout.write(src.replace('__HOME__', os.path.expanduser('~')))" > ~/Library/LaunchAgents/.com.lip.ollama.plist.next
       - >
         if [ -f ~/Library/LaunchAgents/com.lip.ollama.plist ] &&
         ! cmp -s ~/Library/LaunchAgents/.com.lip.ollama.plist.next ~/Library/LaunchAgents/com.lip.ollama.plist;
