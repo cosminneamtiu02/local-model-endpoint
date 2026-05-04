@@ -80,8 +80,8 @@ from app.exceptions import (
     ValidationFailedError,
 )
 from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
-from app.schemas._constants import UUID_REGEX
 from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHARS
+from app.schemas.wire_constants import UUID_REGEX
 
 logger = structlog.get_logger(__name__)
 

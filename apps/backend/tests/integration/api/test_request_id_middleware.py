@@ -9,7 +9,7 @@ for X-Request-ID coverage greps the obvious filename.
 from httpx import AsyncClient
 
 from app.api.request_id_middleware import _MAX_REQUEST_BODY_BYTES
-from app.schemas._constants import UUID_REGEX
+from app.schemas.wire_constants import UUID_REGEX
 
 
 async def test_response_includes_x_request_id(client: AsyncClient) -> None:

@@ -236,3 +236,71 @@ schema matches `^[a-z][a-zA-Z0-9]*$`; deferred until the second
 operation lands so the test has more than one input to verify.
 Future routes inheriting this rule: LIP-E001-F002 chat-completion +
 LIP-E006-F002 state-inspection set.
+
+
+## ADR-014: Unknown `LIP_*` Env Vars — Warn-and-Continue, Not Hard-Fail
+
+**Status:** Accepted
+
+**Date:** 2026-05-04
+
+**Context.** `pydantic-settings` 2.14 silently ignores unknown env
+vars at the env-source layer (its `extra="forbid"` only fires on init
+kwargs). To surface operator typos like `LIP_OLLMA_HOST=...`, LIP
+runs an `audit_lip_env_typos()` audit at startup that enumerates
+`os.environ` and warns about any `LIP_*` name that doesn't match a
+declared `Settings` field. Today the warning is informational —
+`logger.warning("unknown_lip_env_vars_ignored", env_vars=...)` — and
+the app boots with default values for the typo'd field. Round 14's
+review-sweep lane 19.6 raised the question of whether the audit
+should instead `raise RuntimeError` so a typo blocks deploy.
+
+**Decision.** Keep the **warn-and-continue** behavior. Do not
+escalate to a boot-blocking failure.
+
+**Why.**
+- LIP is a single-developer LAN service. The typo-catch loop is
+  short: an operator running `task dev` sees the `unknown_lip_env_vars_ignored`
+  warning in stdout on the first boot and fixes the typo. There is no
+  multi-tenant production CI/CD pipeline where the warning would be
+  buried under unrelated traffic.
+- Hard-failing boot on env-var validity removes operational
+  flexibility for legitimate transient overrides — staged rollouts of
+  new env vars (set on the operator shell before the corresponding
+  `Settings` field is added so a service restart doesn't lose the
+  intent), debugging shims (`LIP_DEBUG_FOO=1` set ad-hoc to gate a
+  manual inspection), and bisection (one operator can run multiple
+  LIP instances on the same machine with experimental env vars
+  without rebuilding the Settings class for each).
+- Boot-time hard-fail enlarges the deploy-failure surface. Today
+  `task dev` boots even on a misconfigured env; the operator gets
+  one warning line and chooses whether to act. Hard-fail trades
+  that observability for a process-exit code that masks the same
+  signal under "the daemon won't start."
+- The warning is the symmetric pair of pydantic-settings's typed
+  field validation: typed fields fail at construction (right
+  default), unknown extras warn at startup (right default for the
+  unknown-by-construction case). The two failure modes match the
+  underlying epistemic difference — known shape vs unknown shape.
+
+**Rejected alternatives.**
+- *Hard-fail boot via `raise RuntimeError("unknown LIP_* env vars: ...")`.*
+  Catches operator typos before traffic, but trades the flexibility
+  cases above for marginal protection. The current warning already
+  fires on the first boot the operator runs, so the "before traffic"
+  property holds in practice for the single-developer model.
+- *Hard-fail in production, warn in development.* Adds a second way
+  to do one thing (CLAUDE.md sacred rule #3) and would couple env-var
+  policy to `LIP_APP_ENV` — a cross-concern surface that the audit
+  helper is intentionally independent of.
+- *Skip the audit entirely.* The pydantic-settings silent-ignore
+  surface is real; without the audit, a typo would deploy with
+  default values and the only signal would be unexpected runtime
+  behavior. Worse than the warning.
+
+**Mechanical pin.** `audit_lip_env_typos()` in `app/api/deps.py`
+emits at warning level and never raises. The unit test at
+`tests/unit/api/test_deps.py::test_audit_lip_env_typos_warns_on_unknown_lip_env_var`
+pins the warn-only contract. A future change of mind on this ADR
+needs to flip both sites in lockstep AND update the test to assert
+the raise path.

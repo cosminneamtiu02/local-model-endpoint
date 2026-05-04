@@ -35,7 +35,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas._constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
+from app.schemas.wire_constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
 
 # Per-string length caps, symmetric with ValidationErrorDetail's
 # field=512 / reason=2048 caps. Bounds response amplification on the
