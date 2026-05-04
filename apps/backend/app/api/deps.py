@@ -2,6 +2,7 @@
 
 import os
 from functools import lru_cache
+from typing import Final
 
 import structlog
 from fastapi import Request
@@ -13,7 +14,7 @@ from app.features.inference import OllamaClient
 
 logger = structlog.get_logger(__name__)
 
-_LIP_ENV_PREFIX = "LIP_"
+_LIP_ENV_PREFIX: Final[str] = "LIP_"
 
 
 @lru_cache(maxsize=1)

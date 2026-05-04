@@ -61,7 +61,13 @@ def test_configure_logging_round_trips_event_via_capture_logs() -> None:
     logger = structlog.get_logger("test")
     with capture_logs() as captured:
         logger.info("smoke", k="v")
-    assert any(evt.get("event") == "smoke" and evt.get("k") == "v" for evt in captured), captured
+    # Two-step assert (membership then field) gives pytest's introspection
+    # an actionable diff: a single ``any(... and ...)`` would only show
+    # "False" on failure, hiding whether the event was missing, the kwarg
+    # was wrong, or a second event shadowed it.
+    matching = [evt for evt in captured if evt.get("event") == "smoke"]
+    assert len(matching) == 1, captured
+    assert matching[0].get("k") == "v"
 
 
 def test_configure_logging_json_mode_adds_dict_tracebacks() -> None:

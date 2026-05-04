@@ -106,12 +106,24 @@ testpaths = ["tests"]
 # pythonpath = ["."] would shadow the editable install in some invocation
 # paths and is "two ways to do the same thing" — drop it.
 asyncio_mode = "auto"
+# Session-scope keeps the suite under 4s on the current 391-test count by
+# sharing one event loop across every test+fixture (per-test loops would
+# add ~5-10s of construct/teardown overhead). The trade-off is that test
+# isolation against state-leakage in async resources is weaker — the
+# autouse ``_clear_structlog_contextvars`` fixture in tests/conftest.py
+# is the canary that this risk is real and the ``filterwarnings`` block
+# below converts unraised exceptions to test failures so leaks surface.
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 # --strict-markers/-config fails the run on unknown markers or unknown
 # pytest config keys (catches typos that would otherwise no-op).
 # filterwarnings turns first-party DeprecationWarnings into errors so
 # upstream deprecations land as failed CI rather than silent log noise.
+# Coverage flags (``--cov``, ``--cov-report``, ``--cov-fail-under``) are
+# intentionally NOT in addopts — they live only on the ``check:coverage``
+# Taskfile target so single-file iteration (``uv run pytest tests/unit/...``)
+# stays fast. The 90% gate is enforced via ``task check:coverage`` in CI
+# and pre-push; never bypass that path with a bare ``pytest`` invocation.
 addopts = [
     "-q",
     "-ra",
@@ -137,15 +149,14 @@ filterwarnings = [
     # suite.
     "ignore::pytest.PytestUnraisableExceptionWarning:_pytest.unraisableexception",
     # anyio's memory streams emit ResourceWarnings on GC during pytest's
-    # asyncio-teardown sweep; not a LIP bug. Narrow to the specific
-    # ``memory_stream`` text in the warning message so a future bug
-    # like an unclosed AsyncClient that leaks into anyio's stream-
-    # management code (a *different* ResourceWarning) is NOT silenced.
-    # Lane 15.3: the prior unconditional ``ignore::ResourceWarning:anyio``
-    # entry was redundant — it superseded this narrowed regex by
-    # silencing every anyio-module ResourceWarning. Removed so the
-    # narrowing actually narrows.
-    "ignore:.*memory[ _]stream.*:ResourceWarning:anyio",
+    # asyncio-teardown sweep; not a LIP bug. Narrowed to the specific
+    # ``anyio.streams.memory`` submodule (the actual emitter) plus the
+    # ``memory_stream`` message text so an unrelated anyio module
+    # emitting a future ResourceWarning surfaces normally. The prior
+    # blanket ``module=anyio`` form silenced every anyio-rooted warning
+    # including ones from anyio.streams.tls / anyio.from_thread, which
+    # would mask a leaked AsyncClient surfacing through anyio internals.
+    "ignore:.*memory[ _]stream.*:ResourceWarning:anyio\\.streams\\.memory",
 ]
 # No ``markers = [...]`` block — empty list is a no-op under
 # ``--strict-markers`` (set in addopts above), which already rejects unknown

@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient, Response
+from httpx import AsyncClient, Response
 
 from app.api.exception_handlers import register_exception_handlers
 from app.api.request_id_middleware import RequestIdMiddleware
@@ -22,7 +22,7 @@ from app.exceptions import (
     QueueFullError,
     RegistryNotFoundError,
 )
-from tests._helpers import assert_problem_json_envelope
+from tests._helpers import assert_problem_json_envelope, make_async_client
 
 
 def _build_app() -> FastAPI:
@@ -71,13 +71,11 @@ def _build_app() -> FastAPI:
 
 @pytest.fixture
 async def asgi_client() -> AsyncGenerator[AsyncClient]:
-    # raise_app_exceptions=False mirrors the production code path: under uvicorn,
-    # the user-level Exception handler returns the 500 response and the framework
-    # re-raises only for telemetry — the consumer always sees the handler's
-    # response. Without this flag, ASGITransport re-raises into the test, which
-    # is a test-only artifact, not a real-traffic behavior.
-    transport = ASGITransport(app=_build_app(), raise_app_exceptions=False)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    # Constructed via the shared ``make_async_client`` helper so the
+    # ``raise_app_exceptions=False`` rationale (lifespan-skip note,
+    # transport configuration) lives in exactly one place. ``_build_app``
+    # is per-test-file scaffolding; the AsyncClient construction is not.
+    async with make_async_client(_build_app()) as c:
         yield c
 
 

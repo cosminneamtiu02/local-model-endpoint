@@ -6,7 +6,8 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from app.api.exception_handlers import PROBLEM_JSON_MEDIA_TYPE, register_exception_handlers
+from app.api._constants import PROBLEM_JSON_MEDIA_TYPE
+from app.api.exception_handlers import register_exception_handlers
 from app.api.request_id_middleware import RequestIdMiddleware
 from app.exceptions import (
     AdapterConnectionFailureError,

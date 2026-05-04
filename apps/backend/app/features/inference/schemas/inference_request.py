@@ -61,7 +61,11 @@ class InferenceRequest(BaseModel):
 
     messages: list[Message] = Field(min_length=1, max_length=64)
     model: str = Field(min_length=1, max_length=MODEL_NAME_MAX_LENGTH)
-    params: ModelParams = Field(default_factory=ModelParams)
+    # ``ModelParams`` is ``frozen=True`` (immutable), so a single class-time
+    # default instance is safe to share — no per-request construction needed.
+    # Mirrors the ``Settings.ollama_host = AnyHttpUrl("...")`` precedent
+    # (immutable singleton vs ``default_factory``) noted at config.py.
+    params: ModelParams = ModelParams()
     # ``JsonValue`` is Pydantic's recursive JSON-primitive type
     # (str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]).
     # Tightens the wire contract from ``dict[str, Any]`` so a consumer cannot

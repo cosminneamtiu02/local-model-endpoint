@@ -2,7 +2,6 @@
 
 import json as _json
 import time
-from collections.abc import Mapping
 from importlib import metadata as _metadata
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Final, Literal, Self, cast
@@ -10,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Self, cast
 import httpx
 import structlog
 
-from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS
+from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, elapsed_ms
 from app.features.inference.model.ollama_translation import (
     build_chat_result,
     translate_message,
@@ -116,14 +115,17 @@ class OllamaClient:
     ) -> None:
         # Eager parse: an unparseable ``base_url`` should fail loudly here,
         # not at the first request with a confusing httpx.InvalidURL. The
-        # parsed form also feeds the per-call loggable URL so a future
-        # AnyHttpUrl with embedded credentials cannot leak via per-request
-        # log lines (the host:port form is what operators care about anyway).
+        # parsed form also feeds the per-call loggable URL via httpx's
+        # ``netloc`` accessor — which excludes ``userinfo`` by design (httpx
+        # parses credentials into the separate ``userinfo`` byte attribute),
+        # giving defense-in-depth against credential leakage even though
+        # ``Settings._check_safety_invariants`` already rejects userinfo in
+        # ``ollama_host``. Default-port elision is httpx's choice (verified:
+        # ``URL("http://x:80").netloc`` returns ``b"x"``); no operator
+        # disambiguation is lost vs the prior host:port composition.
         parsed = httpx.URL(base_url)
-        host_only = parsed.host
-        port = parsed.port
         self._loggable_base_url = (
-            f"{parsed.scheme}://{host_only}:{port}" if port else f"{parsed.scheme}://{host_only}"
+            f"{parsed.scheme}://{parsed.netloc.decode('ascii', errors='replace')}"
         )
 
         # ``base_url`` retained for diagnostics; the live ``httpx.AsyncClient``
@@ -263,8 +265,6 @@ class OllamaClient:
         path: str,
         *,
         json: dict[str, Any] | None = None,
-        params: Mapping[str, str] | None = None,
-        headers: Mapping[str, str] | None = None,
     ) -> httpx.Response:
         """Low-level passthrough to httpx — used by sibling adapter features.
 
@@ -276,6 +276,13 @@ class OllamaClient:
         ``RuntimeError("Cannot send a request, as the client has been
         closed.")`` rather than a typed signal the failure-mapping layer
         (LIP-E003-F003) can translate.
+
+        The signature is kept narrow on purpose: ``params=`` /
+        ``headers=`` /  multipart kwargs are added back when the first
+        sibling adapter method (``tags()`` / ``version()`` / ``embed()``)
+        actually needs them, per ADR-011 ("build only what the current
+        feature requires"). Today only ``chat`` calls in, and it threads
+        only ``json=``.
         """
         if not path.startswith("/"):
             error_message = f"path must be absolute (start with /), got {path!r}"
@@ -283,13 +290,7 @@ class OllamaClient:
         if self._client.is_closed:
             error_message = "OllamaClient cannot be used after close()"
             raise RuntimeError(error_message)
-        return await self._client.request(
-            method,
-            path,
-            json=json,
-            params=params,
-            headers=headers,
-        )
+        return await self._client.request(method, path, json=json)
 
     async def chat(
         self,
@@ -340,9 +341,16 @@ class OllamaClient:
         # promptly. We DO emit a separate cancellation log so the cancelled
         # call is visible at info level without bumping the start-line
         # verbosity globally.
+        #
+        # Log key is ``model_name`` (not ``model``) so a jq filter
+        # ``select(.model_name == "gemma3:1b")`` matches both per-call lines
+        # AND the ``model_name`` field on RegistryNotFoundError /
+        # ModelCapabilityNotSupportedError problem+json bodies — single
+        # source of truth for the model identifier across logs and wire
+        # contract (errors.yaml param naming).
         logger.debug(
             "ollama_call_started",
-            model=model_tag,
+            model_name=model_tag,
             message_count=len(messages),
         )
         start = time.perf_counter()
@@ -352,7 +360,7 @@ class OllamaClient:
             payload = _decode_ollama_json(response)
             result = build_chat_result(payload)
         except Exception as call_exc:
-            duration_ms = int((time.perf_counter() - start) * 1000)
+            duration_ms = elapsed_ms(start)
             # Use isinstance-narrow rather than getattr-chain so pyright sees
             # an explicit ``int | None`` for status_code instead of Any flowing
             # into the structured log line. httpx.HTTPStatusError is the only
@@ -367,7 +375,7 @@ class OllamaClient:
             # ``ValueError``); never user prompt content, so it is safe to log.
             logger.exception(
                 "ollama_call_failed",
-                model=model_tag,
+                model_name=model_tag,
                 exc_type=type(call_exc).__name__,
                 exc_message=str(call_exc)[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
                 ollama_status_code=ollama_status_code,
@@ -384,7 +392,7 @@ class OllamaClient:
             # operator can correlate via request_id, then re-raise so the
             # cancellation continues to propagate (BaseException narrowing
             # protects structured concurrency — never suppress).
-            duration_ms = int((time.perf_counter() - start) * 1000)
+            duration_ms = elapsed_ms(start)
             # ``info`` (not ``warning``): consumer-disconnect cancellation is
             # expected traffic on a multi-consumer LAN service; logging at
             # warning would inflate the warning-rate baseline operators
@@ -393,7 +401,7 @@ class OllamaClient:
             # ``ollama_call_completed``.
             logger.info(
                 "ollama_call_cancelled",
-                model=model_tag,
+                model_name=model_tag,
                 exc_type=type(cancel_exc).__name__,
                 duration_ms=duration_ms,
                 ollama_status_code=ollama_status_code,
@@ -401,7 +409,7 @@ class OllamaClient:
                 message_count=len(messages),
             )
             raise
-        duration_ms = int((time.perf_counter() - start) * 1000)
+        duration_ms = elapsed_ms(start)
         # ``ollama_status_code`` intentionally omitted on success:
         # ``raise_for_status`` has already filtered to 2xx and Ollama
         # /api/chat only returns 200 on success today, so the field would be
@@ -409,7 +417,7 @@ class OllamaClient:
         # diagnostic there.
         logger.info(
             "ollama_call_completed",
-            model=model_tag,
+            model_name=model_tag,
             duration_ms=duration_ms,
             finish_reason=result.finish_reason,
             prompt_tokens=result.prompt_tokens,

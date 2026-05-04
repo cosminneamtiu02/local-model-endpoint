@@ -13,21 +13,19 @@ Two concerns layered on the ASGI scope:
    (silenced in core/logging.py).
 """
 
-import re
 import time
 import uuid
+from http import HTTPStatus
 from typing import Final
 
 import structlog
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
+from app.api._constants import ABOUT_BLANK_TYPE, CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
+from app.core.logging import elapsed_ms
 from app.schemas import ProblemDetails
-from app.schemas._constants import UUID_PATTERN_STR
-
-# Valid UUID pattern for X-Request-ID header.
-_UUID_PATTERN: Final[re.Pattern[str]] = re.compile(UUID_PATTERN_STR, re.IGNORECASE)
+from app.schemas._constants import UUID_REGEX
 
 # Request paths that are too noisy to log per-request (health checks
 # fire on a tight poll loop and would dominate the log volume). The
@@ -39,16 +37,6 @@ _ACCESS_LOG_SUPPRESSED_PATHS: Final[frozenset[str]] = frozenset({"/health"})
 # X-Request-ID would forge log lines under non-JSON renderers.
 _C0_CONTROL_UPPER: Final[int] = 0x20
 _DEL_CHAR: Final[int] = 0x7F
-
-# Status family bounds for the access-log suppression check on /health.
-_HTTP_STATUS_OK_FLOOR: Final[int] = 200
-_HTTP_STATUS_REDIRECT_CEILING: Final[int] = 400
-
-# When the app raises before sending http.response.start, captured_status
-# stays 0 — Starlette's outer ServerErrorMiddleware will translate the
-# exception to a 500 on the wire. Surface that as 500 in the access log so
-# log filters keyed on `status_code >= 500` actually find these requests.
-_STATUS_ON_UNCAUGHT_EXCEPTION: Final[int] = 500
 
 # Truncation cap on the rejected client-supplied X-Request-ID preview in
 # logs. Bounds log-injection blast radius (the ascii-replace + control-char
@@ -67,7 +55,6 @@ _INSTANCE_PREVIEW_MAX_CHARS: Final[int] = 512
 # 64 MiB is well above any realistic single audio clip / multimodal prompt
 # and far below memory-pressure territory; not a configurable wire knob.
 _MAX_REQUEST_BODY_BYTES: Final[int] = 64 * 1024 * 1024
-_REQUEST_ENTITY_TOO_LARGE: Final[int] = 413
 
 logger = structlog.get_logger(__name__)
 
@@ -92,12 +79,13 @@ def _content_length_from_scope(scope: Scope) -> int | None:
 
 
 async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None:
-    """Send a minimal RFC 7807 problem+json 413 response without invoking the
-    exception handler chain (which lives below this middleware in the ASGI
-    stack). The handler chain owns the typed-DomainError shape; this wire
-    body is built by going through the same :class:`ProblemDetails` schema
-    so the wire shape stays in sync (no hand-rolled JSON literal that could
-    drift from the canonical schema).
+    """Send a minimal RFC 7807 problem+json 413 response.
+
+    Bypasses the exception handler chain (which lives below this middleware
+    in the ASGI stack); the handler chain owns the typed-DomainError shape,
+    so this wire body is built by going through the same :class:`ProblemDetails`
+    schema to keep the wire shape in sync (no hand-rolled JSON literal that
+    could drift from the canonical schema).
 
     ``code="REQUEST_TOO_LARGE"`` is a string literal — there is no
     DomainError class for it because the middleware sits above the handler
@@ -111,9 +99,9 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     """
     bounded_path = path[:_INSTANCE_PREVIEW_MAX_CHARS]
     problem = ProblemDetails(
-        type="about:blank",
+        type=ABOUT_BLANK_TYPE,
         title="Payload Too Large",
-        status=_REQUEST_ENTITY_TOO_LARGE,
+        status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
         code="REQUEST_TOO_LARGE",
         detail=f"Request body exceeds the {_MAX_REQUEST_BODY_BYTES}-byte limit.",
         request_id=request_id,
@@ -127,7 +115,7 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     await send(
         {
             "type": "http.response.start",
-            "status": _REQUEST_ENTITY_TOO_LARGE,
+            "status": HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
             "headers": [
                 (b"content-type", PROBLEM_JSON_MEDIA_TYPE.encode("ascii")),
                 (b"content-language", CONTENT_LANGUAGE.encode("ascii")),
@@ -173,7 +161,7 @@ class RequestIdMiddleware:
         # char hot path on every request resolves with one ``ord()`` call.
         if any((o := ord(c)) < _C0_CONTROL_UPPER or o == _DEL_CHAR for c in client_id):
             client_id = "<non-printable>"
-        match_result = _UUID_PATTERN.match(client_id) if client_id else None
+        match_result = UUID_REGEX.match(client_id) if client_id else None
 
         # Resolve method/path early so the rejected-id warning below can
         # carry the routing context (operators need to know which endpoint
@@ -192,37 +180,41 @@ class RequestIdMiddleware:
             request_id = str(uuid.uuid4())
             request_id_source = "generated"
 
-        # Bind request_id + method + path BEFORE any pre-yield log lines so
-        # ``request_id_rejected_client_value`` / ``request_body_too_large``
-        # both pick up the routing contextvars via ``merge_contextvars``
-        # without each call site re-passing them. ``phase="request"`` mirrors
-        # the lifespan binding (``phase="lifespan"`` in
-        # router_registry.lifespan_resources) so a jq filter ``select(.phase
-        # == "request")`` greps every per-request log line. Cleanup is
-        # guaranteed by the ``clear_contextvars()`` call at the start of the
-        # next request entry.
+        # Bind request_id + method + path + request_id_source BEFORE any
+        # pre-yield log lines so ``request_id_rejected_client_value`` /
+        # ``request_body_too_large`` / ``request_completed`` all pick up
+        # the routing contextvars via ``merge_contextvars`` without each
+        # call site re-passing them. Binding ``request_id_source`` here
+        # (rather than only on the rejected-id warning) makes a jq filter
+        # ``select(.request_id_source == "client")`` find every per-request
+        # log line on the happy client-supplied path — symmetric with the
+        # ``request_id_source="fallback"`` bind in
+        # ``exception_handlers._resolve_request_id``. ``phase="request"``
+        # mirrors the lifespan binding (``phase="lifespan"`` in
+        # router_registry.lifespan_resources) so a jq filter
+        # ``select(.phase == "request")`` greps every per-request log line.
+        # Cleanup is guaranteed by the ``clear_contextvars()`` call at the
+        # start of the next request entry.
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
             method=method,
             path=path,
             phase="request",
+            request_id_source=request_id_source,
         )
 
         if rejected_client_id:
             # rejected_reason / rejected_byte_total give triage-actionable
             # signal beyond the bare preview when a control-char rewrite
-            # collapsed the value to "<non-printable>". ``request_id`` here
-            # is the freshly-minted UUID that replaced the rejected client
-            # value; ``request_id_source="generated"`` (kw merge from
-            # contextvars) discriminates this fallback path from the happy
-            # client-supplied case.
+            # collapsed the value to "<non-printable>". ``request_id_source``
+            # flows in via ``merge_contextvars`` from the bind above (no
+            # need to pass it again at the call site).
             had_control_chars = client_id == "<non-printable>"
             logger.warning(
                 "request_id_rejected_client_value",
                 supplied_value_preview=preview,
                 rejected_reason=("control_char" if had_control_chars else "format_mismatch"),
                 rejected_byte_total=len(client_id_raw),
-                request_id_source=request_id_source,
             )
 
         # Park on scope["state"] so request.state.request_id reads it
@@ -276,19 +268,25 @@ class RequestIdMiddleware:
             unhandled_exc = exc
             raise
         finally:
+            # When the app raises before sending http.response.start,
+            # captured_status stays 0 — Starlette's outer
+            # ServerErrorMiddleware will translate the exception to a 500 on
+            # the wire. Surface that as 500 in the access log so log filters
+            # keyed on ``status_code >= 500`` actually find these requests.
             effective_status = (
-                _STATUS_ON_UNCAUGHT_EXCEPTION
+                int(HTTPStatus.INTERNAL_SERVER_ERROR)
                 if captured_status == 0 and unhandled_exc is not None
                 else captured_status
             )
             # Health-check pings are silenced unless degraded — a 4xx/5xx
-            # /health response is the case operators DO want to see.
+            # /health response is the case operators DO want to see. The OK..<400
+            # window matches the 2xx/3xx happy-path family per RFC 9110 §15.
             suppress = (
                 path in _ACCESS_LOG_SUPPRESSED_PATHS
-                and _HTTP_STATUS_OK_FLOOR <= effective_status < _HTTP_STATUS_REDIRECT_CEILING
+                and HTTPStatus.OK <= effective_status < HTTPStatus.BAD_REQUEST
             )
             if not suppress:
-                duration_ms = int((time.perf_counter() - start) * 1000)
+                duration_ms = elapsed_ms(start)
                 client = scope.get("client")
                 # ``method`` / ``path`` flow through ``merge_contextvars`` from
                 # the bind above; not re-passed here. ``client_ip`` (renamed
@@ -309,8 +307,13 @@ class RequestIdMiddleware:
                 )
 
 
-def configure_middleware(app: FastAPI) -> None:
+def configure_middleware(application: FastAPI) -> None:
     """Attach middleware to the FastAPI app.
+
+    Parameter named ``application`` for symmetry with ``register_routers``
+    and ``register_exception_handlers`` — three sibling helpers with one
+    parameter convention so the call site in ``app.main.create_app`` reads
+    uniformly.
 
     No CORS, no trusted-hosts, no auth — local-network-only service per
     docs/disambiguated-idea.md (Security boundary). Add CORS scaffolding
@@ -324,4 +327,4 @@ def configure_middleware(app: FastAPI) -> None:
     A future second middleware (e.g. body-compression) MUST be added
     BEFORE this line so it lands inside RequestIdMiddleware's wrapper.
     """
-    app.add_middleware(RequestIdMiddleware)
+    application.add_middleware(RequestIdMiddleware)

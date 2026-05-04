@@ -137,7 +137,7 @@ def test_settings_literal_field_rejects_unknown_value(
 # ── Bind-host clamp (Lane 19.9) ──────────────────────────────────────
 
 
-@pytest.mark.parametrize("public_host", ["0.0.0.0", "::"])  # noqa: S104 - reject-list
+@pytest.mark.parametrize("public_host", ["0.0.0.0", "::"])  # noqa: S104 — reject-list
 def test_settings_bind_host_rejects_public_without_acknowledgement(
     monkeypatch: pytest.MonkeyPatch,
     public_host: str,

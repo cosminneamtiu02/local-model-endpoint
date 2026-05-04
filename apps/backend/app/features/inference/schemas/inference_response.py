@@ -13,7 +13,13 @@ class InferenceResponse(BaseModel):
     scope — every response is buffered in full before return.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+    # ``str_strip_whitespace`` is intentionally NOT set: this envelope ships
+    # the assistant-generated text verbatim from ``OllamaChatResult.content``.
+    # Trimming would silently drop trailing newlines on fenced code blocks
+    # and other deliberate whitespace from the model. ``content`` has no
+    # ``min_length`` so there is nothing for the strip to defend against
+    # — the cap below is the only invariant.
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     # ``CONTENT_MAX_LENGTH`` (1 MiB) mirrors ``OllamaChatResult.content``'s
     # cap — the orchestrator copies content from there into this envelope

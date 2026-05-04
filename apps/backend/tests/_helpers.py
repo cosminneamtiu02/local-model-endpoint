@@ -9,10 +9,41 @@ instead of a 17-callsite sweep.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from httpx import ASGITransport, AsyncClient
+
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from httpx import Response
+    from starlette.types import ASGIApp
+
+
+@asynccontextmanager
+async def make_async_client(app: ASGIApp) -> AsyncIterator[AsyncClient]:
+    """Yield an httpx AsyncClient wired to ``app`` via ASGI transport.
+
+    Single source of truth for the integration-tier client construction
+    pattern (was duplicated across ``tests/integration/conftest.py`` and
+    ``tests/integration/test_problem_details.py``). ``raise_app_exceptions
+    =False`` mirrors the production code path: under uvicorn the user-level
+    Exception handler returns the 500 response and the framework re-raises
+    only for telemetry — the consumer always sees the handler's response.
+
+    Note on lifespan: ``ASGITransport`` does NOT trigger FastAPI's lifespan
+    events (that's a documented httpx + starlette intersection). Tests that
+    depend on ``app.state.context`` being populated by ``lifespan_resources``
+    must wrap with ``LifespanManager`` (asgi-lifespan) or use
+    ``fastapi.testclient.TestClient`` instead. Today no integration test
+    needs lifespan because no route reads ``app.state.context`` — when the
+    inference router lands (LIP-E001-F002), this helper grows the lifespan
+    wrapping in one place.
+    """
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
 
 
 def assert_problem_json_envelope(

@@ -10,7 +10,6 @@ request boundary, so the asymmetry vs ``bound_contextvars`` (used in
 the middleware itself for ``request_id``/``method``/``path``) is by
 design rather than oversight.
 
-
 The handler chain (registered, in order, on the FastAPI app):
 
     DomainError                → typed RFC 7807 body with the error's typed
@@ -60,7 +59,6 @@ content-negotiated; the ``title`` and ``detail`` strings (per RFC 7807 §3.1
 "SHOULD be localizable") become the i18n hook points.
 """
 
-import re
 import uuid
 from http import HTTPStatus
 from typing import Any, Final, cast
@@ -72,7 +70,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
-from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
+from app.api._constants import ABOUT_BLANK_TYPE, CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
 from app.exceptions import (
     DomainError,
     InternalError,
@@ -81,22 +79,16 @@ from app.exceptions import (
     ValidationFailedError,
 )
 from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
-from app.schemas._constants import UUID_PATTERN_STR
+from app.schemas._constants import UUID_REGEX
 from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHARS
 
 logger = structlog.get_logger(__name__)
-
-_ABOUT_BLANK: Final[str] = "about:blank"
-"""RFC 7807 §4.2 ``type`` value for HTTP errors with no extra semantics."""
 
 _UNKNOWN_FIELD_SENTINEL: Final[str] = "unknown"
 """Wire-visible sentinel used when the validation handler cannot derive a
 field name from Pydantic's error data. Centralized so the three sites that
 synthesize "we don't know which field failed" (empty loc, empty errors list,
 abnormal-empty-errors fallback) stay in lockstep."""
-
-
-_REQUEST_ID_REGEX: Final[re.Pattern[str]] = re.compile(UUID_PATTERN_STR, re.IGNORECASE)
 
 
 def _resolve_request_id(request: Request) -> tuple[str, bool]:
@@ -122,7 +114,7 @@ def _resolve_request_id(request: Request) -> tuple[str, bool]:
     # for the UUID pattern, so the previous defensive ``and request_id``
     # truthiness clause was redundant. ``isinstance`` narrows ``str`` for
     # pyright; the pattern handles emptiness.
-    if isinstance(request_id, str) and _REQUEST_ID_REGEX.match(request_id) is not None:
+    if isinstance(request_id, str) and UUID_REGEX.match(request_id) is not None:
         return request_id, False
     fallback = str(uuid.uuid4())
     # Bind request_id + method + path + a fallback-marker so every subsequent
@@ -573,7 +565,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         return response
 
     problem = ProblemDetails(
-        type=_ABOUT_BLANK,
+        type=ABOUT_BLANK_TYPE,
         title=status_phrase,
         status=status_code,
         detail=detail_text,
@@ -640,8 +632,13 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     return response
 
 
-def register_exception_handlers(app: FastAPI) -> None:
+def register_exception_handlers(application: FastAPI) -> None:
     """Register all exception handlers on the FastAPI app.
+
+    Parameter named ``application`` for symmetry with ``register_routers``
+    and ``configure_middleware`` — three sibling helpers with one
+    parameter convention so the call site in ``app.main.create_app`` reads
+    uniformly.
 
     Order is documentation, not semantics: Starlette resolves by walking
     ``type(exc).__mro__`` and picking the most-specific registered handler.
@@ -650,7 +647,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     of registration order, but listing them in specificity order keeps the
     intent legible.
     """
-    app.add_exception_handler(DomainError, _handle_domain_error)
-    app.add_exception_handler(RequestValidationError, _handle_validation_error)
-    app.add_exception_handler(StarletteHTTPException, _handle_http_exception)
-    app.add_exception_handler(Exception, _handle_unhandled_exception)
+    application.add_exception_handler(DomainError, _handle_domain_error)
+    application.add_exception_handler(RequestValidationError, _handle_validation_error)
+    application.add_exception_handler(StarletteHTTPException, _handle_http_exception)
+    application.add_exception_handler(Exception, _handle_unhandled_exception)
