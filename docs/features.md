@@ -22,7 +22,7 @@ how-tos; it answers "what's in the box" only.
 
 ### Typed Settings ([app/core/config.py](../apps/backend/app/core/config.py))
 Pydantic-settings based configuration. Seven fields: `app_env`, `log_level`,
-`ollama_host` (defaulting to `http://localhost:11434`), `bind_host` /
+`ollama_host: AnyHttpUrl` (default `http://localhost:11434`), `bind_host` /
 `bind_port` (uvicorn binding, validated to reject `0.0.0.0` unless
 `allow_public_bind=true`), `allow_public_bind` (escape hatch for the
 public-bind clamp), and `allow_external_ollama` (escape hatch for the
@@ -214,10 +214,11 @@ configured. See [docs/automerge.md](automerge.md) for the full architecture.
 ## Tooling
 
 ### Taskfile ([Taskfile.yml](../Taskfile.yml))
-Single orchestration entry point with `dev`, `check` (lint, format, types, architecture,
-tests, error contracts, plist, lockfile), all test levels, ruff lint/format, errors
-generation/check, plus on-demand `check:audit` (pip-audit) and `check:coverage`
-(90% gate).
+Single orchestration entry point with `dev` and `check` (runs lint, format,
+lockfile, types, architecture, coverage-gated tests, error contracts, plist,
+audit, secrets — same gate CI runs). All test levels are also runnable
+individually; ruff lint/format, errors generation/check, pip-audit, and
+detect-secrets are exposed as standalone targets too.
 
 ### Pre-commit Hooks ([.pre-commit-config.yaml](../.pre-commit-config.yaml))
 Pre-commit: detect-secrets, trailing-whitespace, end-of-file-fixer,

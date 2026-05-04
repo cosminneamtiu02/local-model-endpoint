@@ -30,7 +30,7 @@ This document records the decisions made during the `project-bootstrap` skill ru
 | `app/api/request_id_middleware.py` Access Log | STRIP | Q2 user-answered (delegated). Structured-log emission out of v1 scope per Project Boundary | user-answered |
 | `app/api/request_id_middleware.py` Security Headers | STRIP | Q3 user-answered (delegated). Local-network only, no internet exposure, no UI | user-answered |
 | `app/api/request_id_middleware.py` CORS | STRIP | Q4 user-answered. Server-to-server httpx, not browsers | user-answered |
-| Pre-commit / pre-push hooks | PARTIAL KEEP | Q5 user-answered (delegated). Backend hooks (ruff + format + pytest unit) kept; biome + vitest stripped | user-answered |
+| Pre-commit / pre-push hooks | PARTIAL KEEP | Q5 user-answered (delegated). Backend hooks (ruff + format + pytest unit) kept; biome + vitest stripped (later expanded — current state lives in CLAUDE.md / docs/testing.md / `.pre-commit-config.yaml`). | user-answered |
 | Dependabot | PARTIAL KEEP | Q6 user-answered (delegated). pip × 2 + github-actions kept; npm × 2 + terraform stripped. SQLAlchemy-stack group removed (no SQLAlchemy) | user-answered |
 | Copilot PR review | STRIP | Q7 user-answered. Solo-dev project, no PR-review team | user-answered |
 | Editor / VCS config (`.editorconfig`, `.gitattributes`, `.tool-versions`, `.gitignore`) | KEEP | skill default | autonomous |
@@ -51,7 +51,7 @@ This document records the decisions made during the `project-bootstrap` skill ru
 4. **Test deletes:** widget tests (unit + integration), DB-coupled tests (`test_rollback_canary.py`, `tests/integration/shared/`), Money tests (`tests/unit/types/`), Page tests (`tests/unit/schemas/`), config DB-validator test (`tests/unit/core/`), empty parent test packages (`tests/unit/features/`, `tests/unit/shared/`).
 5. **Error-contracts deletes:** `packages/error-contracts/scripts/validate_translations.py`, `packages/error-contracts/tests/test_validate_translations.py`, `packages/error-contracts/src/`, `packages/error-contracts/package.json`.
 6. **Backend code rewrites:** `pyproject.toml` (drop SQLAlchemy/asyncpg/alembic/testcontainers + alembic ignore), `app/main.py` (drop widget router + dispose_engine), `app/core/config.py` (drop database_url/cors_origins, add ollama_host), `app/api/request_id_middleware.py` (request_id only), `app/api/health_router.py` (liveness only), `app/exceptions/__init__.py` (drop widget exports), `app/exceptions/_generated/__init__.py` (drop widget imports), `app/exceptions/_generated/_registry.py` (drop widget entries), `architecture/import-linter-contracts.ini` (rewrite for layer-level forbidden contracts).
-7. **Test rewrites:** `tests/integration/conftest.py` (no DB, ASGI transport client), `tests/integration/api/test_health.py` (just /health + request-id), `tests/contract/test_schemathesis.py` (drop DB env, drop widget endpoint assertions), `tests/unit/exceptions/test_domain_errors.py` (substitute RateLimitedError for widget), `tests/unit/exceptions/test_error_handler.py` (substitute RateLimitedError for widget).
+7. **Test rewrites:** `tests/integration/conftest.py` (no DB, ASGI transport client), `tests/integration/api/test_health.py` (just /health + request-id), `tests/contract/test_schemathesis.py` (drop DB env, drop widget endpoint assertions — file later replaced by `test_openapi_shape.py` + `test_problem_details_contract.py`), `tests/unit/exceptions/test_domain_errors.py` (substitute RateLimitedError for widget), `tests/unit/exceptions/test_error_handler.py` (substitute RateLimitedError for widget — file later moved to `tests/unit/api/test_exception_handlers.py`).
 8. **Error-contracts edits:** `errors.yaml` (drop widget codes block).
 9. **Config rewrites:** `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.pre-commit-config.yaml`, `Taskfile.yml`.
 10. **Top-level rewrites:** `CLAUDE.md`, `README.md`, `.env.example`.
@@ -90,9 +90,10 @@ These are tracked as feature-dev work, not bootstrap work:
 - `apps/backend/uv.lock` was preserved through the bootstrap. `uv sync --dev` reconciled
   it cleanly, but the commit will record the lock with whatever transitive resolutions
   uv chose during bootstrap. Future Dependabot PRs will refresh against fresh trees.
-- `_app` and unused-test-function pyright hints in `tests/unit/exceptions/test_error_handler.py`
-  are decorator-registered FastAPI route handlers that pyright thinks are unused. Pre-existing
-  pattern; not introduced by bootstrap.
+- `_app` and unused-test-function pyright hints in the post-bootstrap exception-handler
+  unit test (now at `tests/unit/api/test_exception_handlers.py`) are decorator-registered
+  FastAPI route handlers that pyright thinks are unused. Pre-existing pattern; not
+  introduced by bootstrap.
 - LIP feature work (LIP-E001 through LIP-E007) is the next pipeline step. Use
   `feature-elicitation` per stub in `graphs/LIP/`.
 

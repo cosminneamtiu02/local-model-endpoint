@@ -107,10 +107,14 @@ rationale and customization):
 | `task ollama:status` | Print the launchctl state (use to verify the env vars made it through) |
 | `task check:plist` | Validate the plist with `plutil -lint` (macOS only; also wired into `task check`) |
 
-`task ollama:install` is **not** idempotent — to apply plist edits, run
-`task ollama:uninstall && task ollama:install`. `launchctl kickstart -k`
+`task ollama:install` is **idempotent on re-run** — the install step does a
+tolerant `launchctl bootout … || true` before `launchctl bootstrap`, so
+plist edits can be reapplied with a single `task ollama:install`. The
+explicit `task ollama:uninstall && task ollama:install` two-step is no
+longer required for plist re-application. `launchctl kickstart -k`
 restarts the running daemon under the in-memory plist; it does not re-read
-the on-disk plist.
+the on-disk plist, so use it only when you want to recycle the running
+daemon under the already-installed plist.
 
 ## Troubleshooting
 

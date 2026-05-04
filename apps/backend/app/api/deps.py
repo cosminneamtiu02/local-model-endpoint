@@ -2,7 +2,6 @@
 
 import os
 from functools import lru_cache
-from typing import Final
 
 import structlog
 from fastapi import Request
@@ -14,8 +13,6 @@ from app.features.inference import OllamaClient
 
 logger = structlog.get_logger(__name__)
 
-_LIP_ENV_PREFIX: Final[str] = "LIP_"
-
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -26,20 +23,15 @@ def get_settings() -> Settings:
     # dynamic-init false-positive. Avoids the ``# pyright: ignore`` escape
     # hatch and keeps the construction site contract-clean.
     settings = Settings.model_validate({})
-    # CLAUDE.md mandates "never add an env var without adding it to the
-    # ``Settings`` class". pydantic-settings 2.14 silently ignores unknown
-    # ``LIP_*`` env vars at runtime (the ``extra="forbid"`` setting only
-    # gates init kwargs, verified by
-    # ``test_settings_extra_forbid_silently_ignores_unknown_env_var``). The
-    # ``os.environ`` read below is an audit-only enumeration — NOT a config
-    # read — and is the only known way to surface unknown ``LIP_*`` env vars
-    # since pydantic-settings does not expose the keys it ignored. One
-    # ``unknown_lip_env_vars_ignored`` warning fires once per process at
-    # first ``get_settings()`` call (the @lru_cache ensures single-fire),
-    # so a typo (``LIP_OLLMA_HOST``) is visible to the operator instead of
-    # silently falling through to defaults.
-    declared = {f"{_LIP_ENV_PREFIX}{name.upper()}" for name in Settings.model_fields}
-    actual = {name for name in os.environ if name.startswith(_LIP_ENV_PREFIX)}
+    # See ``Settings.__doc__`` — pydantic-settings 2.14 silently ignores
+    # unknown ``LIP_*`` env vars at the env-source layer. This ``os.environ``
+    # enumeration is the only known way to surface that, fired once per
+    # process via @lru_cache. The env-prefix is read from
+    # ``Settings.model_config`` directly so a future ADR renaming ``LIP_``
+    # propagates here automatically.
+    env_prefix = Settings.model_config.get("env_prefix") or ""
+    declared = {f"{env_prefix}{name.upper()}" for name in Settings.model_fields}
+    actual = {name for name in os.environ if name.startswith(env_prefix)}
     unknown = sorted(actual - declared)
     if unknown:
         logger.warning("unknown_lip_env_vars_ignored", env_vars=unknown)

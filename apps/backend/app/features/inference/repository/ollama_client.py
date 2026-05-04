@@ -72,7 +72,10 @@ def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
     ``exc_message=`` with the same diagnostic information, so a per-branch
     log here would double-count the same failure.
     """
-    content_type = response.headers.get("content-type", "")
+    # RFC 7231 §3.1.1.1: media-type names are case-insensitive.
+    # Lowercase before compare so a future reverse proxy that normalizes
+    # to ``Application/JSON`` does not silently bypass this guard.
+    content_type = response.headers.get("content-type", "").lower()
     if not content_type.startswith("application/json"):
         error_message = f"Ollama returned non-JSON content-type {content_type!r}."
         raise ValueError(error_message)

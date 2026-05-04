@@ -3,6 +3,15 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  # Lane 10.8: also fire on push to main so the post-merge state of `main`
+  # has a CI run of its own. With strict_required_status_checks_policy=true
+  # plus linear-history, the squash commit on main is the same content the
+  # PR proved green — but a push run is the explicit canary that "main is
+  # always known-green". The concurrency block segments by `github.ref`,
+  # so this adds zero extra runs in steady state — only fires the moment a
+  # PR squash-merges.
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +29,7 @@ jobs:
       run:
         working-directory: apps/backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
@@ -84,16 +93,12 @@ jobs:
         working-directory: .
         run: task check:arch
 
-      - name: Tests (unit + integration + contract)
-        working-directory: .
-        run: task check:test
-
-      # Lane 10.9: enforce the 90% coverage gate in CI. ``task
-      # check:coverage`` runs the same pytest invocation the local
-      # ``task check:coverage`` does, with ``--cov-fail-under=90``
-      # (Taskfile.yml). Without this step, the gate exists locally
-      # but CI cannot reject a coverage regression.
-      - name: Coverage gate
+      # Lane 10.1: ``check:coverage`` is a strict superset of ``check:test``
+      # (same ``tests/`` collection plus ``--cov``). The earlier "Tests"
+      # step ran ``check:test`` here, then "Coverage gate" ran the full
+      # pytest suite again — so every PR ran the backend suite twice in
+      # CI. Dropped the duplicate; coverage covers tests.
+      - name: Coverage-gated tests (unit + integration + contract)
         working-directory: .
         run: task check:coverage
 
@@ -107,6 +112,14 @@ jobs:
         working-directory: .
         run: task check:audit:backend
 
+      # Lane 10.3: detect-secrets in CI symmetric with the pre-commit hook
+      # so an automated commit (e.g. the dependabot-lockfile-sync workflow,
+      # which bypasses pre-commit) cannot land a leaked secret on main
+      # without surfacing.
+      - name: Secret scan
+        working-directory: .
+        run: task check:secrets
+
   error-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -114,7 +127,7 @@ jobs:
       run:
         working-directory: packages/error-contracts
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
@@ -177,7 +190,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0

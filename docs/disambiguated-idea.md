@@ -190,7 +190,7 @@ This section enumerates what the v1 deliverable does and does not cover. It is t
 - Auto-generated OpenAPI schema served from FastAPI as the canonical machine-readable contract (G8).
 - A human-written README documenting the request envelope, semaphore semantics, model registry, error response shape, backpressure behavior, and wake-up sequence (G8) (deferred to LIP-E007-F001 — README content listed below is not yet shipped).
 - A `launchd` plist for the Ollama daemon configured with `OLLAMA_KEEP_ALIVE=300s`, `OLLAMA_NUM_PARALLEL=1`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`, and `OLLAMA_KV_CACHE_TYPE=q8_0`.
-- A full TDD test suite at the three mandatory levels in v1 per CLAUDE.md (unit, integration, and contract via Schemathesis); e2e arrives when the LIP feature router lands and there is end-to-end behavior worth covering against a running Ollama.
+- A full TDD test suite at the three mandatory levels in v1 per CLAUDE.md (unit, integration, and contract — OpenAPI shape canary + RFC 7807 wire-shape today; full Schemathesis fuzz arrives with the inference router per LIP-E001-F002); e2e arrives when the LIP feature router lands and there is end-to-end behavior worth covering against a running Ollama.
 
 ### Explicitly out of scope for v1
 

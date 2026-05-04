@@ -14,28 +14,29 @@ tasks:
 
   # ── Check (run before declaring work done) ───────────────────
   check:
-    desc: Run ALL checks — lint, format, types, arch, tests, coverage, error contracts, plist, lockfile, audit
+    desc: Run ALL checks — lint, format, lockfile, types, arch, coverage-gated tests, error contracts, plist, audit, secrets
     # ``check:lockfile`` runs before the slow test suite so a manifest/lockfile
     # mismatch fails fast (seconds) instead of after ~minutes of test runtime.
-    # ``check:coverage`` runs after the unit+integration+contract suite so the
-    # local check mirrors CI's coverage gate (CI's ``backend-checks`` job runs
-    # ``check:coverage`` directly; without it here, a developer could push a
-    # PR with a coverage regression that only surfaces at PR time).
-    # ``check:audit`` runs last because it depends on a synced env and surfaces
-    # CVE advisories — included so ``task check`` is the local mirror of the
-    # CI gate, per CLAUDE.md sacred rule #4 ("run task check before declaring
-    # any work done").
+    # ``check:coverage`` runs the full pytest suite WITH coverage and enforces
+    # the fail_under gate. The previously-listed ``check:test`` step has been
+    # dropped (lane 10.1): ``check:coverage`` is a strict superset (same
+    # ``tests/`` collection plus ``--cov``), so running both made every
+    # ``task check`` execute the full backend suite twice.
+    # ``check:audit`` and ``check:secrets`` run last because they depend on a
+    # synced env and surface CVE advisories / leaked-secret findings — included
+    # so ``task check`` is the local mirror of the CI gate, per CLAUDE.md
+    # sacred rule #4 ("run task check before declaring any work done").
     cmds:
       - task: check:lint
       - task: check:format
       - task: check:lockfile
       - task: check:types
       - task: check:arch
-      - task: check:test
       - task: check:coverage
       - task: check:errors
       - task: check:plist
       - task: check:audit
+      - task: check:secrets
 
   check:lint:
     desc: Run linter (backend + error-contracts)
@@ -171,6 +172,25 @@ tasks:
     # Same flag rationale as the backend variant above.
     cmds:
       - uv run --frozen pip-audit --skip-editable
+
+  check:secrets:
+    desc: Scan the working tree for leaked secrets against .secrets.baseline
+    # Lane 10.3: pre-commit runs detect-secrets on staged files at commit time,
+    # but CI and ``task check`` had no equivalent gate — a contributor using
+    # ``--no-verify`` (forbidden) or an automated commit (e.g. the
+    # dependabot-lockfile-sync workflow) could land a leaked secret on main
+    # without surfacing. This target tracks all repository files and is wired
+    # into ``task check`` so the symmetry with pre-commit holds.
+    #
+    # ``uv tool run`` (not ``uv run --with``) so detect-secrets resolves
+    # against an isolated cache rather than synthesizing a per-call venv
+    # against the backend lockfile (which doesn't and shouldn't carry
+    # detect-secrets as a dep). The baseline path is relative to the
+    # working tree root, where ``.secrets.baseline`` actually lives.
+    cmds:
+      - >
+        uv tool run --from detect-secrets==1.5.0
+        detect-secrets-hook --baseline .secrets.baseline $(git ls-files)
 
   check:coverage:
     desc: Run full test suite with coverage and enforce the fail_under gate

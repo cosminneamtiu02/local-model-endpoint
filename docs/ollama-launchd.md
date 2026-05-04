@@ -62,16 +62,15 @@ After `task ollama:install`, Ollama is running and `task ollama:status` should
 report `state = running`. An HTTP probe to `http://localhost:11434/api/tags`
 should return 200 within ~2 seconds.
 
-The install task is **not** idempotent: re-running it after the agent is
-already loaded will fail at the `bootstrap` step with a non-zero error such
-as `Bootstrap failed: 37: Operation already in progress` (or `5:
-Input/output error` on older macOS). The clean reload pattern is
-`task ollama:uninstall && task ollama:install`. Note that `launchctl
+The install task is **idempotent on re-run**: it issues a tolerant
+`launchctl bootout … || true` before `launchctl bootstrap`, so plist edits
+can be reapplied with a single `task ollama:install` rather than the
+old `uninstall && install` two-step. Note that `launchctl
 kickstart -k gui/$(id -u)/com.lip.ollama` only restarts the *running
 daemon* using the already-bootstrapped (in-memory) plist — it does **not**
 re-read the on-disk plist, so it cannot pick up plist edits. Use it to
 recycle the daemon (e.g. after `brew upgrade ollama`); use
-uninstall+install to apply plist changes.
+`task ollama:install` to apply plist changes.
 
 ## Uninstall
 

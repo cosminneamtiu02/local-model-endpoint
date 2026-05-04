@@ -513,10 +513,16 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # InternalError, identical in severity to ``http_exception_5xx_raised``
         # below. Operators paging on ``level >= ERROR`` for 5xx misconfiguration
         # would otherwise miss this branch.
+        # Truncate ``detail`` to ``REASON_MAX_CHARS`` symmetric with the
+        # 5xx/wire-body branches below: an unbounded framework-supplied
+        # detail in a structured-log field is the same asymmetry the
+        # rest of the schema avoids.
+        raw_detail_str = str(http_exc.detail) if http_exc.detail else None
+        truncated_detail = raw_detail_str[:REASON_MAX_CHARS] if raw_detail_str else None
         logger.error(
             "http_exception_invalid_status_raised",
             status_code=status_code,
-            detail=str(http_exc.detail) if http_exc.detail else None,
+            detail=truncated_detail,
         )
         problem = _build_problem_payload(InternalError(), request, request_id)
         response = _problem_response(problem)
@@ -604,11 +610,11 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # diagnostic.
     structlog.contextvars.bind_contextvars(error_code=InternalError.code)
     request_id, _missed = _resolve_request_id(request)
-    # ``internal_error_raised`` (renamed from the prior ``unhandled_exception``)
-    # so operator queries align with the typed-domain-error pattern: every
-    # 5xx event in the codebase now reads ``*_raised``. Operators searching
-    # ``error_code=INTERNAL_ERROR`` get the corresponding handler line via
-    # the same naming convention as ``domain_error_raised``.
+    # ``internal_error_5xx_raised`` so operator queries align with the
+    # typed-domain-error pattern: every 5xx event in the codebase now
+    # reads ``*_5xx_raised`` (cf. ``http_exception_5xx_raised``,
+    # ``domain_error_5xx_raised``). A jq filter keyed on the ``_5xx_``
+    # infix finds the catch-all uniformly with the typed branches.
     #
     # ``logger.exception`` (no explicit ``exc_info=True``): inside an
     # ``except`` block, structlog auto-attaches the traceback via
@@ -621,9 +627,17 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # carry consumer-supplied prompt content (e.g. a Pydantic ValidationError
     # that escaped the request-validation handler), and the traceback itself
     # already carries the actionable signal for triage.
+    #
+    # ``method`` and ``path`` flow in via ``merge_contextvars`` from
+    # ``RequestIdMiddleware`` (or the fallback bind in
+    # ``_resolve_request_id``), but they are also passed explicitly here so
+    # the operator can identify the misbehaving endpoint from a single log
+    # line even if a future refactor narrows the contextvar lifetime.
     logger.exception(
-        "internal_error_raised",
+        "internal_error_5xx_raised",
         exc_type=type(exc).__name__,
+        method=request.method,
+        path=request.url.path,
     )
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)

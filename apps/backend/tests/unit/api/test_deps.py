@@ -40,7 +40,7 @@ def _request_for(app: FastAPI) -> Request:
         "path": "/",
         "query_string": b"",
     }
-    return _Request(scope)  # type: ignore[arg-type]  # minimal scope is intentional
+    return _Request(scope)  # pyright: ignore[reportArgumentType]  # minimal scope is intentional
 
 
 def test_get_app_state_when_context_missing_raises_internal_error() -> None:

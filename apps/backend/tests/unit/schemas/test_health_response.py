@@ -36,4 +36,4 @@ def test_health_response_is_frozen_at_runtime() -> None:
     with pytest.raises(ValidationError):
         # frozen=True invariant test — assignment must raise at runtime,
         # not get typed-out by pyright.
-        resp.status = "ok"  # pyright: ignore[reportAttributeAccessIssue]
+        resp.status = "ok"

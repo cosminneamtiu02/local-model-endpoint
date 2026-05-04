@@ -49,32 +49,22 @@ repos:
         pass_filenames: false
         files: ^Taskfile\.yml$
 
-      # Pre-push: run the full test suite (unit + integration + contract)
-      # so pre-push catches what CI catches. The unit-only variant (round-9
-      # lane 10.4) gave a false sense of safety: integration regressions
-      # surfaced only at PR time. ``--frozen`` keeps resolution semantics
-      # aligned with CI (which runs ``uv sync --frozen --dev``); without it
-      # pre-push could pass against newer transient deps that CI's frozen
-      # sync would reject.
-      - id: pytest-all
-        name: Backend (unit + integration + contract) + error-contracts unit tests
-        entry: bash -c "set -euo pipefail; cd apps/backend && uv run --frozen pytest tests/ -q && cd ../../packages/error-contracts && uv run --frozen pytest tests/ -q"
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
-
-      # Pre-push: type check (slow; matches ADR-009 tier).
-      - id: pyright
-        name: Backend type check
-        entry: bash -c "set -euo pipefail; cd apps/backend && uv run --frozen pyright app/"
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
-
-      # Pre-push: architecture check (slow; matches ADR-009 tier).
-      - id: import-linter
-        name: Backend architecture check
-        entry: bash -c "set -euo pipefail; cd apps/backend && uv run --frozen lint-imports --config architecture/import-linter-contracts.ini"
+      # Pre-push: fast safety net only (lane 10.6).
+      #
+      # Previously this stage ran the full unit+integration+contract pytest
+      # suite + pyright + import-linter — a strict subset of what
+      # ``main-protection`` enforces in CI. Running both meant every
+      # ``git push`` paid the slow safety net AND CI ran the same checks
+      # again seconds later, creating real pressure to use ``--no-verify``
+      # (which CLAUDE.md forbids). Pre-push is now the *unit* tier only;
+      # CI is the authoritative gate for integration/contract/types/arch.
+      # The same files run pre-commit (ruff/format/secret-scan), so the
+      # remaining tier-jump is "unit tests pass before push, every other
+      # gate runs in CI." Operators wanting the full local mirror still
+      # have ``task check`` as the sacred-rule entry point.
+      - id: pytest-unit
+        name: Backend unit tests
+        entry: bash -c "set -euo pipefail; cd apps/backend && uv run --frozen pytest tests/unit/ -q && cd ../../packages/error-contracts && uv run --frozen pytest tests/ -q"
         language: system
         pass_filenames: false
         stages: [pre-push]

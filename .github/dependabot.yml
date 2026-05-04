@@ -59,8 +59,8 @@ updates:
           - "ruff"
           - "pyright"
           - "import-linter"
-          - "schemathesis"
           - "pip-audit"
+          - "types-*"
 
   - package-ecosystem: "pip"
     directory: "/packages/error-contracts"

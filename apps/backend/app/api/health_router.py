@@ -10,6 +10,12 @@ router = APIRouter(tags=["health"])
 
 # OpenAPI default-response for every error path; content key advertises
 # the application/problem+json media type the error handler emits.
+# ``/health`` itself never raises a DomainError (no deps, no validation,
+# no IO), but this declaration is the project-wide publishing point for
+# the ``ProblemDetails`` component in the OpenAPI components map — the
+# contract suite asserts on it. Future feature routers that have typed-
+# error surfaces declare per-route 4xx/5xx entries; this default-only
+# entry remains for /health as the global error-shape advertisement.
 _PROBLEM_RESPONSE: Final[dict[str, Any]] = {
     "model": ProblemDetails,
     "description": "Problem details (RFC 7807)",
