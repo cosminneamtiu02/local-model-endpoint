@@ -9,6 +9,7 @@ from app.exceptions import (
     ConflictError,
     InferenceTimeoutError,
     InternalError,
+    MethodNotAllowedError,
     ModelCapabilityNotSupportedError,
     NotFoundError,
     QueueFullError,
@@ -117,6 +118,24 @@ def test_not_found_constructs_with_default_detail() -> None:
     assert err.type_uri == "urn:lip:error:not-found"
     assert err.title == "Resource Not Found"
     assert err.detail() == "The requested resource does not exist."
+    assert err.params is None
+
+
+def test_method_not_allowed_constructs_with_default_detail() -> None:
+    """MethodNotAllowedError per-class invariants — closes the unit-coverage gap.
+
+    Coverage was previously routed only through the framework
+    405-wraps-into-RFC-7807 integration test plus the registry-shape
+    iteration. A YAML edit to METHOD_NOT_ALLOWED's title / type_uri /
+    detail_template would have surfaced only at the integration tier —
+    a slower red signal than this focused per-class assertion.
+    """
+    err = MethodNotAllowedError()
+    assert err.code == "METHOD_NOT_ALLOWED"
+    assert err.http_status == 405
+    assert err.type_uri == "urn:lip:error:method-not-allowed"
+    assert err.title == "Method Not Allowed"
+    assert err.detail() == "The HTTP method used is not allowed for this route."
     assert err.params is None
 
 

@@ -1,9 +1,50 @@
 """Tests for the error contracts code generator."""
 
 import ast
+import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
+
+
+def _load_class_to_snake() -> object:
+    """Import generate.py by file path so the private ``_class_to_snake``
+    helper can be exercised directly without rewiring the package as
+    importable. Returns the bound function rather than the module so the
+    type of the call site is precise."""
+    generate_py = Path(__file__).resolve().parents[1] / "scripts" / "generate.py"
+    spec = importlib.util.spec_from_file_location("_generate_for_test", generate_py)
+    assert spec is not None, generate_py
+    assert spec.loader is not None, generate_py
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("_generate_for_test", module)
+    spec.loader.exec_module(module)
+    return getattr(module, "_class_to_snake")  # noqa: B009 — getattr to silence type-checker on dynamic-load
+
+
+@pytest.mark.parametrize(
+    ("pascal", "expected_snake"),
+    [
+        ("QueueFullError", "queue_full_error"),
+        ("RateLimitedParams", "rate_limited_params"),
+        ("WidgetNotFoundError", "widget_not_found_error"),
+        ("InternalError", "internal_error"),
+        ("ModelCapabilityNotSupportedError", "model_capability_not_supported_error"),
+    ],
+)
+def test_class_to_snake_pins_pascal_case_translation(pascal: str, expected_snake: str) -> None:
+    """``_class_to_snake`` is the codegen's PascalCase -> snake_case helper.
+
+    Every generated file stem flows through this helper, so its contract is
+    load-bearing across the whole error-system codegen. Pinning the
+    translation here surfaces a future regex tweak (e.g. handling acronym
+    runs like ``OAuth2Error``) as a focused unit-test failure, not as a
+    confusing late-stage drift in ``check:errors``.
+    """
+    class_to_snake = _load_class_to_snake()
+    assert class_to_snake(pascal) == expected_snake  # type: ignore[operator]
+
 
 SAMPLE_YAML = """
 version: 1

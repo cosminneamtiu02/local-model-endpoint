@@ -31,15 +31,17 @@ unified RFC 7807 `application/problem+json` ProblemDetails envelope (LIP-E004-F0
 for liveness. Readiness will be added by LIP-E006-F001 when the warm-up signal from
 LIP-E005-F001 is wired.
 
-**Architecture enforcement** is mechanical: import-linter has thirteen contracts —
+**Architecture enforcement** is mechanical: import-linter has fifteen contracts —
 1 generated-error gate (`no-direct-generated-error-imports`) +
 4 leaf rules (`core-is-leaf`, `exceptions-is-leaf`, `schemas-is-leaf`,
 `inference-model-is-leaf`) +
 `features-are-independent` (cross-feature isolation) +
-5 inference-internal layering rules (`inference-model-no-schemas`,
+4 inference-internal layering rules (`inference-model-no-schemas`,
 `inference-repository-no-schemas`, `inference-model-no-repository`,
-`inference-schemas-no-repository`, `inference-model-is-leaf`; the last is
-also one of the four leaf rules) +
+`inference-schemas-no-repository`) +
+2 inference cross-layer rules (`inference-schemas-cross-layer`,
+`inference-repository-cross-layer`) that forbid the inference feature
+reaching up into `app.api`/`app.exceptions` from those layers +
 3 api-cross-cutting rules (`api-exception-handlers-feature-agnostic`,
 `api-request-id-middleware-feature-agnostic`, `api-uses-inference-feature-root`).
 See [apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini)

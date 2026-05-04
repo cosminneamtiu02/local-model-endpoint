@@ -101,7 +101,7 @@ validation problem+json; `HealthResponse` is the liveness payload.
 ## Backend — Architecture Enforcement
 
 ### Import-Linter Contracts ([apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini))
-Thirteen contracts protect the layer boundaries:
+Fifteen contracts protect the layer boundaries:
 
 - **1 generated-error gate** — `no-direct-generated-error-imports`: only
   `app.exceptions/__init__` may import from `app.exceptions._generated`;
@@ -112,14 +112,17 @@ Thirteen contracts protect the layer boundaries:
 - **1 cross-feature isolation** — `features-are-independent`: features cannot
   import each other (vacuously kept while only one feature exists; the
   next feature added must be appended to the contract's `modules =` list).
-- **5 inference-internal layering** — `inference-model-no-schemas`,
-  `inference-repository-no-schemas`, `inference-model-no-repository`,
-  `inference-schemas-no-repository`, and `inference-model-is-leaf` (also
-  counted in the leaf-rules bullet above for completeness). Within the
-  inference slice, lower layers cannot reach into wire schemas, and
-  `model/` is the bottom of the layering. The full router → service →
+- **4 inference-internal layering** — `inference-model-no-schemas`,
+  `inference-repository-no-schemas`, `inference-model-no-repository`, and
+  `inference-schemas-no-repository`. Within the inference slice, lower
+  layers cannot reach into wire schemas. The full router → service →
   repository → model layering is added per-layer as the feature router and
   service land.
+- **2 inference cross-layer** — `inference-schemas-cross-layer` and
+  `inference-repository-cross-layer`: the inference feature's `schemas/`
+  cannot reach into `app.api`/`app.exceptions`, and `repository/` cannot
+  reach into `app.api` or sibling `schemas/`. Defense-in-depth around the
+  feature → cross-cutting-layer boundary.
 - **3 api-cross-cutting** — `api-exception-handlers-feature-agnostic`,
   `api-request-id-middleware-feature-agnostic`, and
   `api-uses-inference-feature-root`: the global error path, request-id

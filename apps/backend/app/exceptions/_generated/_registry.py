@@ -1,4 +1,16 @@
-"""Generated error registry. Do not edit."""
+"""Generated error registry. Do not edit.
+
+Maps SCREAMING_SNAKE error codes to their concrete DomainError
+subclasses. The mapping is the planned consumer-facing reverse-
+lookup surface for cases where an error code arrives as a string
+(e.g. a future relay/proxy endpoint that accepts an upstream
+consumer's typed error code and re-raises a matching DomainError
+into our handler chain). Production app/ code that raises typed
+errors from explicit class names does NOT consume this registry —
+the test backstop in tests/unit/exceptions/test_registry.py is
+the current sole consumer, pinning the dict shape so the codegen
+stays canonical until the runtime consumer lands.
+"""
 
 from app.exceptions.base import DomainError
 from app.exceptions._generated.adapter_connection_failure_error import AdapterConnectionFailureError

@@ -64,6 +64,7 @@ task dev
 ## Documentation
 
 - [Disambiguated idea](docs/disambiguated-idea.md) — full project description
+- [Brainstorm](docs/brainstorm.md) — historical pre-disambiguation brief, superseded by `disambiguated-idea.md`
 - [Features](docs/features.md) — catalog of features in the box
 - [Architecture](docs/architecture.md) — vertical-slice layout and layer rules
 - [Conventions](docs/conventions.md) — naming, schemas, and other code-style rules

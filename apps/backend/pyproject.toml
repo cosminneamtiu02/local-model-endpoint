@@ -12,6 +12,8 @@ packages = ["app"]
 name = "lip-backend"
 version = "0.1.0"
 description = "Local Inference Provider — FastAPI service wrapping a local Ollama daemon"
+license = "MIT"
+authors = [{ name = "Cosmin Neamtiu" }]
 requires-python = ">=3.13,<3.14"
 # Versions are pinned exactly: CI runs ``uv sync --frozen`` so the lockfile
 # pins the actual environment; the manifest values are the floor that

@@ -1,7 +1,9 @@
 [project]
 name = "error-contracts"
 version = "0.1.0"
-description = "Error code definitions and Python codegen for the LIP error system"
+description = "YAML error-code definitions and Python codegen for the LIP error system; produces apps/backend/app/exceptions/_generated/ via `task errors:generate`. Not installable as a runtime library — no wheel build target."
+license = "MIT"
+authors = [{ name = "Cosmin Neamtiu" }]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "pyyaml==6.0.3",

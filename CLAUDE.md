@@ -44,8 +44,14 @@ app/core/           -- config, logging
 app/api/            -- middleware, exception handler, health, shared deps
 app/exceptions/     -- DomainError hierarchy (base + _generated/)
 app/schemas/        -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse (RFC 7807 problem+json + liveness shape)
-app/features/<feature>/ -- model, repository, service, router, schemas/
+app/features/<feature>/ -- model, repository, service, router, schemas/  (target shape)
 ```
+
+The `service/` and `router/` layers are the *target* shape; today only
+`model/`, `repository/`, and `schemas/` exist under
+`app/features/inference/`. `service/` and `router/` arrive with
+LIP-E001-F002 (per ADR-011 — see [docs/decisions.md](docs/decisions.md) —
+no scaffolding before the feature lands).
 
 ### Repurposed feature-slice layer semantics (no-database service)
 
@@ -57,7 +63,8 @@ preserved but with redefined semantics for a no-DB feature:
 - `repository/` — the Ollama HTTP client wrapper. The "data-access" boundary
   in this project is *talking to Ollama*, not a database.
 - `service/` — inference orchestration including the `asyncio.Semaphore(1)`.
-- `router/` — FastAPI endpoints.
+  *Lands with LIP-E001-F002.*
+- `router/` — FastAPI endpoints. *Lands with LIP-E001-F002.*
 - `schemas/` — wire schemas (request and response envelopes).
 
 ### Layer Rules (mechanically enforced)

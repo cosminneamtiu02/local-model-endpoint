@@ -491,8 +491,19 @@ def _render_params_module(
     # ``description`` is validated upstream against ``"""``, backslash, and
     # newline so the simple triple-quoted form below stays intact. Any
     # unsafe char would have raised at YAML-load time.
+    #
+    # Line-length discipline: the single-line ``"""Parameters for X: <desc>"""``
+    # form is preferred when it fits in ``RUFF_LINE_LENGTH - 4`` (4 = the
+    # 4-space indent at column 0 -> column 4). For long descriptions, fall
+    # back to the canonical PEP 257 multi-line form so ruff's docstring
+    # rules cannot reject the generated file once the project ever opts into
+    # ``D`` enforcement on ``_generated/``.
     if description:
-        docstring = f'"""Parameters for {code} error: {description}"""'
+        single_line = f'"""Parameters for {code} error: {description}"""'
+        if len(single_line) <= RUFF_LINE_LENGTH - 4:
+            docstring = single_line
+        else:
+            docstring = f'"""Parameters for {code} error.\n\n    {description}\n    """'
     else:
         docstring = f'"""Parameters for {code} error."""'
     # ``frozen=True`` matches the project-wide value-object discipline:
@@ -742,7 +753,18 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
     error_imports = sorted((name, imp) for name, imp in init_entries if name.endswith("Error"))
     sorted_registry_entries = sorted(registry_entries, key=itemgetter(0))
     registry_content = (
-        '"""Generated error registry. Do not edit."""\n\n'
+        '"""Generated error registry. Do not edit.\n\n'
+        "Maps SCREAMING_SNAKE error codes to their concrete DomainError\n"
+        "subclasses. The mapping is the planned consumer-facing reverse-\n"
+        "lookup surface for cases where an error code arrives as a string\n"
+        "(e.g. a future relay/proxy endpoint that accepts an upstream\n"
+        "consumer's typed error code and re-raises a matching DomainError\n"
+        "into our handler chain). Production app/ code that raises typed\n"
+        "errors from explicit class names does NOT consume this registry —\n"
+        "the test backstop in tests/unit/exceptions/test_registry.py is\n"
+        "the current sole consumer, pinning the dict shape so the codegen\n"
+        "stays canonical until the runtime consumer lands.\n"
+        '"""\n\n'
         "from app.exceptions.base import DomainError\n"
         + "\n".join(imp for _, imp in error_imports)
         + "\n\n"
