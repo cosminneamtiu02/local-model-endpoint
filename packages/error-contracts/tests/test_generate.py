@@ -20,6 +20,7 @@ def _load_class_to_snake() -> Callable[[str], str]:
     assert spec.loader is not None, generate_py
     module = importlib.util.module_from_spec(spec)
     sys.modules.setdefault("_generate_for_test", module)
+    spec.loader.exec_module(module)
     return getattr(module, "_class_to_snake")  # noqa: B009 — getattr to silence type-checker on dynamic-load
 
 
