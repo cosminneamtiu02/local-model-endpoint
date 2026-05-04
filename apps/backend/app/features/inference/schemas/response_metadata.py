@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.inference.model.caps import MODEL_NAME_MAX_LENGTH
 from app.features.inference.model.finish_reason import FinishReason
-from app.schemas._constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
+from app.schemas.wire_constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
 
 
 class ResponseMetadata(BaseModel):

@@ -1,7 +1,16 @@
-"""Cross-module constants for the schemas/ package and consumers.
+"""Cross-package wire-shape constants shared by ``schemas/`` and consumers.
+
+The module name has no leading underscore (unlike ``app/api/_constants.py``,
+which is api-package-internal): this surface is intentionally public —
+``app/features/inference/schemas/response_metadata.py`` imports
+``REQUEST_ID_LENGTH`` / ``UUID_PATTERN_STR`` from here so the request_id
+wire-shape constraints stay in lockstep across the two response envelopes
+(and any future sibling that carries a ``request_id`` field). Keeping a
+``_`` prefix would mislabel the visibility scope and invite a contributor
+to mistakenly duplicate the constants in their own feature module.
 
 Centralizes the UUID v4 regex pattern (and the compiled form) used in
-`ProblemDetails.request_id`, `ResponseMetadata.request_id`, and the
+``ProblemDetails.request_id``, ``ResponseMetadata.request_id``, and the
 api-layer middleware/handler regex matches.
 """
 
