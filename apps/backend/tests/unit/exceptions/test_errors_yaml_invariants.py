@@ -47,7 +47,7 @@ def errors_data() -> dict[str, object]:
     # would be brittle; instead lean on PyYAML when available, with a
     # clear failure path otherwise.
     try:
-        import yaml  # pyright: ignore[reportMissingTypeStubs]
+        import yaml
     except ImportError as exc:  # pragma: no cover — diagnostic-only
         msg = (
             "PyYAML is required to run errors.yaml invariant tests. "
