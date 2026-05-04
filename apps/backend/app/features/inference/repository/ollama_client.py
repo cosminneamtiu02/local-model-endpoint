@@ -137,7 +137,15 @@ class OllamaClient:
             "base_url": base_url,
             "timeout": timeout,
             "limits": DEFAULT_LIMITS,
-            "headers": {"User-Agent": self._user_agent},
+            # Explicit ``Accept`` header makes the symmetry with the
+            # _decode_ollama_json content-type guard self-documenting: LIP
+            # only consumes JSON, and a future Ollama version supporting
+            # content negotiation (or a misconfigured reverse proxy) gets a
+            # clear signal rather than landing as an HTML error page.
+            "headers": {
+                "User-Agent": self._user_agent,
+                "Accept": "application/json",
+            },
             # Defense-in-depth vs SSRF: a redirected target bypasses
             # ``Settings._check_safety_invariants``'s loopback/private-host
             # clamp on ``ollama_host``. Flipping this to ``True`` would
@@ -180,12 +188,24 @@ class OllamaClient:
         try:
             lip_version = _metadata.version("lip-backend")
         except _metadata.PackageNotFoundError:
-            logger.warning("ollama_user_agent_version_missing")
+            logger.warning(
+                "ollama_user_agent_version_missing",
+                package_name="lip-backend",
+                fallback_version="unknown",
+            )
             lip_version = "unknown"
         return f"lip-backend/{lip_version} httpx/{httpx.__version__}"
 
     async def close(self) -> None:
-        """Close the underlying httpx.AsyncClient. Idempotent."""
+        """Close the underlying httpx.AsyncClient. Idempotent.
+
+        Idempotence is enforced here rather than relying on httpx's
+        internal pool state — a future httpx version that raises on
+        double-close would otherwise break the lifespan teardown's
+        AsyncExitStack unwind silently.
+        """
+        if self._client.is_closed:
+            return
         await self._client.aclose()
 
     async def __aenter__(self) -> Self:
@@ -303,7 +323,7 @@ class OllamaClient:
         # verbosity globally.
         logger.debug(
             "ollama_call_started",
-            model_id=model_tag,
+            model=model_tag,
             message_count=len(messages),
         )
         start = time.perf_counter()
@@ -328,7 +348,7 @@ class OllamaClient:
             # ``ValueError``); never user prompt content, so it is safe to log.
             logger.exception(
                 "ollama_call_failed",
-                model_id=model_tag,
+                model=model_tag,
                 exc_type=type(call_exc).__name__,
                 exc_message=str(call_exc)[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
                 ollama_status_code=ollama_status_code,
@@ -348,7 +368,7 @@ class OllamaClient:
             duration_ms = int((time.perf_counter() - start) * 1000)
             logger.warning(
                 "ollama_call_cancelled",
-                model_id=model_tag,
+                model=model_tag,
                 exc_type=type(cancel_exc).__name__,
                 duration_ms=duration_ms,
                 ollama_status_code=ollama_status_code,
@@ -364,7 +384,7 @@ class OllamaClient:
         # diagnostic there.
         logger.info(
             "ollama_call_completed",
-            model_id=model_tag,
+            model=model_tag,
             duration_ms=duration_ms,
             finish_reason=result.finish_reason,
             prompt_tokens=result.prompt_tokens,

@@ -7,9 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from app.features.inference.model.caps import (
     METADATA_KEY_MAX_LENGTH,
     METADATA_VALUE_MAX_LENGTH,
+    MODEL_NAME_MAX_LENGTH,
 )
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
+
+# Hoist the bounded-string key alias so the metadata field shape and the
+# validator below can both reference one declaration. Mirrors the
+# ``StopToken`` alias in ``model_params.py`` — single source of truth for
+# parametrized strings used both as a type and as a validator constant.
+type MetadataKey = Annotated[str, Field(max_length=METADATA_KEY_MAX_LENGTH)]
 
 
 def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
@@ -53,7 +60,7 @@ class InferenceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     messages: list[Message] = Field(min_length=1, max_length=64)
-    model: str = Field(min_length=1, max_length=128)
+    model: str = Field(min_length=1, max_length=MODEL_NAME_MAX_LENGTH)
     params: ModelParams = Field(default_factory=ModelParams)
     # ``JsonValue`` is Pydantic's recursive JSON-primitive type
     # (str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]).
@@ -65,10 +72,7 @@ class InferenceRequest(BaseModel):
     # recursively — together they pin all three metadata-DoS surfaces
     # (key count via ``max_length``, key length via the key Annotated cap,
     # per-string-leaf length via the recursive validator).
-    metadata: dict[
-        Annotated[str, Field(max_length=METADATA_KEY_MAX_LENGTH)],
-        JsonValue,
-    ] = Field(default_factory=dict, max_length=16)
+    metadata: dict[MetadataKey, JsonValue] = Field(default_factory=dict, max_length=16)
 
     @model_validator(mode="after")
     def _bound_metadata_values(self) -> Self:

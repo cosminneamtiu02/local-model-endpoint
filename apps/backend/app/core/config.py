@@ -74,15 +74,17 @@ class Settings(BaseSettings):
         validate_default=True,
     )
 
-    # ``test`` is reserved for future test-only branches (e.g. mock-Ollama
-    # injection). Today only ``production`` triggers behavior (gates
-    # ``/docs`` exposure in main.py); ``development`` and ``test`` are
-    # functionally identical until a test-mode use case lands.
-    app_env: Literal["development", "test", "production"] = Field(
+    # ``production`` is the only value that triggers behavior today (gates
+    # ``/docs`` exposure in main.py). The previous ``"test"`` literal was
+    # reserved-but-inert pre-feature scaffolding (ADR-011 forbids that):
+    # operators setting ``LIP_APP_ENV=test`` got identical behavior to
+    # ``development`` with no signal. Re-add narrowly when a test-mode
+    # behavior lands (e.g. mock-Ollama injection, forced JSON logging).
+    app_env: Literal["development", "production"] = Field(
         default="development",
         description=(
-            "Reserved for future test-only branches. Today only ``production`` "
-            "triggers behavior (gates ``/docs`` exposure)."
+            "Application environment. Only ``production`` triggers behavior "
+            "(gates ``/docs`` / ``/redoc`` / ``/openapi.json`` exposure)."
         ),
     )
     # Lowercase is canonical; configure_logging uppercases via .upper()
@@ -200,6 +202,19 @@ class Settings(BaseSettings):
                 f"ollama_host host={host!r} is not localhost / private LAN / link-local; "
                 "set LIP_ALLOW_EXTERNAL_OLLAMA=true explicitly to acknowledge that LIP will "
                 "forward consumer prompts to a non-private host"
+            )
+            raise ValueError(msg)
+        # Reject URL-embedded userinfo on ollama_host. Without this, a
+        # misconfigured host that includes credentials in the URL would let
+        # httpx's HTTPStatusError ``str(exc)`` formatter surface them into
+        # the ``ollama_call_failed`` log line via the URL embedded in the
+        # exception message. AnyHttpUrl accepts userinfo by default; the
+        # rest of LIP has no auth model that uses it.
+        if self.ollama_host.username or self.ollama_host.password:
+            msg = (
+                "ollama_host must not embed URL userinfo; LIP has no auth model "
+                "that uses it and the credentials would surface in httpx exception "
+                "strings on failure paths."
             )
             raise ValueError(msg)
         return self

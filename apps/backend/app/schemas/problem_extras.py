@@ -22,7 +22,7 @@ class ProblemExtras(BaseModel):
     in a multi-field response).
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     validation_errors: list[ValidationErrorDetail] | None = Field(
         default=None,

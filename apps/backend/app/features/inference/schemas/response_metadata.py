@@ -1,15 +1,12 @@
 """ResponseMetadata wire schema — timing, token, and routing fields."""
 
-from typing import Final, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.features.inference.model.caps import MODEL_NAME_MAX_LENGTH
 from app.features.inference.model.finish_reason import FinishReason
 from app.schemas._constants import UUID_PATTERN_STR
-
-# Mirror ``InferenceRequest.model``'s 128-char cap — same logical name flows
-# in (request) and out (response), so the bounds should be symmetric.
-_MODEL_NAME_MAX_LENGTH: Final[int] = 128
 
 
 class ResponseMetadata(BaseModel):
@@ -22,7 +19,7 @@ class ResponseMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
-    model: str = Field(min_length=1, max_length=_MODEL_NAME_MAX_LENGTH)
+    model: str = Field(min_length=1, max_length=MODEL_NAME_MAX_LENGTH)
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
     # ``UUID_PATTERN_STR`` is the shared correlation-ID pattern; mirrored

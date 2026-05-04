@@ -25,10 +25,11 @@ If any single one of these is missing, misconfigured, or out of sync with the ot
 
 ### 1. Workflow — [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml)
 
-Triggers on every `pull_request` event (`opened`, `synchronize`, `reopened`). Contains a single job with a two-clause `if:` guard:
+Triggers on every `pull_request` event (`opened`, `synchronize`, `reopened`). Contains a single job with a three-clause `if:` guard:
 
 ```yaml
 if: github.event.pull_request.user.login == 'dependabot[bot]'
+    && github.event.pull_request.draft == false
     && vars.DEPENDABOT_AUTOMERGE_ENABLED == 'true'
 ```
 
@@ -65,7 +66,7 @@ Lives at Settings → Rules → Rulesets → `main-protection`. Active. Targets 
 
 The ruleset is load-bearing for the whole auto-merge system. Specifically, the **required status checks** list is what `gh pr merge --auto` waits for. With an empty or missing ruleset, `--auto` has nothing to wait for and merges immediately — including merging PRs with failing CI. This is not theoretical; it happened once (see the Incident Log below).
 
-**Why `integration_id: 15368` matters in the ruleset response.** When you create the ruleset and add the two check names, they appear in the API response either as free-text placeholders (no `integration_id`) or as bindings to a specific app (`integration_id: 15368` is GitHub Actions). Free-text placeholders only activate on the *next* matching workflow run and may silently fail to match if the context string drifts. Real bindings to GitHub Actions mean GitHub has already resolved each check name to a specific workflow and will gate on it immediately. Verify `integration_id: 15368` is present on all two checks after creating the ruleset — see the [verification commands](#verification-commands) section.
+**Why `integration_id: 15368` matters in the ruleset response.** When you create the ruleset and add the three check names, they appear in the API response either as free-text placeholders (no `integration_id`) or as bindings to a specific app (`integration_id: 15368` is GitHub Actions). Free-text placeholders only activate on the *next* matching workflow run and may silently fail to match if the context string drifts. Real bindings to GitHub Actions mean GitHub has already resolved each check name to a specific workflow and will gate on it immediately. Verify `integration_id: 15368` is present on all three checks after creating the ruleset — see the [verification commands](#verification-commands) section.
 
 ### 3. Variable — `DEPENDABOT_AUTOMERGE_ENABLED`
 

@@ -75,7 +75,6 @@ from starlette.responses import Response
 from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
 from app.exceptions import (
     DomainError,
-    HttpError,
     InternalError,
     MethodNotAllowedError,
     NotFoundError,
@@ -89,6 +88,12 @@ logger = structlog.get_logger(__name__)
 
 _ABOUT_BLANK: Final[str] = "about:blank"
 """RFC 7807 §4.2 ``type`` value for HTTP errors with no extra semantics."""
+
+_UNKNOWN_FIELD_SENTINEL: Final[str] = "unknown"
+"""Wire-visible sentinel used when the validation handler cannot derive a
+field name from Pydantic's error data. Centralized so the three sites that
+synthesize "we don't know which field failed" (empty loc, empty errors list,
+abnormal-empty-errors fallback) stay in lockstep."""
 
 
 _REQUEST_ID_REGEX: Final[re.Pattern[str]] = re.compile(UUID_PATTERN_STR, re.IGNORECASE)
@@ -298,14 +303,20 @@ async def _handle_domain_error(request: Request, exc: Exception) -> Response:
         # ``event=domain_error_5xx_raised`` find typed-server-error events
         # without a level-filter join. The 4xx branch keeps the generic
         # ``domain_error_raised`` because client errors don't typically
-        # need a separate operator query path.
+        # need a separate operator query path. ``status_code`` (not
+        # ``status``) so a ``select(.status_code >= 500)`` jq filter
+        # matches both this and the framework-5xx branch below.
         logger.exception(
             "domain_error_5xx_raised",
             code=domain_exc.code,
-            status=domain_exc.http_status,
+            status_code=domain_exc.http_status,
         )
     else:
-        logger.warning("domain_error_raised", code=domain_exc.code, status=domain_exc.http_status)
+        logger.warning(
+            "domain_error_raised",
+            code=domain_exc.code,
+            status_code=domain_exc.http_status,
+        )
     problem = _build_problem_payload(domain_exc, request, request_id)
     response = _problem_response(problem)
     _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
@@ -357,7 +368,8 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # schema cap is the contract; the handler truncation is belt-and-suspenders.
     validation_errors: list[ValidationErrorDetail] = [
         ValidationErrorDetail(
-            field=".".join(str(loc) for loc in e["loc"])[:FIELD_MAX_CHARS] or "unknown",
+            field=".".join(str(loc) for loc in e["loc"])[:FIELD_MAX_CHARS]
+            or _UNKNOWN_FIELD_SENTINEL,
             reason=str(e["msg"])[:REASON_MAX_CHARS],
         )
         for e in raw_errors
@@ -367,8 +379,8 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # ``ValidationErrorDetail`` (or the literal sentinel) — no ``str()``
     # wrapping needed and the redundant call would mislead a reader into
     # thinking a non-string slipped through.
-    first_field = validation_errors[0].field if validation_errors else "unknown"
-    first_reason = validation_errors[0].reason if validation_errors else "unknown"
+    first_field = validation_errors[0].field if validation_errors else _UNKNOWN_FIELD_SENTINEL
+    first_reason = validation_errors[0].reason if validation_errors else _UNKNOWN_FIELD_SENTINEL
     domain_err = ValidationFailedError(field=first_field, reason=first_reason)
 
     if not validation_errors:
@@ -386,7 +398,12 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         logger.warning(
             "validation_error_with_no_details",
             raw_error_count=len(raw_errors),
-            raw_error_types=[type(e).__name__ for e in raw_errors][:5],
+            # Pydantic's ``errors()`` returns ``Sequence[ErrorDetails]`` typed
+            # dicts; ``type(e).__name__`` would always be the constant
+            # ``"dict"``. The ``"type"`` key is the actual discriminator
+            # (``string_too_long`` / ``union_tag_invalid`` / ...) operators
+            # need to triage the abnormal-empty-errors path.
+            raw_error_discriminators=[str(e.get("type", "unknown"))[:64] for e in raw_errors][:5],
             content_type=raw_content_type.encode("ascii", "replace").decode("ascii"),
             content_length=raw_content_length.encode("ascii", "replace").decode("ascii"),
         )
@@ -405,16 +422,20 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
             "(upstream Pydantic emitted no errors)."
         )
 
-    # Suppress typed-params spread when there are multiple errors so the
-    # root-level ``field`` / ``reason`` keys (which point at only the first
-    # error) don't contradict ``detail``'s "see validation_errors[]" pointer.
+    # Suppress typed-params spread except in the canonical single-error
+    # case. With 0 errors (Pydantic-bug fallback), the ``field`` / ``reason``
+    # keys are the literal sentinel and contradict ``detail``'s "no per-field
+    # details were produced" message. With >1 errors they only describe the
+    # first error and contradict ``detail``'s "see validation_errors[]"
+    # pointer. Suppressing in both abnormal cases keeps the wire body
+    # internally consistent.
     problem = _build_problem_payload(
         domain_err,
         request,
         request_id,
         detail_override=detail_override,
         extras=ProblemExtras(validation_errors=validation_errors),
-        suppress_typed_params=len(validation_errors) > 1,
+        suppress_typed_params=len(validation_errors) != 1,
     )
     response = _problem_response(problem)
     _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
@@ -446,7 +467,15 @@ def _http_code_for_status(status_code: int) -> str:
         return MethodNotAllowedError.code
     if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
         return InternalError.code
-    return HttpError.code
+    # ``HTTP_ERROR`` is a string literal, not a class-bound code: there is
+    # no DomainError subclass for it because the framework path never
+    # raises a typed ``HttpError`` (Starlette emits bare HTTPException for
+    # unmodeled 4xx, and this handler wraps them into RFC 7807 with the
+    # ``about:blank`` ``type`` per RFC 7807 §4.2). The class that used to
+    # exist (round-9 lane 8.3) was dead — the wire ``code`` shipped from
+    # ``HttpError.code`` which was never raised; the literal here keeps
+    # the wire shape identical without the ghost class.
+    return "HTTP_ERROR"
 
 
 async def _handle_http_exception(request: Request, exc: Exception) -> Response:
@@ -488,7 +517,11 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     # double-resolve the request_id.
     if status_code < HTTPStatus.BAD_REQUEST:
         structlog.contextvars.bind_contextvars(error_code=InternalError.code)
-        logger.warning(
+        # ``error`` (not ``warning``): the wire response is a synthesized 500
+        # InternalError, identical in severity to ``http_exception_5xx_raised``
+        # below. Operators paging on ``level >= ERROR`` for 5xx misconfiguration
+        # would otherwise miss this branch.
+        logger.error(
             "http_exception_invalid_status_raised",
             status_code=status_code,
             detail=str(http_exc.detail) if http_exc.detail else None,
@@ -519,8 +552,11 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # symmetrically with the typed-DomainError 5xx branch (which uses
         # ``logger.exception`` because it is inside an except-block; here
         # there is no live exception to attach a traceback from).
+        # ``code`` field-set parity with ``domain_error_5xx_raised`` so
+        # ``select(.code == ...)`` queries find both event names.
         logger.error(
             "http_exception_5xx_raised",
+            code=code,
             status_code=status_code,
             detail=detail_text,
         )

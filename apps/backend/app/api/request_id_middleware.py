@@ -6,7 +6,7 @@ cancellation and contextvar-fork issues documented in encode/starlette
 consumer releases the in-flight semaphore slot.
 
 Two concerns layered on the ASGI scope:
-1. Validate / mint `X-Request-Id` and bind it via structlog contextvars
+1. Validate / mint `X-Request-ID` and bind it via structlog contextvars
    so every log line in the request carries it.
 2. Emit a single `request_completed` log line per request with duration
    / status / method / path. This replaces uvicorn's access log
@@ -128,7 +128,7 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
                 (b"content-type", PROBLEM_JSON_MEDIA_TYPE.encode("ascii")),
                 (b"content-language", CONTENT_LANGUAGE.encode("ascii")),
                 (b"content-length", str(len(body)).encode("ascii")),
-                (b"x-request-id", request_id.encode("latin-1")),
+                (b"x-request-id", request_id.encode("ascii")),
             ],
         },
     )
@@ -141,7 +141,7 @@ class RequestIdMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: C901, PLR0915 — single-pass ASGI hot path: header validation, contextvar binding, body-size guard, send-wrapper, finally-block access log; splitting would require shared mutable state.
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: PLR0915 — single-pass ASGI hot path: header validation, contextvar binding, body-size guard, send-wrapper, finally-block access log; splitting would require shared mutable state.
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -179,16 +179,12 @@ class RequestIdMiddleware:
         path = str(scope.get("path", ""))
 
         rejected_client_id = client_id and match_result is None
-        if rejected_client_id:
-            preview = client_id[:_REQUEST_ID_PREVIEW_MAX_CHARS]
-            request_id = str(uuid.uuid4())
-            request_id_source = "generated"
-        elif match_result is not None:
+        if match_result is not None:
             preview = ""
             request_id = client_id
             request_id_source = "client"
         else:
-            preview = ""
+            preview = client_id[:_REQUEST_ID_PREVIEW_MAX_CHARS] if rejected_client_id else ""
             request_id = str(uuid.uuid4())
             request_id_source = "generated"
 
@@ -250,7 +246,7 @@ class RequestIdMiddleware:
             await _send_413_problem_json(send, request_id, path)
             return
 
-        request_id_header = (b"x-request-id", request_id.encode("latin-1"))
+        request_id_header = (b"x-request-id", request_id.encode("ascii"))
 
         async def send_with_request_id(message: Message) -> None:
             nonlocal captured_status

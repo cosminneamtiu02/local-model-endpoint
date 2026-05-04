@@ -3,7 +3,6 @@
 from app.exceptions.base import DomainError
 from app.exceptions._generated.adapter_connection_failure_error import AdapterConnectionFailureError
 from app.exceptions._generated.conflict_error import ConflictError
-from app.exceptions._generated.http_error import HttpError
 from app.exceptions._generated.inference_timeout_error import InferenceTimeoutError
 from app.exceptions._generated.internal_error import InternalError
 from app.exceptions._generated.method_not_allowed_error import MethodNotAllowedError
@@ -19,7 +18,6 @@ from app.exceptions._generated.validation_failed_error import ValidationFailedEr
 ERROR_CLASSES: dict[str, type[DomainError]] = {
     "ADAPTER_CONNECTION_FAILURE": AdapterConnectionFailureError,
     "CONFLICT": ConflictError,
-    "HTTP_ERROR": HttpError,
     "INFERENCE_TIMEOUT": InferenceTimeoutError,
     "INTERNAL_ERROR": InternalError,
     "METHOD_NOT_ALLOWED": MethodNotAllowedError,

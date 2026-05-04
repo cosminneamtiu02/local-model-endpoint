@@ -18,7 +18,7 @@ and [docs/conventions.md](docs/conventions.md) for coding conventions.
 
 - **Python**: Ruff (ALL rules), Pyright strict.
 - **Run `task check` before pushing.** This is the same suite CI runs (lint,
-  format, types, architecture, tests, error contracts, plist, lockfile).
+  format, lockfile, types, architecture, tests, error contracts, plist, audit).
 - **PR titles** use [Conventional Commits](https://www.conventionalcommits.org/)
   because the squash-merge title becomes the commit on `main`. Individual
   commit messages on a feature branch are not required to follow Conventional

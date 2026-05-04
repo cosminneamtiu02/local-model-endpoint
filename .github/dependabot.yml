@@ -81,10 +81,16 @@ updates:
           - "pytest"
           - "pytest-*"
       # Lane 18.6: import-linter intentionally excluded — workspace has no linter config.
+      # Lane 18.7 (round 9): pip-audit added now that this workspace also runs
+      # ``task check:audit:errors`` (mirrors the backend group). Without this,
+      # a pip-audit bump opens a solo PR while sibling ruff/pyright bumps
+      # ride the group — risking the cascade-conflict pattern the group
+      # exists to prevent.
       dev-tools:
         patterns:
           - "ruff"
           - "pyright"
+          - "pip-audit"
 
   - package-ecosystem: "github-actions"
     directory: "/"

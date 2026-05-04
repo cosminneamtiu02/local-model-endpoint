@@ -5,7 +5,6 @@ from app.exceptions import (
     AdapterConnectionFailureError,
     ConflictError,
     DomainError,
-    HttpError,
     InferenceTimeoutError,
     InternalError,
     MethodNotAllowedError,
@@ -24,9 +23,11 @@ def test_registry_contains_all_canonical_error_codes() -> None:
     Five generic codes (NOT_FOUND, CONFLICT, VALIDATION_FAILED, INTERNAL_ERROR,
     RATE_LIMITED) plus five LIP-specific codes added by LIP-E004-F004
     (QUEUE_FULL, INFERENCE_TIMEOUT, ADAPTER_CONNECTION_FAILURE,
-    REGISTRY_NOT_FOUND, MODEL_CAPABILITY_NOT_SUPPORTED) plus two HTTP-status
-    codes added for ``_handle_http_exception`` source-of-truth alignment
-    (HTTP_ERROR, METHOD_NOT_ALLOWED).
+    REGISTRY_NOT_FOUND, MODEL_CAPABILITY_NOT_SUPPORTED) plus one HTTP-status
+    code added for ``_handle_http_exception`` source-of-truth alignment
+    (METHOD_NOT_ALLOWED). Round-9 lane 8.3 removed the dead ``HTTP_ERROR``
+    class — the wire ``code: "HTTP_ERROR"`` still ships from a string
+    literal in ``_http_code_for_status`` for the generic-4xx path.
     """
     expected = {
         "NOT_FOUND": NotFoundError,
@@ -39,7 +40,6 @@ def test_registry_contains_all_canonical_error_codes() -> None:
         "ADAPTER_CONNECTION_FAILURE": AdapterConnectionFailureError,
         "REGISTRY_NOT_FOUND": RegistryNotFoundError,
         "MODEL_CAPABILITY_NOT_SUPPORTED": ModelCapabilityNotSupportedError,
-        "HTTP_ERROR": HttpError,
         "METHOD_NOT_ALLOWED": MethodNotAllowedError,
     }
     assert expected == ERROR_CLASSES

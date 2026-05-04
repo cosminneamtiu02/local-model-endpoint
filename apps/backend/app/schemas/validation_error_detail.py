@@ -20,7 +20,7 @@ REASON_MAX_CHARS: Final[int] = 2048
 class ValidationErrorDetail(BaseModel):
     """A single validation error — one field that failed Pydantic validation."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     # ``min_length=1`` mirrors the sibling-string-field discipline across
     # the wire schemas (ProblemDetails.title, ProblemDetails.detail,

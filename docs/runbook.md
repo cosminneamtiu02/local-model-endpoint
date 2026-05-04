@@ -15,8 +15,9 @@ ollama pull gemma4:e2b
 
 The Ollama daemon is configured to run as a `launchd` service via the plist
 template at `infra/launchd/com.lip.ollama.plist.tmpl` (added by PR #9 /
-LIP-E005-F003) with `KEEP_ALIVE=300s`, `NUM_PARALLEL=1`,
-`MAX_LOADED_MODELS=1`, `FLASH_ATTENTION=1`, `KV_CACHE_TYPE=q8_0`. Run
+LIP-E005-F003) with `OLLAMA_KEEP_ALIVE=300s`, `OLLAMA_NUM_PARALLEL=1`,
+`OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`,
+`OLLAMA_KV_CACHE_TYPE=q8_0`. Run
 `task ollama:install` to render `__HOME__` and install it; see
 [docs/ollama-launchd.md](ollama-launchd.md) for env-var rationale and
 customization.
@@ -50,7 +51,7 @@ will not find a `.env`; always launch via `task dev` (or `cd apps/backend` first
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `LIP_APP_ENV` | `development` | One of `development` / `test` / `production`. Production hides `/docs`, `/redoc`, `/openapi.json` and emits JSON logs. |
+| `LIP_APP_ENV` | `development` | One of `development` / `production`. Production hides `/docs`, `/redoc`, `/openapi.json` and emits JSON logs. (Round-9 lane 19.2 dropped the previously reserved `test` literal — re-add narrowly when a test-mode behavior actually lands.) |
 | `LIP_LOG_LEVEL` | `info` | One of `debug` / `info` / `warning` / `error` / `critical`. |
 | `LIP_OLLAMA_HOST` | `http://localhost:11434` | The local Ollama daemon URL. The `LIP_` prefix avoids colliding with Ollama's own `OLLAMA_HOST`. Validator rejects non-private hosts unless `LIP_ALLOW_EXTERNAL_OLLAMA=true`. |
 | `LIP_ALLOW_EXTERNAL_OLLAMA` | `false` | Escape hatch acknowledging that LIP will forward consumer prompts to a non-private host. |

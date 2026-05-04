@@ -12,10 +12,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+import structlog
 from fastapi import FastAPI
 
 from app.api.app_state import AppState
-from app.api.deps import get_app_state, get_ollama_client
+from app.api.deps import get_app_state, get_ollama_client, get_settings
 from app.exceptions import InternalError
 
 if TYPE_CHECKING:
@@ -90,3 +91,32 @@ def test_get_ollama_client_delegates_through_get_app_state() -> None:
     request = _request_for(app)
 
     assert get_ollama_client(request) is client
+
+
+def test_get_settings_warns_on_unknown_lip_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typo'd ``LIP_*`` env var should surface as a structlog warning
+    (CLAUDE.md "never add an env var without adding it to Settings"), since
+    pydantic-settings 2.14 silently ignores extras at the env-source layer.
+    """
+    monkeypatch.setenv("LIP_BOGUS_TYPO_VAR", "x")
+    get_settings.cache_clear()
+    with structlog.testing.capture_logs() as captured:
+        get_settings()
+    get_settings.cache_clear()
+    warnings = [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
+    assert len(warnings) == 1
+    assert "LIP_BOGUS_TYPO_VAR" in warnings[0]["env_vars"]
+
+
+def test_get_settings_does_not_warn_when_all_env_vars_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Happy path: only declared env vars set → no audit warning fires."""
+    monkeypatch.setenv("LIP_LOG_LEVEL", "warning")
+    get_settings.cache_clear()
+    with structlog.testing.capture_logs() as captured:
+        get_settings()
+    get_settings.cache_clear()
+    assert not [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
