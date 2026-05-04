@@ -109,7 +109,7 @@ def _class_to_snake(name: str) -> str:
     ``_code_to_class_name``; do NOT use on arbitrary PascalCase strings
     (``IOError`` would become ``i_o_error``).
     """
-    return re.sub(r"([A-Z])", r"_\1", name).lower().lstrip("_")
+    return re.sub(r"(?<!^)([A-Z])", r"_\1", name).lower()
 
 
 def _detect_duplicate_keys(raw_text: str) -> None:
@@ -531,15 +531,14 @@ def _render_detail_template_decl(detail_template: str) -> str:
 
 def _render_super_block(params_class_name: str, params: _ParamsMap) -> str:
     """Render the ``super().__init__(params=...)`` block, wrapped if long."""
-    params_construct = ", ".join(f"{name}={name}" for name in params)
-    super_line = f"        super().__init__(params={params_class_name}({params_construct}))"
+    pieces = [f"{name}={name}" for name in params]
+    super_line = f"        super().__init__(params={params_class_name}({', '.join(pieces)}))"
     if len(super_line) <= RUFF_LINE_LENGTH:
         return super_line + "\n"
-    params_lines = ",\n                ".join(f"{name}={name}" for name in params)
     return (
         "        super().__init__(\n"
         f"            params={params_class_name}(\n"
-        f"                {params_lines},\n"
+        f"                {',\n                '.join(pieces)},\n"
         "            ),\n"
         "        )\n"
     )

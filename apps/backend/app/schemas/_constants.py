@@ -19,3 +19,14 @@ Both :class:`RequestIdMiddleware` and :func:`_resolve_request_id` (in
 a future pattern change (e.g. adding ``re.UNICODE``) cannot drift between
 the two sites; centralization also avoids a per-process duplicate
 ``re.compile`` cost at import time."""
+
+REQUEST_ID_LENGTH: Final[int] = 36
+"""Canonical UUID-string length (8-4-4-4-12 hex + 4 dashes).
+
+Hoisted out of ``schemas.problem_details`` so the wire schemas
+(:class:`ProblemDetails`, :class:`ResponseMetadata`, and any future
+sibling that carries a ``request_id`` field) all source the same length
+constraint. The pattern alone subsumes the length but declaring
+min/max explicitly keeps OpenAPI consumers (which read ``minLength``/
+``maxLength`` from the schema, not the regex) in lockstep across the
+two response envelopes."""

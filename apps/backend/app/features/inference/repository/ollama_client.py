@@ -1,5 +1,6 @@
 """Lifecycle-managed httpx.AsyncClient wrapper for talking to Ollama."""
 
+import asyncio
 import json as _json
 import time
 from importlib import metadata as _metadata
@@ -387,14 +388,19 @@ class OllamaClient:
                 message_count=len(messages),
             )
             raise
-        except BaseException as cancel_exc:
+        except (asyncio.CancelledError, GeneratorExit) as cancel_exc:
             # Cancellation (consumer disconnect, lifespan shutdown) bypasses
             # the Exception arm above, which is correct for propagation, but
             # would otherwise leave NO log evidence the call started reaching
             # Ollama. Emit a single ``ollama_call_cancelled`` line so the
             # operator can correlate via request_id, then re-raise so the
-            # cancellation continues to propagate (BaseException narrowing
-            # protects structured concurrency — never suppress).
+            # cancellation continues to propagate. Narrowed to the actual
+            # cancellation primitives (``asyncio.CancelledError`` for task
+            # cancel, ``GeneratorExit`` for async-generator close) rather
+            # than ``BaseException``: ``KeyboardInterrupt`` and ``SystemExit``
+            # mean the process is dying and don't need a per-call log line —
+            # they propagate uncaught, which is the canonical
+            # structured-concurrency pattern.
             duration_ms = elapsed_ms(start)
             # ``info`` (not ``warning``): consumer-disconnect cancellation is
             # expected traffic on a multi-consumer LAN service; logging at

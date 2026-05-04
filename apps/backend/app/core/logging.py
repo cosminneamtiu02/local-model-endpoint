@@ -40,7 +40,28 @@ def elapsed_ms(start: float, *, now: Callable[[], float] = time.perf_counter) ->
 
 
 _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
-    {"messages", "content", "prompt", "tool_calls", "audios", "images"},
+    {
+        "messages",
+        "content",
+        "prompt",
+        "tool_calls",
+        "audios",
+        "images",
+        # Additional prompt-bearing keys that future emit sites might bind
+        # by accident. The CLAUDE.md ban (never log message content / prompt
+        # text / model output / tool-call arguments) is the primary contract;
+        # adding these here turns the backstop from "catches the obvious
+        # names" into "catches the obvious AND the close-by-name regression
+        # surface." All seven new entries are wire-shape concepts present in
+        # the Ollama /api/chat request and response (arguments / output /
+        # output_text / completion / assistant_message / model_output / text).
+        "arguments",
+        "output",
+        "output_text",
+        "completion",
+        "assistant_message",
+        "model_output",
+    },
 )
 """Event-dict keys whose values are unconditionally redacted.
 
@@ -56,10 +77,10 @@ cost on every log line for a regression that has never appeared.
 
 
 def _redact_sensitive_keys(
-    _logger: structlog.types.WrappedLogger,
+    _logger: structlog.typing.WrappedLogger,
     _method_name: str,
-    event_dict: structlog.types.EventDict,
-) -> structlog.types.EventDict:
+    event_dict: structlog.typing.EventDict,
+) -> structlog.typing.EventDict:
     """Defense-in-depth backstop for CLAUDE.md prompt-content log ban.
 
     Replaces values for known-sensitive TOP-LEVEL keys with the

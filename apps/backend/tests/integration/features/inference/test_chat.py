@@ -248,7 +248,7 @@ async def test_chat_propagates_http_status_error_for_every_non_2xx(
 
 @pytest.mark.parametrize(
     "timeout_cls",
-    [httpx.ReadTimeout, httpx.ConnectTimeout],
+    [httpx.ReadTimeout, httpx.ConnectTimeout, httpx.WriteTimeout, httpx.PoolTimeout],
     ids=lambda c: c.__name__,
 )
 async def test_chat_propagates_timeout_uncaught(
@@ -256,12 +256,15 @@ async def test_chat_propagates_timeout_uncaught(
 ) -> None:
     """OllamaClient.chat re-raises every httpx timeout class verbatim.
 
-    Parametrized over the two timeout classes documented in
-    ``OllamaClient.DEFAULT_TIMEOUT`` (``connect`` and ``read``) so a future
-    addition of ``WriteTimeout`` / ``PoolTimeout`` (also documented httpx
-    timeout subclasses) extends coverage by adding one row, not by writing
-    another full near-clone test function. Mirrors the existing
-    parametrize-over-status-code pattern in this file.
+    Parametrized over all four httpx timeout subclasses. Each maps to one
+    of the bounds in ``OllamaClient.DEFAULT_TIMEOUT``: ``ConnectTimeout``
+    -> ``connect=5s``, ``ReadTimeout`` -> ``read=600s``, ``WriteTimeout``
+    -> ``write=None`` (still raises if upstream forces it),
+    ``PoolTimeout`` -> ``pool=5s`` (load-bearing today: F001 semaphore + 1
+    pool slot means a regression that adds a sibling adapter call surfaces
+    here as a loud PoolTimeout rather than a silent hang). All four share
+    the ``httpx.TimeoutException`` base, so the handler can synthesize
+    them uniformly.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:

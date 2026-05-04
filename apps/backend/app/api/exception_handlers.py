@@ -59,6 +59,7 @@ content-negotiated; the ``title`` and ``detail`` strings (per RFC 7807 §3.1
 "SHOULD be localizable") become the i18n hook points.
 """
 
+import itertools
 import uuid
 from http import HTTPStatus
 from typing import Any, Final, cast
@@ -230,9 +231,9 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
             original_code=exc.code,
         )
         return ProblemDetails(
-            type="urn:lip:error:internal-error",
-            title="Internal Server Error",
-            status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            type=InternalError.type_uri,
+            title=InternalError.title,
+            status=InternalError.http_status,
             detail="An unexpected error occurred while building the error response.",
             instance=request.url.path,
             code=InternalError.code,
@@ -395,7 +396,9 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
             # ``"dict"``. The ``"type"`` key is the actual discriminator
             # (``string_too_long`` / ``union_tag_invalid`` / ...) operators
             # need to triage the abnormal-empty-errors path.
-            raw_error_discriminators=[str(e.get("type", "unknown"))[:64] for e in raw_errors][:5],
+            raw_error_discriminators=[
+                str(e.get("type", "unknown"))[:64] for e in itertools.islice(raw_errors, 5)
+            ],
             content_type=raw_content_type.encode("ascii", "replace").decode("ascii"),
             content_length=raw_content_length.encode("ascii", "replace").decode("ascii"),
         )
@@ -492,10 +495,15 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     status_code = http_exc.status_code
     # Bind error_code BEFORE _resolve_request_id so the
     # ``request_id_missing_in_state`` warning that may fire from the fallback
-    # path inside ``_resolve_request_id`` carries the typed code. The
-    # status<400 branch overrides this to InternalError.code below; the
-    # default-and-override pattern keeps a single bind in the caller.
-    structlog.contextvars.bind_contextvars(error_code=_http_code_for_status(status_code))
+    # path inside ``_resolve_request_id`` carries the typed code. Compute the
+    # status<400 override up-front so the fallback warning sees the final
+    # value rather than the (about-to-be-overridden) HTTP_ERROR sentinel.
+    initial_code = (
+        InternalError.code
+        if status_code < HTTPStatus.BAD_REQUEST
+        else _http_code_for_status(status_code)
+    )
+    structlog.contextvars.bind_contextvars(error_code=initial_code)
     request_id, missed_middleware = _resolve_request_id(request)
     # A non-error HTTPException (status<400) has no place in the RFC 7807
     # envelope (problem+json is for error responses) and would fail the
@@ -508,7 +516,6 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     # repr (which contains the original non-error status code) and would
     # double-resolve the request_id.
     if status_code < HTTPStatus.BAD_REQUEST:
-        structlog.contextvars.bind_contextvars(error_code=InternalError.code)
         # ``error`` (not ``warning``): the wire response is a synthesized 500
         # InternalError, identical in severity to ``http_exception_5xx_raised``
         # below. Operators paging on ``level >= ERROR`` for 5xx misconfiguration
@@ -609,7 +616,11 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # so operators searching by error_code find the broken-middleware
     # diagnostic.
     structlog.contextvars.bind_contextvars(error_code=InternalError.code)
-    request_id, _missed = _resolve_request_id(request)
+    # ``_resolve_request_id`` returns ``(id, missed)``; this branch always
+    # passes ``missed=True`` literally below (ServerErrorMiddleware lives
+    # outside the user middleware stack, so the header is always absent),
+    # so the second value is intentionally discarded with ``_``.
+    request_id, _ = _resolve_request_id(request)
     # ``internal_error_5xx_raised`` so operator queries align with the
     # typed-domain-error pattern: every 5xx event in the codebase now
     # reads ``*_5xx_raised`` (cf. ``http_exception_5xx_raised``,
@@ -642,7 +653,13 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)
     response = _problem_response(problem)
-    response.headers["X-Request-ID"] = request_id
+    # Defense-in-depth: pass ``missed=True`` literally rather than reading
+    # ``_missed`` because ServerErrorMiddleware lives outside the user
+    # middleware stack today, so ``X-Request-ID`` is always missing on this
+    # path. If a future Starlette release moves catch-all ``Exception``
+    # back inside the user stack (encode/starlette#1438/#1715), flip this
+    # to ``missed=_missed`` to consult the resolver state.
+    _stamp_request_id_header_if_missed(response, request_id, missed=True)
     return response
 
 

@@ -3,12 +3,13 @@
 import ast
 import importlib.util
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 
-def _load_class_to_snake() -> object:
+def _load_class_to_snake() -> Callable[[str], str]:
     """Import generate.py by file path so the private ``_class_to_snake``
     helper can be exercised directly without rewiring the package as
     importable. Returns the bound function rather than the module so the
@@ -19,7 +20,6 @@ def _load_class_to_snake() -> object:
     assert spec.loader is not None, generate_py
     module = importlib.util.module_from_spec(spec)
     sys.modules.setdefault("_generate_for_test", module)
-    spec.loader.exec_module(module)
     return getattr(module, "_class_to_snake")  # noqa: B009 — getattr to silence type-checker on dynamic-load
 
 
@@ -43,7 +43,7 @@ def test_class_to_snake_pins_pascal_case_translation(pascal: str, expected_snake
     confusing late-stage drift in ``check:errors``.
     """
     class_to_snake = _load_class_to_snake()
-    assert class_to_snake(pascal) == expected_snake  # type: ignore[operator]
+    assert class_to_snake(pascal) == expected_snake
 
 
 SAMPLE_YAML = """

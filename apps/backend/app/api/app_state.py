@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from app.features.inference import OllamaClient
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class AppState:
     """Lifespan-managed application state.
 

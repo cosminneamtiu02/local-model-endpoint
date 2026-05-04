@@ -170,7 +170,7 @@ class RequestIdMiddleware:
         method = str(scope.get("method", ""))
         path = str(scope.get("path", ""))
 
-        rejected_client_id = client_id and match_result is None
+        rejected_client_id = bool(client_id) and match_result is None
         if match_result is not None:
             preview = ""
             request_id = client_id
@@ -287,23 +287,22 @@ class RequestIdMiddleware:
             )
             if not suppress:
                 duration_ms = elapsed_ms(start)
-                client = scope.get("client")
                 # ``method`` / ``path`` flow through ``merge_contextvars`` from
-                # the bind above; not re-passed here. ``client_ip`` (renamed
-                # from the prior ``client_host``) matches the industry
-                # "remote IP" convention used by uvicorn access / RFC 7239 /
-                # common log format and disambiguates against the DNS-style
-                # ``ollama_host`` field on other log lines. ``client_port``
-                # is the ephemeral peer port — needed to disambiguate two
-                # simultaneous LAN connections from the same consumer.
-                # Both are fine to log unconditionally for this
-                # single-developer LAN profile (consumers are self-owned).
+                # the bind above; not re-passed here. ``client_ip`` matches
+                # the industry "remote IP" convention used by uvicorn access /
+                # RFC 7239 / common log format and disambiguates against the
+                # DNS-style ``ollama_host`` field on other log lines.
+                # ``client_port`` is the ephemeral peer port — needed to
+                # disambiguate two simultaneous LAN connections from the
+                # same consumer. Both are fine to log unconditionally for
+                # this single-developer LAN profile (consumers are self-owned).
+                client_ip, client_port = scope.get("client") or (None, None)
                 logger.info(
                     "request_completed",
                     status_code=effective_status,
                     duration_ms=duration_ms,
-                    client_ip=client[0] if client else None,
-                    client_port=client[1] if client else None,
+                    client_ip=client_ip,
+                    client_port=client_port,
                 )
 
 

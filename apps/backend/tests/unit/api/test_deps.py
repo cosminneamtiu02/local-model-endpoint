@@ -52,7 +52,11 @@ def test_get_app_state_when_context_missing_raises_internal_error() -> None:
     """
     app = FastAPI()
     request = _request_for(app)
-    with pytest.raises(InternalError):
+    # ``match=`` pins the typed code so a future second InternalError
+    # raise-site in ``get_app_state`` cannot silently shadow this branch's
+    # contract — the test asserts *which* invariant fired, not just that
+    # ``InternalError`` was raised somewhere.
+    with pytest.raises(InternalError, match=InternalError.code):
         get_app_state(request)
 
 
@@ -63,7 +67,7 @@ def test_get_app_state_when_context_wrong_type_raises_internal_error() -> None:
     app = FastAPI()
     app.state.context = {"ollama_client": "not-actually-a-client"}
     request = _request_for(app)
-    with pytest.raises(InternalError):
+    with pytest.raises(InternalError, match=InternalError.code):
         get_app_state(request)
 
 

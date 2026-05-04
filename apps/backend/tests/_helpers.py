@@ -12,13 +12,27 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from fastapi import FastAPI
     from httpx import Response
     from starlette.types import ASGIApp
+
+
+def make_test_client(app: FastAPI) -> TestClient:
+    """Sync FastAPI ``TestClient`` mirror of :func:`make_async_client`.
+
+    ``raise_server_exceptions=False`` mirrors the production catch-all path:
+    the user-level Exception handler returns the 500 response and the
+    framework re-raises only for telemetry — the consumer always sees the
+    handler's response. Single source of truth for the contract-tier client
+    pattern (was repeated seven times across the contract suite).
+    """
+    return TestClient(app, raise_server_exceptions=False)
 
 
 @asynccontextmanager
