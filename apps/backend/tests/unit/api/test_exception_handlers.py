@@ -4,7 +4,6 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from app.api._constants import PROBLEM_JSON_MEDIA_TYPE
 from app.api.exception_handlers import register_exception_handlers
 from app.api.request_id_middleware import RequestIdMiddleware
 from app.exceptions import (
@@ -16,7 +15,7 @@ from app.exceptions import (
     RegistryNotFoundError,
 )
 from app.schemas import ValidationErrorDetail
-from app.schemas.wire_constants import REQUEST_ID_HEADER
+from app.schemas.wire_constants import PROBLEM_JSON_MEDIA_TYPE, REQUEST_ID_HEADER
 
 
 def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger routes is the simplest expression

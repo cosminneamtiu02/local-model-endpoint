@@ -24,10 +24,14 @@ import structlog
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
 from app.core.logging import ascii_safe, elapsed_ms
 from app.schemas import ProblemDetails
-from app.schemas.wire_constants import ABOUT_BLANK_TYPE, UUID_REGEX
+from app.schemas.wire_constants import (
+    ABOUT_BLANK_TYPE,
+    CONTENT_LANGUAGE,
+    PROBLEM_JSON_MEDIA_TYPE,
+    UUID_REGEX,
+)
 
 # Request paths that are too noisy to log per-request (health checks
 # fire on a tight poll loop and would dominate the log volume). The

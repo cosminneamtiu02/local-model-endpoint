@@ -156,13 +156,20 @@ preserved but with redefined semantics for a no-DB feature:
 
 ## Naming Conventions
 
-- Python files: `snake_case.py`
+- Python files: `snake_case.py`. Cross-cutting routers in `app/api/` use
+  the `<scope>_router.py` suffix (e.g. `health_router.py`), mirroring the
+  `<scope>_middleware.py` pattern of `request_id_middleware.py`. Per-feature
+  routers under `app/features/<feature>/router/` (LIP-E001-F002 onward)
+  follow the feature-slice convention instead.
 - Python classes: `PascalCase` with role suffix (`InferenceService`, `OllamaClient`).
   `Client` is the accepted role-suffix variant for HTTP-only adapters where the
   boundary IS "talking HTTP to a daemon" (see
   [apps/backend/app/features/inference/repository/ollama_client.py](apps/backend/app/features/inference/repository/ollama_client.py));
   reserve `Repository` for non-HTTP data-access boundaries.
-- Python functions: `snake_case` verbs
+- Python functions: `snake_case` verbs. The `is_*` / `has_*` predicate
+  forms (e.g. `is_private_host`) are an accepted carve-out from the verb
+  rule — the prefix encodes the predicate semantics; document the
+  truthiness contract in the docstring.
 - Python tests: `test_<unit>_<scenario>_<expected>`
 
 ## Error System

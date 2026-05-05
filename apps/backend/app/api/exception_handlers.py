@@ -71,7 +71,6 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
-from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
 from app.core.logging import ascii_safe
 from app.exceptions import (
     DomainError,
@@ -82,7 +81,13 @@ from app.exceptions import (
 )
 from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
 from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHARS
-from app.schemas.wire_constants import ABOUT_BLANK_TYPE, INSTANCE_PATH_MAX_CHARS, UUID_REGEX
+from app.schemas.wire_constants import (
+    ABOUT_BLANK_TYPE,
+    CONTENT_LANGUAGE,
+    INSTANCE_PATH_MAX_CHARS,
+    PROBLEM_JSON_MEDIA_TYPE,
+    UUID_REGEX,
+)
 
 logger = structlog.get_logger(__name__)
 

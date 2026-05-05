@@ -147,6 +147,14 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.DEPENDABOT_LOCKFILE_SYNC_PAT }}
 
+      - name: Read Python version from .python-version
+        # ``.python-version`` at the repo root is the single source of
+        # truth for the Python interpreter version (lane 10.2). Piped
+        # through ``$GITHUB_ENV`` so the setup-uv step references
+        # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
+        # read .python-version, so the explicit read step is the bridge.
+        run: echo "PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)" >> "$GITHUB_ENV"
+
       - name: Guard against self-triggered loops
         id: loop_guard
         run: |
@@ -226,16 +234,13 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: '{apps/backend,packages/error-contracts}/uv.lock'
-          # ``python-version`` accepts either a version literal or a path
-          # to a python-version file (per setup-uv input docs). Reading
-          # ``.python-version`` at the repo root means the interpreter pin
-          # lives in ONE place (lane 10.2). Same source ci.yml's three
-          # setup-uv invocations consult, so a single file controls the
-          # version across both workflows — eliminating the silent-skew
-          # window where ci.yml could pin 3.13.13 while this workflow
-          # regenerates uv.lock under 3.13.14 (the divergence this
-          # workflow exists to prevent).
-          python-version: .python-version
+          # ``.python-version`` source-of-truth via ``$GITHUB_ENV``
+          # (lane 10.2). Same file ci.yml's setup-uv invocations consult,
+          # so a single file controls the version across both workflows —
+          # eliminating the silent-skew window where ci.yml could pin
+          # 3.13.13 while this workflow regenerates uv.lock under
+          # 3.13.14 (the divergence this workflow exists to prevent).
+          python-version: ${{ env.PYTHON_VERSION }}
           # Authenticated GitHub API requests pull uv interpreter downloads
           # under the 5000/hr per-token rate limit instead of the shared
           # 60/hr unauthenticated pool. Symmetric with the same pin in
