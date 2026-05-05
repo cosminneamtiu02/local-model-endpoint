@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
 
-from app.api.exception_handlers import register_exception_handlers
+from app.api.exception_handler_registry import register_exception_handlers
 from app.api.request_id_middleware import RequestIdMiddleware
 from app.exceptions import (
     AdapterConnectionFailureError,

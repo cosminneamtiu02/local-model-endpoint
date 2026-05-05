@@ -171,11 +171,11 @@ macOS arm64 only. Not portable to Linux, Windows, or Apple Silicon variants othe
 
 ## Project Boundary
 
-This section enumerates what the v1 deliverable does and does not cover. It is the chokepoint at which scope creep is rejected; downstream skills (`requirements-elicitation`, `feature-elicitation`, `project-bootstrap`) refuse to take in-scope work that is not listed here, and refuse to drop out-of-scope items back into the build.
+This section enumerates what the v1 deliverable does and does not cover. It is the chokepoint at which scope creep is rejected; the bootstrap skills that consumed this document during initial project setup (`requirements-elicitation`, `feature-elicitation`, `project-bootstrap`) refused to take in-scope work that was not listed here, and refused to drop out-of-scope items back into the build. Post-bootstrap (the implementation phase the project is in today), scope changes flow through direct edits to this document plus an ADR plus a feature-node update — the skills are no longer in the loop.
 
 ### In scope for v1
 
-- A FastAPI service implementing the locked request envelope: `messages: list[Message]`, `model: str`, `params: ModelParams` (typed sampling — `temperature`, `top_p`, `top_k`, `max_tokens`, `stop`, `seed`, plus `think: bool = False`), and `metadata: dict[MetadataKey, JsonValue]` as a length-bounded JSON pass-through (≤16 keys, ≤64-char keys, bounded string values — see [`apps/backend/app/features/inference/model/caps.py`](../apps/backend/app/features/inference/model/caps.py) for the exact constants).
+- A FastAPI service implementing the locked request envelope: `messages: list[Message]`, `model: str`, `params: ModelParams` (typed sampling — `temperature`, `top_p`, `top_k`, `max_tokens`, `stop`, `seed`, plus `think: bool = False`), and `metadata: dict[MetadataKey, JsonValue]` as a length-bounded JSON pass-through (≤16 keys, ≤64-char keys, bounded string values — see [`apps/backend/app/features/inference/model/dos_caps.py`](../apps/backend/app/features/inference/model/dos_caps.py) for the exact constants).
 - A single uvicorn-process deployment with on-demand lifecycle: woken by an explicit consumer-issued wake call, self-shuts after 10 minutes of no inference traffic.
 - An explicit wake-up mechanism (separate from the inference call) that consumers invoke to start the service. *Folded into [LIP-E005-F001](../graphs/LIP/LIP-E005-F001.md) — the wake endpoint and the startup warm-up share the same lifespan-startup machinery and are scoped to one feature node.*
 - A `/health` endpoint and additional state-inspection endpoints exposing queue depth, model-loaded status, and last-request timestamp (G7).

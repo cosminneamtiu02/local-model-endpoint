@@ -45,6 +45,17 @@ METADATA_VALUE_MAX_LENGTH: Final[int] = 4096
 # third orthogonal DoS axis (key length) on the metadata path.
 METADATA_KEY_MAX_LENGTH: Final[int] = 64
 
+# Per-collection cardinality cap on nested lists/dicts inside metadata
+# JsonValue trees. The top-level ``metadata`` dict is bounded at 16 keys
+# via ``Field(max_length=16)``, but nested lists/dicts inherit no such
+# cap — without this constant a consumer could ship
+# ``metadata={"safe": [None]*1_000_000}`` and inflate request memory
+# under the documented invariant that the metadata path is bounded on
+# all DoS axes (count, key-length, value-length, AND nested cardinality).
+# 64 matches the top-level message-list cap (``messages: max_length=64``)
+# so all four cardinality surfaces are uniformly bounded.
+METADATA_NESTED_CARDINALITY_MAX: Final[int] = 64
+
 # Cap on the logical ``model`` name string. Same logical name flows in
 # (``InferenceRequest.model``) and out (``ResponseMetadata.model``), so the
 # bound must be symmetric — keeping it here means a future cap bump on the

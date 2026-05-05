@@ -28,5 +28,21 @@ class ValidationErrorDetail(BaseModel):
     # these from non-empty Pydantic error data; the floor catches
     # hand-constructed test fixtures or future helpers that could ship
     # ``field=""`` and pass schema validation.
-    field: str = Field(min_length=1, max_length=FIELD_MAX_CHARS)
-    reason: str = Field(min_length=1, max_length=REASON_MAX_CHARS)
+    field: str = Field(
+        min_length=1,
+        max_length=FIELD_MAX_CHARS,
+        description=(
+            "Dotted path to the failing field, joined from Pydantic's loc tuple. "
+            "Reflects user-supplied dict keys for free-form metadata; consumers "
+            "MUST treat this string as untrusted (it is ASCII-cleaned and "
+            "truncated before it lands here)."
+        ),
+    )
+    reason: str = Field(
+        min_length=1,
+        max_length=REASON_MAX_CHARS,
+        description=(
+            "Pydantic's per-field error message, ASCII-cleaned and truncated "
+            "to the schema cap above. Consumers MUST treat as untrusted text."
+        ),
+    )

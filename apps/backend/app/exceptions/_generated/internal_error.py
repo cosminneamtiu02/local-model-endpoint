@@ -6,7 +6,7 @@ from app.exceptions.base import DomainError
 
 
 class InternalError(DomainError):
-    """Unhandled server error; details are logged with request_id"""
+    """Unhandled server error, details are logged with request_id"""
 
     code: ClassVar[str] = "INTERNAL_ERROR"
     http_status: ClassVar[int] = 500

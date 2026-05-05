@@ -154,7 +154,9 @@ def translate_params(params: "ModelParams") -> dict[str, Any]:
     return {_PARAM_RENAMES.get(k, k): v for k, v in consumer_overrides.items()}
 
 
-def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
+def build_chat_result(
+    response_json: dict[str, Any], *, model_tag: str | None = None
+) -> OllamaChatResult:
     """Ollama /api/chat JSON response -> OllamaChatResult.
 
     Reads ``message.content`` as the canonical answer (``tool_calls``
@@ -223,11 +225,24 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     # empty content string. The ``cast`` widens ``list[Unknown]`` (from the
     # ``raw_message: dict[str, Any]`` narrowing) to ``list[object]`` so
     # pyright strict accepts ``len(...)`` without an unknown-argument error.
+    #
+    # ``model_name`` / ``endpoint`` ride explicitly so an operator's
+    # ``select(.event == "ollama_tool_calls_ignored")`` query identifies
+    # WHICH model surfaced the tool call without joining-by-request_id
+    # with ``ollama_call_completed``. ``None`` model_tag means the
+    # function was called outside the OllamaClient.chat path (e.g. unit
+    # tests for the translation layer); the warning still fires but
+    # ships with ``model_name=None`` so the test surface is unaffected.
     candidate = raw_message.get("tool_calls")
     if isinstance(candidate, list):
         tool_calls = cast("list[object]", candidate)
         if tool_calls:
-            logger.warning("ollama_tool_calls_ignored", count=len(tool_calls))
+            logger.warning(
+                "ollama_tool_calls_ignored",
+                count=len(tool_calls),
+                model_name=model_tag,
+                endpoint="/api/chat",
+            )
     return OllamaChatResult(
         content=content,
         prompt_tokens=response_json.get("prompt_eval_count", 0),

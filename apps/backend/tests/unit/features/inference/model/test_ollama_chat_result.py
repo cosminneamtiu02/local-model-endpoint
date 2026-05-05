@@ -31,10 +31,10 @@ def test_ollama_chat_result_is_frozen() -> None:
         finish_reason="stop",
     )
     with pytest.raises(ValidationError, match="frozen"):
-        # Intentional frozen-violation to assert the runtime guard fires.
-        # Pyright flags the assignment because frozen=True makes the
-        # field effectively read-only at the type level.
-        result.content = "y"  # pyright: ignore[reportAttributeAccessIssue]
+        # Intentional frozen-violation to assert the runtime guard fires;
+        # Pydantic 2.13 stopped surfacing the assignment as a type error
+        # at the call site, so no pyright suppression is needed.
+        result.content = "y"
 
 
 @pytest.mark.parametrize(

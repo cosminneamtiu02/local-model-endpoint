@@ -311,7 +311,9 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
 # ── __aexit__ close-failure path ─────────────────────────────────────
 
 
-async def test_aexit_propagates_close_error_when_body_did_not_raise() -> None:
+async def test_aexit_propagates_close_error_when_body_did_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``__aexit__`` propagates a close-time error when the body was clean.
 
     Body-error preservation rule (per ``OllamaClient.__aexit__`` docstring):
@@ -325,9 +327,11 @@ async def test_aexit_propagates_close_error_when_body_did_not_raise() -> None:
         msg = "simulated aclose failure"
         raise RuntimeError(msg)
 
-    # type: ignore[method-assign]: monkey-patch close() to simulate an aclose
-    # failure; the close-failure logging path needs the assignment.
-    client.close = _broken_close  # type: ignore[method-assign]
+    # ``monkeypatch.setattr`` (rather than direct attribute rebind) so the
+    # patch is undone at fixture teardown — symmetric with the integration-
+    # tier sibling at ``tests/integration/features/inference/test_lifecycle.py``
+    # and aligned with the project-wide pyright-suppression dialect.
+    monkeypatch.setattr(client, "close", _broken_close)
     with capture_logs() as captured, pytest.raises(RuntimeError, match="simulated aclose failure"):
         async with client:
             pass
@@ -339,7 +343,9 @@ async def test_aexit_propagates_close_error_when_body_did_not_raise() -> None:
     assert closed == [], captured
 
 
-async def test_aexit_suppresses_close_error_when_body_already_raised() -> None:
+async def test_aexit_suppresses_close_error_when_body_already_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``__aexit__`` swallows close-time errors when the body raised first.
 
     The body's exception must reach the caller; the close-time error is
@@ -353,9 +359,10 @@ async def test_aexit_suppresses_close_error_when_body_already_raised() -> None:
         msg = "secondary close failure"
         raise RuntimeError(msg)
 
-    # type: ignore[method-assign]: monkey-patch close() to simulate a
-    # close-time failure that must NOT mask the body's primary exception.
-    client.close = _broken_close  # type: ignore[method-assign]
+    # ``monkeypatch.setattr`` (rather than direct attribute rebind) — see
+    # the docstring on ``test_aexit_propagates_close_error_when_body_did_not_raise``
+    # for the dialect-consistency rationale.
+    monkeypatch.setattr(client, "close", _broken_close)
     with capture_logs() as captured, pytest.raises(ValueError, match="primary body error"):
         async with client:
             msg = "primary body error"

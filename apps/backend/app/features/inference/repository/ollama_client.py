@@ -39,9 +39,12 @@ DEFAULT_TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(
     write=None,
     pool=5.0,
 )
-# httpx.Timeout / httpx.Limits are immutable in 0.28.1 (verified — both
-# expose read-only attributes). Module-level sharing across all OllamaClient
-# instances is safe; re-verify on every httpx upgrade.
+# httpx.Timeout / httpx.Limits are plain Python objects without slots or
+# property guards in 0.28.1 — direct attribute writes succeed. Module-
+# level sharing across OllamaClient instances is nonetheless safe because
+# no code path in LIP mutates these objects after construction; AsyncClient
+# copies the relevant fields onto its own state at __init__-time. The
+# invariant we rely on is "no caller mutates," not "the type is immutable."
 
 # Single Ollama target serialized through one in-flight slot — pool sized to
 # match the LIP-E004-F001 semaphore (max_in_flight=1) so a regression that
@@ -60,6 +63,13 @@ DEFAULT_LIMITS: Final[httpx.Limits] = httpx.Limits(
 # `_request` boundary so a typo (`"PSOT"`) is a static error, not a 405
 # at runtime. Add a verb here only when a new adapter method needs it.
 type HttpMethod = Literal["GET", "POST"]
+
+# Wire path for the Ollama chat endpoint. Centralized so a future Ollama
+# version bump (or reverse-proxy rewrite to ``/v1/api/chat``) is a one-
+# line edit and the wire-vs-log fields in ``chat()`` cannot drift apart.
+# Operator dashboards keying on ``select(.endpoint == "/api/chat")`` pin
+# off this constant transitively.
+_CHAT_ENDPOINT: Final[str] = "/api/chat"
 
 
 def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
@@ -144,6 +154,11 @@ class OllamaClient:
         self._loggable_base_url = (
             f"{parsed.scheme}://{parsed.netloc.decode('ascii', errors='replace')}{parsed.path}"
         )
+        # Lifetime measurement seam — set in ``__aenter__`` and read in
+        # ``__aexit__`` to compute ``duration_ms`` on the close event so
+        # the lifecycle pair has parity (entry surfaces config, close
+        # surfaces lifetime).
+        self._lifecycle_entered_at: float | None = None
 
         # User-Agent is computed per-instance so the ``PackageNotFoundError``
         # fallback is reachable from unit tests via monkeypatch on the
@@ -191,6 +206,16 @@ class OllamaClient:
         # would have to emit before that binding when the class is
         # instantiated outside an ``async with`` (as in tests), shipping
         # a wire-config line without ``phase`` context.
+        #
+        # Carve-out: ``_build_user_agent`` (called above as part of the
+        # ``headers=`` kwarg) emits a single ``ollama_user_agent_version_
+        # missing`` warning on the editable-install / dist-info-missing
+        # branch. That warning is operator-actionable enough to ship
+        # without ``phase`` context — losing the editable-install diagnostic
+        # behind a deferred-to-``__aenter__`` move would obscure the
+        # observability gap on a path that is rare but real. The "no
+        # construction-time log" rule applies to wire-config telemetry; the
+        # missing-version warning is a metadata anomaly, not telemetry.
 
     def _build_user_agent(self) -> str:
         """Return an RFC 7231 product-token User-Agent string for Ollama logs.
@@ -233,9 +258,19 @@ class OllamaClient:
         # One emit per process lifetime, so the cost is trivial and the
         # rationale comments at DEFAULT_TIMEOUT/DEFAULT_LIMITS get an
         # operator-readable echo that survives source refactors.
+        # ``phase="lifespan"`` is also bound by ``lifespan_resources`` via
+        # contextvars and rides in via ``merge_contextvars`` on the happy
+        # path. Passing it explicitly here gives field-set parity for tests
+        # / scripts that instantiate the client directly via ``async with
+        # OllamaClient(...)`` outside the lifespan binding — the operator's
+        # ``select(.phase == "lifespan")`` filter then catches every
+        # lifecycle event uniformly. Track ``_lifecycle_entered_at`` so
+        # ``__aexit__`` can compute ``duration_ms`` for the close event.
+        self._lifecycle_entered_at = time.perf_counter()
         logger.info(
             "ollama_client_lifecycle_entered",
             base_url=self._loggable_base_url,
+            phase="lifespan",
             timeout_connect=DEFAULT_TIMEOUT.connect,
             timeout_read=DEFAULT_TIMEOUT.read,
             timeout_pool=DEFAULT_TIMEOUT.pool,
@@ -269,18 +304,36 @@ class OllamaClient:
         ``ollama_client_close_failed`` are not also chased by a misleading
         ``ollama_client_closed`` line on the same shutdown.
         """
+        # ``duration_ms`` is the lifetime from ``__aenter__`` to close —
+        # paired with ``_lifecycle_entered``'s timeout/limits config, the
+        # operator's lifecycle dashboard now shows config-AND-lifetime per
+        # client. ``None`` only when ``__aexit__`` is called outside the
+        # ``async with`` happy path (a misuse the caller should fix); we
+        # still emit the close events so the field-set asymmetry is the
+        # diagnostic, not a hidden crash.
+        duration_ms = (
+            elapsed_ms(self._lifecycle_entered_at)
+            if self._lifecycle_entered_at is not None
+            else None
+        )
         try:
             await self.close()
         except Exception as close_exc:
             # ``logger.exception`` auto-resolves the active exception via
             # ``sys.exc_info()``; no need to thread ``exc_info=close_exc``.
-            # ``base_url=`` for field-set parity with the ``_lifecycle_entered``
-            # / ``_closed`` peers — operators triaging a close failure can
-            # attribute by URL without joining on ``phase="lifespan"`` alone.
+            # ``base_url=`` + ``phase="lifespan"`` for field-set parity with
+            # the ``_lifecycle_entered`` / ``_closed`` peers — operators
+            # triaging a close failure can attribute by URL without
+            # joining on a contextvar-bound ``phase`` alone (which is
+            # absent when this client is constructed outside ``lifespan_
+            # resources``, e.g. test fixtures using ``async with
+            # OllamaClient(...)`` directly).
             logger.exception(
                 "ollama_client_close_failed",
                 base_url=self._loggable_base_url,
+                phase="lifespan",
                 exc_type=type(close_exc).__name__,
+                duration_ms=duration_ms,
             )
             if _exc is None:
                 # No body error to preserve — propagate so a silently-failed
@@ -288,7 +341,12 @@ class OllamaClient:
                 # a swallowed warning.
                 raise
         else:
-            logger.info("ollama_client_closed", base_url=self._loggable_base_url)
+            logger.info(
+                "ollama_client_closed",
+                base_url=self._loggable_base_url,
+                phase="lifespan",
+                duration_ms=duration_ms,
+            )
 
     async def _request(
         self,
@@ -365,16 +423,12 @@ class OllamaClient:
         # the lifecycle-entered/closed lines.
         option_keys = sorted(options) if options else []
 
-        # ``debug`` (not ``info``): the call-completed line already carries
-        # duration_ms and outcome — the started line is correlation glue
-        # that operators only need at debug log level. Keeping it info would
-        # double the call-related log volume in steady state. Note that the
-        # ``except Exception`` below narrows to Exception (NOT BaseException)
-        # so a ``CancelledError`` from a disconnected consumer propagates
-        # upstream and the in-flight semaphore slot (LIP-E001-F002) releases
-        # promptly. We DO emit a separate cancellation log so the cancelled
-        # call is visible at info level without bumping the start-line
-        # verbosity globally.
+        # The ``except Exception`` below narrows to Exception (NOT
+        # BaseException) so a ``CancelledError`` from a disconnected
+        # consumer propagates upstream and the in-flight semaphore slot
+        # (LIP-E001-F002) releases promptly. A separate cancellation log
+        # below makes cancelled calls visible at INFO level alongside the
+        # started/completed pair.
         #
         # Log key is ``model_name`` (not ``model``) so a jq filter
         # ``select(.model_name == "gemma3:1b")`` matches both per-call lines
@@ -397,16 +451,16 @@ class OllamaClient:
         logger.info(
             "ollama_call_started",
             model_name=model_tag,
-            endpoint="/api/chat",
+            endpoint=_CHAT_ENDPOINT,
             message_count=len(messages),
             option_keys=option_keys,
         )
         start = time.perf_counter()
         try:
-            response = await self._request("POST", "/api/chat", json=body)
+            response = await self._request("POST", _CHAT_ENDPOINT, json=body)
             response.raise_for_status()
             payload = _decode_ollama_json(response)
-            result = build_chat_result(payload)
+            result = build_chat_result(payload, model_tag=model_tag)
         except Exception as call_exc:
             duration_ms = elapsed_ms(start)
             # Use isinstance-narrow rather than getattr-chain so pyright sees
@@ -436,6 +490,16 @@ class OllamaClient:
                 failure_category = "http_status"
             elif isinstance(call_exc, httpx.RequestError):
                 failure_category = "transport"
+            elif isinstance(call_exc, httpx.InvalidURL):
+                # ``InvalidURL`` inherits directly from ``Exception`` in
+                # httpx 0.28.x — NOT from ``RequestError`` — so without
+                # this dedicated arm a future control-char-bearing path
+                # (e.g. a sibling adapter method that builds path strings
+                # from operator data) would fall through to ``"unknown"``
+                # and defeat the dashboarding intent of the bucket above.
+                # Today only ``chat`` is wired and the only path is the
+                # literal ``_CHAT_ENDPOINT``, so this arm is preventive.
+                failure_category = "transport"
             elif isinstance(call_exc, NotImplementedError):
                 failure_category = "unsupported_input"
             elif isinstance(call_exc, ValueError):
@@ -456,7 +520,7 @@ class OllamaClient:
             logger.exception(
                 "ollama_call_failed",
                 model_name=model_tag,
-                endpoint="/api/chat",
+                endpoint=_CHAT_ENDPOINT,
                 exc_type=type(call_exc).__name__,
                 exc_message=ascii_safe(str(call_exc), max_chars=EXC_MESSAGE_PREVIEW_MAX_CHARS),
                 failure_category=failure_category,
@@ -489,7 +553,7 @@ class OllamaClient:
             logger.info(
                 "ollama_call_cancelled",
                 model_name=model_tag,
-                endpoint="/api/chat",
+                endpoint=_CHAT_ENDPOINT,
                 exc_type=type(cancel_exc).__name__,
                 duration_ms=duration_ms,
                 ollama_status_code=ollama_status_code,
@@ -506,7 +570,7 @@ class OllamaClient:
         logger.info(
             "ollama_call_completed",
             model_name=model_tag,
-            endpoint="/api/chat",
+            endpoint=_CHAT_ENDPOINT,
             duration_ms=duration_ms,
             finish_reason=result.finish_reason,
             prompt_tokens=result.prompt_tokens,

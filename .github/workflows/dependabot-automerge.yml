@@ -46,6 +46,14 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+  # Manual re-trigger affordance: after flipping
+  # ``DEPENDABOT_AUTOMERGE_ENABLED`` from "false" back to "true", the
+  # operator can re-evaluate the guard on already-open Dependabot PRs
+  # without waiting for the next Dependabot push. The job-level
+  # ``if:`` guard (``user.login == 'dependabot[bot]'``) keeps a manual
+  # ``workflow_dispatch`` from escalating to merging a non-Dependabot
+  # PR — the job will skip cleanly.
+  workflow_dispatch:
 
 # A new push (synchronize) supersedes the pending merge-intent attempt
 # from the previous event. cancel-in-progress drops the older queued run

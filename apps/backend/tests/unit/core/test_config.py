@@ -64,12 +64,11 @@ def test_settings_is_frozen_at_runtime(field_name: str) -> None:
     """
     settings = make_settings()
     with pytest.raises(ValidationError):
-        # ``# pyright: ignore[reportAttributeAccessIssue]`` (not
-        # ``# type: ignore[misc]``): aligns dialect with the rest of the
-        # repo (12 sites use ``pyright: ignore``). frozen=True invariant
-        # test — assignment must raise at runtime, not get typed-out by
-        # pyright.
-        setattr(settings, field_name, "bogus")  # pyright: ignore[reportAttributeAccessIssue]
+        # ``setattr`` (not ``settings.field_name = ...``) so pyright
+        # doesn't statically reject the assignment under
+        # ``frozen=True``; the runtime ValidationError is what we want
+        # to assert.
+        setattr(settings, field_name, "bogus")
 
 
 def test_settings_extra_forbid_rejects_unknown_kwarg() -> None:
@@ -87,9 +86,20 @@ def test_settings_extra_forbid_silently_ignores_unknown_env_var(
     env-var sources. A typo like ``LIP_OLLMA_HOST=...`` in .env is silently
     ignored rather than raising at import time. Pinning this surprise so the
     cache files / future docs cannot drift back to claiming env-var rejection.
+
+    The assertions cover BOTH halves of the contract:
+    1. ``make_settings()`` constructs successfully (no ValidationError).
+    2. The bogus name is dropped from the constructed instance (not landed
+       on a hidden ``_extras`` field). Without the second assertion, a
+       future pydantic-settings 3.x that started populating an ``_extras``
+       attribute would still pass ``# must not raise`` while breaking the
+       silent-ignore invariant the docstring claims to pin.
     """
     monkeypatch.setenv("LIP_BOGUS_ENV_VAR", "x")
-    make_settings()  # must not raise
+    settings = make_settings()
+    dumped = settings.model_dump()
+    assert "bogus_env_var" not in dumped
+    assert "bogus" not in str(dumped).lower()
 
 
 def test_settings_case_sensitive_default_off() -> None:
@@ -171,7 +181,9 @@ def test_settings_log_level_non_string_input_delegates_to_pydantic() -> None:
     with pytest.raises(ValidationError, match="Input should be 'debug'"):
         # ``42`` is the smallest non-string, non-tuple-of-Literal value
         # that exercises the ``isinstance(value, str)`` False branch.
-        make_settings(log_level=42)  # pyright: ignore[reportArgumentType]
+        # ``**overrides: object`` makes the call site type-permissive,
+        # so no ignore is needed.
+        make_settings(log_level=42)
 
 
 @pytest.mark.parametrize("invalid_host", ["", "x" * 254])

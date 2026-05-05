@@ -10,7 +10,7 @@ name `base64` matches the wire vocabulary the adapter feature consumes.
 import pytest
 from pydantic import ValidationError
 
-from app.features.inference.model.caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
+from app.features.inference.model.dos_caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
 from app.features.inference.model.image_content import ImageContent
 
 

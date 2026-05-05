@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.features.inference.model.caps import TEXT_PART_MAX_CHARS
+from app.features.inference.model.dos_caps import TEXT_PART_MAX_CHARS
 
 
 class TextContent(BaseModel):
@@ -18,7 +18,7 @@ class TextContent(BaseModel):
 
     type: Literal["text"] = "text"
     # ``TEXT_PART_MAX_CHARS`` (128 KiB) bounds the per-part DoS surface;
-    # see app.features.inference.model.caps for the rationale.
+    # see app.features.inference.model.dos_caps for the rationale.
     # str_strip_whitespace prevents min_length=1 from being bypassed with
     # whitespace-only input.
     text: str = Field(min_length=1, max_length=TEXT_PART_MAX_CHARS)

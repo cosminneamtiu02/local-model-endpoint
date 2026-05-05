@@ -78,7 +78,7 @@ def test_model_capability_not_supported_renders_model_and_capability() -> None:
 
 
 def test_conflict_constructs_with_default_detail() -> None:
-    """ConflictError closes the unit-coverage gap flagged in earlier reviews.
+    """ConflictError per-class invariants.
 
     The registry-shape test in test_registry.py only iterates the keys; without
     a per-class assertion of code/status/type_uri/title/detail, a YAML edit
@@ -149,7 +149,7 @@ def test_domain_error_subclass_missing_classvar_raises_typeerror() -> None:
     """__init_subclass__ enforces that every DomainError declares the 5 required ClassVars."""
     with pytest.raises(TypeError, match="must declare ClassVar"):
         # type_uri is intentionally missing — should fail at class-creation time.
-        class _BrokenError(DomainError):  # pyright: ignore[reportUnusedClass]
+        class _BrokenError(DomainError):
             code: ClassVar[str] = "BROKEN"
             http_status: ClassVar[int] = 500
             title: ClassVar[str] = "Broken"
@@ -167,7 +167,7 @@ def test_domain_error_str_does_not_leak_params() -> None:
     assert err.args == ("QUEUE_FULL",)
 
 
-def test_parameterized_error_detail_works_under_python_o() -> None:
+def test_parameterized_error_detail_renders_when_assertions_stripped() -> None:
     """detail() must succeed even when assertions are stripped (Python -O).
 
     Generated subclasses use ``cast("BaseModel", self.params)`` instead of

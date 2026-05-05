@@ -61,6 +61,7 @@ content-negotiated; the ``title`` and ``detail`` strings (per RFC 7807 §3.1
 
 import itertools
 import uuid
+from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any, Final, NamedTuple, cast
 
@@ -164,24 +165,30 @@ def _resolve_request_id(request: Request) -> _RequestIdResolution:
     if isinstance(request_id, str) and UUID_REGEX.match(request_id) is not None:
         return _RequestIdResolution(request_id, missed_middleware=False)
     fallback = str(uuid.uuid4())
-    # Bind request_id + method + path + a fallback-marker so every subsequent
-    # log line for this request carries routing context AND advertises the
-    # broken-middleware path (the middleware ordinarily binds the first three;
+    # Bind request_id + method + path + phase + a fallback-marker so every
+    # subsequent log line for this request carries routing context AND
+    # advertises the broken-middleware path. The middleware ordinarily binds
+    # all five (request_id, method, path, phase="request", request_id_source);
     # under fallback we duplicate the work so handler-emitted lines don't ship
-    # without method/path AND so operators can grep for ``request_id_source=
-    # fallback`` to find every log line on the misconfigured-app path).
+    # without method/path/phase AND so operators can grep for
+    # ``request_id_source=fallback`` to find every log line on the
+    # misconfigured-app path. Without ``phase="request"`` here, the
+    # documented ``select(.phase == "request")`` jq filter in
+    # ``request_id_middleware.py`` would silently drop every fallback-path
+    # event — exactly the diagnostic surface that needs maximum visibility.
     structlog.contextvars.bind_contextvars(
         request_id=fallback,
         method=request.method,
         path=request.url.path,
+        phase="request",
         request_id_source="fallback",
     )
-    # ``path`` and ``method`` ride in via ``merge_contextvars`` from the
-    # bind two lines above, so they don't need to be passed again here.
-    logger.warning(
-        "request_id_missing_in_state",
-        fallback_request_id=fallback,
-    )
+    # ``path``, ``method``, ``request_id``, and ``phase`` ride in via
+    # ``merge_contextvars`` from the bind above; ``request_id_source=
+    # "fallback"`` is the discriminator. No additional kwargs needed —
+    # passing ``fallback_request_id=fallback`` would duplicate the
+    # contextvar-bound ``request_id`` field under a second key.
+    logger.warning("request_id_missing_in_state")
     return _RequestIdResolution(fallback, missed_middleware=True)
 
 
@@ -287,11 +294,22 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
         )
 
 
-def _problem_response(problem: ProblemDetails) -> Response:
+def _problem_response(
+    problem: ProblemDetails,
+    *,
+    extra_headers: Mapping[str, str] | None = None,
+) -> Response:
     """Serialize a :class:`ProblemDetails` into the canonical RFC 7807 response.
 
     Single-pass serialization via ``model_dump_json()`` (Pydantic's
     C-accelerated path) avoids the ``model_dump() -> JSONResponse`` two-step.
+
+    ``extra_headers`` carries framework-supplied response headers that the
+    error path must preserve — e.g. Starlette sets ``Allow:`` on 405
+    HTTPExceptions, and RFC 9110 §15.5.6 makes that header MANDATORY on
+    method-not-allowed responses. The merge is right-biased so caller-
+    supplied entries override the static ``Content-Language`` default if a
+    future call needs to (none today).
 
     ``X-Request-ID`` is intentionally NOT set on typed-handler responses —
     :class:`RequestIdMiddleware` is a pure ASGI middleware that injects the
@@ -300,11 +318,14 @@ def _problem_response(problem: ProblemDetails) -> Response:
     The catch-all 500 path injects it explicitly because Starlette's
     ``ServerErrorMiddleware`` runs OUTSIDE the user stack.
     """
+    headers: dict[str, str] = {"Content-Language": CONTENT_LANGUAGE}
+    if extra_headers:
+        headers.update(extra_headers)
     return Response(
         content=problem.model_dump_json(),
         status_code=problem.status,
         media_type=PROBLEM_JSON_MEDIA_TYPE,
-        headers={"Content-Language": CONTENT_LANGUAGE},
+        headers=headers,
     )
 
 
@@ -434,6 +455,12 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     first_field = validation_errors[0].field if validation_errors else _UNKNOWN_FIELD_SENTINEL
     first_reason = validation_errors[0].reason if validation_errors else _UNKNOWN_FIELD_SENTINEL
     domain_err = ValidationFailedError(field=first_field, reason=first_reason)
+    # Hoist ``len(validation_errors)`` once instead of re-evaluating across
+    # the log line, the detail-override branches, and the typed-params
+    # suppress flag — symmetric with the surrounding code's
+    # hoist-once-then-dispatch idiom (e.g. ``option_keys`` in
+    # ``ollama_client.py:366``).
+    error_count = len(validation_errors)
 
     # Symmetric peer of ``domain_error_raised`` (typed 4xx) and
     # ``http_exception_5xx_raised`` (framework 5xx): a single jq filter
@@ -442,15 +469,27 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # Without this line, the 422 happy path is greppable only via the
     # contextvar-bound ``error_code=VALIDATION_FAILED`` riding into the
     # ``request_completed`` line — a different filter shape than the
-    # other handlers, which the lane-17 review caught as the lone gap.
+    # other handlers.
+    #
+    # ``first_field`` / ``first_reason`` carried explicitly so this event is
+    # field-set-symmetric with ``domain_error_raised`` and
+    # ``http_exception_4xx_raised`` (both ship a triage-actionable preview).
+    # Operators triaging a 422 burst from logs alone (without joining the
+    # wire body) can distinguish a single-field validation error from
+    # consumer-side schema drift via ``error_count`` plus the first-error
+    # preview. ``first_reason`` is already truncated to ``REASON_MAX_CHARS``
+    # by the schema-side cap above; the ``_DISCRIMINATOR_PREVIEW_MAX_CHARS``
+    # cap below is the secondary log-line truncation for compactness.
     logger.warning(
         "validation_error_raised",
         code=ValidationFailedError.code,
         status_code=int(HTTPStatus.UNPROCESSABLE_ENTITY),
-        error_count=len(validation_errors),
+        error_count=error_count,
+        first_field=first_field,
+        first_reason=first_reason[:_DISCRIMINATOR_PREVIEW_MAX_CHARS],
     )
 
-    if not validation_errors:
+    if not error_count:
         # Pydantic emitting an empty errors list for a RequestValidationError
         # violates its own invariants — surface it loudly with a bounded
         # triage payload so the operator can reproduce the upstream bug.
@@ -461,8 +500,13 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         # control chars into the rendered ConsoleRenderer output.
         raw_content_type = request.headers.get("content-type", "")
         raw_content_length = request.headers.get("content-length", "")
+        # Event name uses the ``_missing`` state-form (peer of
+        # ``request_id_missing_in_state`` / ``ollama_user_agent_version_missing``)
+        # rather than the noun-form ``_anomaly`` — a jq filter
+        # ``endswith("_missing")`` then groups all "expected-but-absent"
+        # diagnostic surfaces uniformly.
         logger.warning(
-            "validation_error_empty_details_anomaly",
+            "validation_error_details_missing",
             raw_error_count=len(raw_errors),
             # Pydantic's ``errors()`` returns ``Sequence[ErrorDetails]`` typed
             # dicts; ``type(e).__name__`` would always be the constant
@@ -481,12 +525,11 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         )
 
     detail_override: str | None = None
-    if len(validation_errors) > 1:
+    if error_count > 1:
         detail_override = (
-            f"Validation failed for {len(validation_errors)} fields. "
-            "See validation_errors[] for details."
+            f"Validation failed for {error_count} fields. See validation_errors[] for details."
         )
-    elif not validation_errors:
+    elif not error_count:
         # Make the abnormal zero-errors path self-documenting on the wire
         # rather than synthesizing a misleading single-field detail.
         detail_override = (
@@ -511,7 +554,7 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         request_id,
         detail_override=detail_override,
         extras=ProblemExtras(validation_errors=validation_errors or None),
-        suppress_typed_params=len(validation_errors) != 1,
+        suppress_typed_params=error_count != 1,
     )
     response = _problem_response(problem)
     _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
@@ -691,7 +734,15 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
             request_id,
             detail_override=detail_text,
         )
-        response = _problem_response(problem)
+        # Starlette's ``Route.handle`` raises ``HTTPException(405,
+        # headers={"Allow": ...})`` and the ``Allow`` header is MANDATORY
+        # on 405 responses per RFC 9110 §15.5.6 ("the origin server MUST
+        # generate an Allow header field in a 405 response"). Forward it
+        # through to the wire response — without this, standards-
+        # compliant clients (curl --retry, requests Retry adapter) cannot
+        # discover supported methods on a 405 and a conformance audit
+        # flags LIP as non-compliant.
+        response = _problem_response(problem, extra_headers=http_exc.headers)
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response
 
@@ -787,11 +838,6 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
 
 def register_exception_handlers(application: FastAPI) -> None:
     """Register all exception handlers on the FastAPI app.
-
-    Parameter named ``application`` for symmetry with ``register_routers``
-    and ``configure_middleware`` — three sibling helpers with one
-    parameter convention so the call site in ``app.main.create_app`` reads
-    uniformly.
 
     Order is documentation, not semantics: Starlette resolves by walking
     ``type(exc).__mro__`` and picking the most-specific registered handler.

@@ -25,7 +25,7 @@ UUID_REGEX: Final[re.Pattern[str]] = re.compile(UUID_PATTERN_STR, re.IGNORECASE)
 """Pre-compiled case-insensitive UUID regex shared across api/ and schemas/.
 
 Both :class:`RequestIdMiddleware` and :func:`_resolve_request_id` (in
-``app/api/exception_handlers.py``) match against the same compiled object so
+``app/api/exception_handler_registry.py``) match against the same compiled object so
 a future pattern change (e.g. adding ``re.UNICODE``) cannot drift between
 the two sites; centralization also avoids a per-process duplicate
 ``re.compile`` cost at import time."""
@@ -43,9 +43,9 @@ two response envelopes."""
 
 INSTANCE_PATH_MAX_CHARS: Final[int] = 2048
 """Cap for ``ProblemDetails.instance`` and the matching truncation in
-:func:`app.api.exception_handlers._bounded_instance`. Hoisted here
+:func:`app.api.exception_handler_registry._bounded_instance`. Hoisted here
 (rather than living in two parallel ``Final[int]`` definitions in
-``schemas/problem_details.py`` and ``api/exception_handlers.py``) so a
+``schemas/problem_details.py`` and ``api/exception_handler_registry.py``) so a
 future bump moves both sites in lockstep — the handler's truncation
 must always match the schema's ``max_length`` or a 2049-char path would
 trip ``ProblemDetails`` construction inside the very handler that's

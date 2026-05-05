@@ -61,7 +61,7 @@ errors:
 
   INTERNAL_ERROR:
     http_status: 500
-    description: Unhandled server error; details are logged with request_id
+    description: Unhandled server error, details are logged with request_id
     title: Internal Server Error
     detail_template: An unexpected error occurred. Use the request_id to correlate with server logs.
     params: {}

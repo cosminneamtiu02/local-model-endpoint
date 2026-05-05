@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.features.inference.model.caps import CONTENT_MAX_LENGTH
+from app.features.inference.model.dos_caps import CONTENT_MAX_LENGTH
 from app.features.inference.schemas.response_metadata import ResponseMetadata
 
 
@@ -25,5 +25,10 @@ class InferenceResponse(BaseModel):
     # cap — the orchestrator copies content from there into this envelope
     # without re-validation, so the wire schema needs the same bound to
     # keep response amplification visible at every layer.
-    content: str = Field(max_length=CONTENT_MAX_LENGTH)
-    metadata: ResponseMetadata
+    content: str = Field(
+        max_length=CONTENT_MAX_LENGTH,
+        description="Assistant-generated text returned verbatim from the backend.",
+    )
+    metadata: ResponseMetadata = Field(
+        description="Per-response routing/timing/token metadata.",
+    )

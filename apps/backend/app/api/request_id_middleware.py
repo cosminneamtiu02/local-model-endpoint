@@ -150,7 +150,7 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     )
     # No ``exclude_none=False`` — that's the Pydantic v2 default; passing it
     # explicitly drifts from the bare ``model_dump_json()`` shape used at
-    # ``exception_handlers._problem_response``. The 413 path has no
+    # ``exception_handler_registry._problem_response``. The 413 path has no
     # ProblemExtras / typed-params spread that would need ``None`` preservation.
     body = problem.model_dump_json().encode("utf-8")
     await send(
@@ -176,6 +176,15 @@ class RequestIdMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: PLR0915 — single-pass ASGI hot path: header validation, contextvar binding, body-size guard, send-wrapper, finally-block access log; splitting would require shared mutable state.
         if scope["type"] != "http":
+            # FORWARD-risk note: a future LIP-E007 WebSocket feature (or
+            # any non-HTTP ASGI scope) added without a parallel
+            # WS-middleware would inherit cross-message ``error_code``
+            # contextvar leakage — this middleware short-circuits non-
+            # http scopes and the ``clear_contextvars()`` in the http
+            # path is the only mechanism keeping per-handler binds
+            # bounded. When WS lands, either extend this middleware to
+            # clear at every WS-connect boundary or add a sibling
+            # middleware that mirrors the clear-contextvars semantics.
             await self.app(scope, receive, send)
             return
 
@@ -204,7 +213,10 @@ class RequestIdMiddleware:
         # char hot path on every request resolves with one ``ord()`` call.
         if any((o := ord(c)) < _C0_CONTROL_UPPER or o == _DEL_CHAR for c in client_id):
             client_id = "<non-printable>"
-        match_result = UUID_REGEX.match(client_id) if client_id else None
+        # ``UUID_REGEX.match("")`` returns None, so the regex alone handles
+        # the empty-string case — symmetric with the resolver in
+        # ``exception_handler_registry._resolve_request_id``.
+        match_result = UUID_REGEX.match(client_id)
 
         # Resolve method/path early so the rejected-id warning below can
         # carry the routing context (operators need to know which endpoint
@@ -241,7 +253,7 @@ class RequestIdMiddleware:
         # ``select(.request_id_source == "client")`` find every per-request
         # log line on the happy client-supplied path — symmetric with the
         # ``request_id_source="fallback"`` bind in
-        # ``exception_handlers._resolve_request_id``. ``phase="request"``
+        # ``exception_handler_registry._resolve_request_id``. ``phase="request"``
         # mirrors the lifespan binding (``phase="lifespan"`` in
         # router_registry.lifespan_resources) so a jq filter
         # ``select(.phase == "request")`` greps every per-request log line.
@@ -350,7 +362,7 @@ class RequestIdMiddleware:
                 # and ``error_code`` ARE re-read off contextvars and passed
                 # as explicit kwargs as defense-in-depth — same pattern the
                 # unhandled-exception handler uses for ``method``/``path``
-                # in ``exception_handlers``. A future refactor narrowing
+                # in ``exception_handler_registry``. A future refactor narrowing
                 # the contextvar lifetime won't drop these from the access
                 # log mid-flight. ``error_code`` is bound by typed exception
                 # handlers when an error fires; absent on the happy path.
@@ -376,11 +388,6 @@ class RequestIdMiddleware:
 
 def configure_middleware(application: FastAPI) -> None:
     """Attach middleware to the FastAPI app.
-
-    Parameter named ``application`` for symmetry with ``register_routers``
-    and ``register_exception_handlers`` — three sibling helpers with one
-    parameter convention so the call site in ``app.main.create_app`` reads
-    uniformly.
 
     No CORS, no trusted-hosts, no auth — local-network-only service per
     docs/disambiguated-idea.md (Security boundary). Add CORS scaffolding
