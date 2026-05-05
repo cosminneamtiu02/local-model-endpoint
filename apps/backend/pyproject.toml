@@ -132,6 +132,17 @@ asyncio_mode = "auto"
 # autouse ``_clear_structlog_contextvars`` fixture in tests/conftest.py
 # is the canary that this risk is real and the ``filterwarnings`` block
 # below converts unraised exceptions to test failures so leaks surface.
+#
+# The ``test_loop_scope`` line below MUST stay in lockstep with the
+# fixture-loop scope above. pytest-asyncio 1.3.0 treats them as
+# independent settings (per the cached docs at
+# ~/.claude/context7-cache/.../schemathesis@*.md and the pytest-asyncio
+# upstream changelog: ``asyncio_default_test_loop_scope`` defaults to
+# ``function`` when unset). A function-scoped test loop alongside a
+# session-scoped fixture loop triggers ``ScopeMismatch`` the first time
+# a session-scoped async fixture is added (we have none today, but the
+# coupling is invisible at edit time and a future addition would tip
+# the suite over). Both at session scope keeps the invariant intact.
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 # --strict-markers/-config fails the run on unknown markers or unknown

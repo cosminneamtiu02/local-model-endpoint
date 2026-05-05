@@ -26,8 +26,12 @@ class Message(BaseModel):
     role: Literal["user", "assistant", "system"]
     # Per-arm constraints: str -> char-count cap (single-turn plain prompt);
     # list -> part-count cap. ``TEXT_PART_MAX_CHARS`` is shared with
-    # ``TextContent.text`` so a future cap bump moves both at once.
-    content: (
+    # ``TextContent.text`` so a future cap bump moves both at once. The
+    # ``union_mode`` metadata rides inside the outer ``Annotated`` so all
+    # union-related Field metadata lives in one wrapper — symmetric with
+    # the per-arm Annotated form already used on each branch.
+    content: Annotated[
         Annotated[str, Field(min_length=1, max_length=TEXT_PART_MAX_CHARS)]
-        | Annotated[list[ContentPart], Field(min_length=1, max_length=32)]
-    ) = Field(union_mode="left_to_right")
+        | Annotated[list[ContentPart], Field(min_length=1, max_length=32)],
+        Field(union_mode="left_to_right"),
+    ]

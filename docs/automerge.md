@@ -352,6 +352,7 @@ Effective on the next `pull_request` event. The workflow continues to run on eve
 
 ---
 
+<a id="setup"></a>
 ## Setup
 
 A fresh clone of this repo needs the following one-time bootstrap before

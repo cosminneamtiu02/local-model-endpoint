@@ -23,7 +23,7 @@ concurrency:
   # squash-merges (auto-merge has no rate limiter) don't cancel earlier
   # post-merge canary runs — the lane-10.8 rationale ("main is always
   # known-green") requires every squash on main to keep its CI record.
-  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'pr' }}
+  group: ci-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'pr' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -44,13 +44,29 @@ jobs:
 
       - name: Read Python version from .python-version
         # ``.python-version`` at the repo root is the single source of
-        # truth for the Python interpreter version (lane 10.2). Piped
-        # through ``$GITHUB_ENV`` so subsequent steps reference
+        # truth for the Python interpreter version. Piped through
+        # ``$GITHUB_ENV`` so subsequent steps reference
         # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
         # read .python-version (it has a ``python-version`` input that
         # accepts a literal or a python-version-spec string only), so the
         # explicit read step is the bridge.
-        run: echo "PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)" >> "$GITHUB_ENV"
+        #
+        # ``working-directory: .`` is REQUIRED here — the job-level
+        # ``defaults: run: working-directory: <subdir>`` puts every other
+        # ``run:`` step in the workspace subdir, but ``.python-version``
+        # only exists at the repo root. Without this override the read
+        # step silently fails ("No such file"), the ``$()`` substitution
+        # swallows the error, and ``PYTHON_VERSION`` ships empty into
+        # setup-uv. ``set -euo pipefail`` + an explicit empty-string check
+        # converts that silent failure into a loud ``::error::``
+        # annotation so a future ``.python-version`` delete is red CI,
+        # not a silent unpinned interpreter.
+        working-directory: .
+        run: |
+          set -euo pipefail
+          v=$(tr -d '[:space:]' < .python-version)
+          [ -n "$v" ] || { echo "::error::.python-version is empty or missing"; exit 1; }
+          echo "PYTHON_VERSION=$v" >> "$GITHUB_ENV"
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
@@ -168,13 +184,29 @@ jobs:
 
       - name: Read Python version from .python-version
         # ``.python-version`` at the repo root is the single source of
-        # truth for the Python interpreter version (lane 10.2). Piped
-        # through ``$GITHUB_ENV`` so subsequent steps reference
+        # truth for the Python interpreter version. Piped through
+        # ``$GITHUB_ENV`` so subsequent steps reference
         # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
         # read .python-version (it has a ``python-version`` input that
         # accepts a literal or a python-version-spec string only), so the
         # explicit read step is the bridge.
-        run: echo "PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)" >> "$GITHUB_ENV"
+        #
+        # ``working-directory: .`` is REQUIRED here — the job-level
+        # ``defaults: run: working-directory: <subdir>`` puts every other
+        # ``run:`` step in the workspace subdir, but ``.python-version``
+        # only exists at the repo root. Without this override the read
+        # step silently fails ("No such file"), the ``$()`` substitution
+        # swallows the error, and ``PYTHON_VERSION`` ships empty into
+        # setup-uv. ``set -euo pipefail`` + an explicit empty-string check
+        # converts that silent failure into a loud ``::error::``
+        # annotation so a future ``.python-version`` delete is red CI,
+        # not a silent unpinned interpreter.
+        working-directory: .
+        run: |
+          set -euo pipefail
+          v=$(tr -d '[:space:]' < .python-version)
+          [ -n "$v" ] || { echo "::error::.python-version is empty or missing"; exit 1; }
+          echo "PYTHON_VERSION=$v" >> "$GITHUB_ENV"
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0

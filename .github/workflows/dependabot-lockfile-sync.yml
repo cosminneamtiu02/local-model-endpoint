@@ -97,6 +97,12 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+  # Manual re-trigger affordance for re-arming the kill-switch after a
+  # ``DEPENDABOT_LOCKFILE_SYNC_ENABLED`` flip back to "true". The job-
+  # level ``if:`` guard (``user.login == 'dependabot[bot]'``) keeps the
+  # manual invocation from escalating to non-Dependabot PRs — it will
+  # skip cleanly.
+  workflow_dispatch:
 
 # GITHUB_TOKEN scopes are intentionally minimal: this workflow's only
 # write surface is ``git push`` authenticated by the user-supplied PAT
@@ -144,16 +150,30 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+          # Shallow fetch sized for typical Dependabot rebase chains. The
+          # sync workflow only runs ``git log -1 HEAD`` and
+          # ``git diff --name-only $BASE_SHA $HEAD_SHA``; neither needs
+          # full history. The fail-safe further down ("BASE_SHA / HEAD_SHA
+          # not present in shallow fetch") surfaces a clear "bump
+          # fetch-depth" error if a future PR's ancestry runs deeper than
+          # 50 commits, so this is a safe optimization.
+          fetch-depth: 50
           token: ${{ secrets.DEPENDABOT_LOCKFILE_SYNC_PAT }}
 
       - name: Read Python version from .python-version
         # ``.python-version`` at the repo root is the single source of
-        # truth for the Python interpreter version (lane 10.2). Piped
-        # through ``$GITHUB_ENV`` so the setup-uv step references
+        # truth for the Python interpreter version. Piped through
+        # ``$GITHUB_ENV`` so the setup-uv step references
         # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
         # read .python-version, so the explicit read step is the bridge.
-        run: echo "PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)" >> "$GITHUB_ENV"
+        # Defensive read pattern (set -euo pipefail + empty-check) so a
+        # missing or empty ``.python-version`` is a loud CI failure, not
+        # a silent ``setup-uv`` default fallback.
+        run: |
+          set -euo pipefail
+          v=$(tr -d '[:space:]' < .python-version)
+          [ -n "$v" ] || { echo "::error::.python-version is empty or missing"; exit 1; }
+          echo "PYTHON_VERSION=$v" >> "$GITHUB_ENV"
 
       - name: Guard against self-triggered loops
         id: loop_guard

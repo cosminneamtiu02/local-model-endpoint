@@ -107,6 +107,17 @@ _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
         "request_body",
         "chat_request",
         "chat_response",
+        # Close-by-name surface a future contributor might naturally use
+        # without reaching for ``messages`` / ``content``. The CLAUDE.md
+        # ban applies to "prompt text / model output / tool-call
+        # arguments" regardless of the kwarg key the caller picks; these
+        # variants extend the backstop to the regression-likely names.
+        "input",
+        "prompt_text",
+        "system_prompt",
+        "instruction",
+        "text",
+        "query",
     },
 )
 """Event-dict keys whose values are unconditionally redacted.

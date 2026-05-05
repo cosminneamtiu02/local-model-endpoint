@@ -15,4 +15,10 @@ def make_settings(**overrides: object) -> Settings:
     this factory removes the need to remember _env_file=None on every call
     and centralizes the BaseSettings init pyright-suppression.
     """
-    return Settings(_env_file=None, **overrides)  # pyright: ignore[reportCallIssue]  # BaseSettings init not visible to pyright
+    # ``# pyright: ignore[reportCallIssue]`` — pyright cannot reconcile
+    # ``**overrides: object`` against the BaseSettings typed init kwargs
+    # (``_env_file: PathType | None``, ``_env_file_encoding: str | None``,
+    # plus per-field aliases). Settings has no aliased fields today; if any
+    # land, prefer ``Settings.model_validate({"_env_file": None, **overrides})``
+    # over kwarg-spread so the call site stays typed without the ignore.
+    return Settings(_env_file=None, **overrides)  # pyright: ignore[reportCallIssue]

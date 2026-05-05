@@ -75,6 +75,12 @@ class ProblemDetails(BaseModel):
         # schema regex and the framework-HTTPException handler emit-site
         # cannot drift apart.
         pattern=rf"^({ABOUT_BLANK_TYPE}|urn:lip:error:[a-z0-9-]+)$",
+        # Explicit ``min_length=1`` symmetric with the sibling
+        # ``title``/``detail``/``instance`` fields so OpenAPI consumers
+        # reading ``minLength`` (not the regex) enforce non-empty
+        # client-side per the documented "OpenAPI sync" rationale on
+        # ``request_id`` below.
+        min_length=1,
         max_length=_TYPE_MAX_CHARS,
     )
     title: str = Field(
@@ -114,6 +120,11 @@ class ProblemDetails(BaseModel):
         # (e.g. ``X_42`` is rejected) so codegen and the wire schema agree
         # on the canonical form.
         pattern=r"^[A-Z][A-Z0-9]*(_[A-Z][A-Z0-9]*)*$",
+        # Explicit ``min_length=1`` symmetric with the sibling text
+        # fields so OpenAPI consumers reading ``minLength`` (not the
+        # regex) enforce non-empty client-side per the documented
+        # "OpenAPI sync" rationale on ``request_id`` below.
+        min_length=1,
         max_length=_CODE_MAX_CHARS,
     )
     request_id: str = Field(

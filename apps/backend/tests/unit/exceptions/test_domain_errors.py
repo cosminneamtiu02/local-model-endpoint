@@ -167,7 +167,7 @@ def test_domain_error_str_does_not_leak_params() -> None:
     assert err.args == ("QUEUE_FULL",)
 
 
-def test_parameterized_error_detail_works_under_python_o() -> None:
+def test_parameterized_error_detail_renders_when_assertions_stripped() -> None:
     """detail() must succeed even when assertions are stripped (Python -O).
 
     Generated subclasses use ``cast("BaseModel", self.params)`` instead of

@@ -159,3 +159,32 @@ def test_redaction_processor_is_in_shared_processors() -> None:
     configure_logging(log_level="info", json_output=False)
     processors = structlog.get_config()["processors"]
     assert _redact_sensitive_keys in processors, processors
+
+
+def test_redaction_processor_redacts_contextvar_bound_message_content(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Defense-in-depth contract: contextvar-bound prompt content is redacted
+    on the rendered JSON line (not just on the synthetic event_dict above).
+
+    Regression guard: a future refactor that moves ``_redact_sensitive_keys``
+    BEFORE ``merge_contextvars`` (e.g. for performance) would silently break
+    contextvar redaction while leaving every existing test green
+    (``test_redaction_processor_strips_sensitive_keys`` calls the processor
+    directly, never via the chain). This test exercises the full chain by
+    binding via ``bind_contextvars`` and asserting the rendered JSON has
+    the sentinel — which only happens if the redaction processor sees the
+    contextvar-merged value.
+    """
+    structlog.contextvars.bind_contextvars(
+        messages=[{"role": "user", "content": "SECRET-PROMPT-MARKER-12345"}],
+    )
+    try:
+        configure_logging(log_level="info", json_output=True)
+        logger = structlog.get_logger("test")
+        logger.info("smoke")
+        out = capsys.readouterr().out
+        assert "<redacted>" in out, out
+        assert "SECRET-PROMPT-MARKER-12345" not in out, out
+    finally:
+        structlog.contextvars.clear_contextvars()

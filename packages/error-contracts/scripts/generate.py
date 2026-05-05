@@ -818,9 +818,17 @@ def _cli_main() -> None:
     code path lives in this module rather than a fragile inline
     `python -c` one-liner in the Taskfile.
     """
-    repo_root = Path(__file__).resolve().parents[1]
-    errors_yaml = repo_root / "errors.yaml"
-    output_dir = repo_root.parent.parent / "apps" / "backend" / "app" / "exceptions" / "_generated"
+    # ``parents[1]`` is ``packages/error-contracts/`` (workspace root).
+    # ``parents[3]`` is the repo root. Indexed access mirrors the test-
+    # suite idiom (``Path(__file__).parents[5]`` in
+    # ``test_errors_yaml_invariants.py``) and avoids the misleading
+    # ``repo_root.parent.parent`` name-vs-depth mismatch the previous form
+    # encoded.
+    here = Path(__file__).resolve()
+    workspace_root = here.parents[1]
+    repo_root = here.parents[3]
+    errors_yaml = workspace_root / "errors.yaml"
+    output_dir = repo_root / "apps" / "backend" / "app" / "exceptions" / "_generated"
     generated = generate_python(errors_yaml, output_dir)
     print(f"Generated {len(generated)} Python error files in {output_dir}")  # noqa: T201
 

@@ -839,11 +839,6 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
 def register_exception_handlers(application: FastAPI) -> None:
     """Register all exception handlers on the FastAPI app.
 
-    Parameter named ``application`` for symmetry with ``register_routers``
-    and ``configure_middleware`` — three sibling helpers with one
-    parameter convention so the call site in ``app.main.create_app`` reads
-    uniformly.
-
     Order is documentation, not semantics: Starlette resolves by walking
     ``type(exc).__mro__`` and picking the most-specific registered handler.
     The DomainError, RequestValidationError, and StarletteHTTPException

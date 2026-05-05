@@ -176,6 +176,15 @@ class RequestIdMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: PLR0915 — single-pass ASGI hot path: header validation, contextvar binding, body-size guard, send-wrapper, finally-block access log; splitting would require shared mutable state.
         if scope["type"] != "http":
+            # FORWARD-risk note: a future LIP-E007 WebSocket feature (or
+            # any non-HTTP ASGI scope) added without a parallel
+            # WS-middleware would inherit cross-message ``error_code``
+            # contextvar leakage — this middleware short-circuits non-
+            # http scopes and the ``clear_contextvars()`` in the http
+            # path is the only mechanism keeping per-handler binds
+            # bounded. When WS lands, either extend this middleware to
+            # clear at every WS-connect boundary or add a sibling
+            # middleware that mirrors the clear-contextvars semantics.
             await self.app(scope, receive, send)
             return
 
@@ -379,11 +388,6 @@ class RequestIdMiddleware:
 
 def configure_middleware(application: FastAPI) -> None:
     """Attach middleware to the FastAPI app.
-
-    Parameter named ``application`` for symmetry with ``register_routers``
-    and ``register_exception_handlers`` — three sibling helpers with one
-    parameter convention so the call site in ``app.main.create_app`` reads
-    uniformly.
 
     No CORS, no trusted-hosts, no auth — local-network-only service per
     docs/disambiguated-idea.md (Security boundary). Add CORS scaffolding

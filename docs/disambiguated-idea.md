@@ -171,7 +171,7 @@ macOS arm64 only. Not portable to Linux, Windows, or Apple Silicon variants othe
 
 ## Project Boundary
 
-This section enumerates what the v1 deliverable does and does not cover. It is the chokepoint at which scope creep is rejected; downstream skills (`requirements-elicitation`, `feature-elicitation`, `project-bootstrap`) refuse to take in-scope work that is not listed here, and refuse to drop out-of-scope items back into the build.
+This section enumerates what the v1 deliverable does and does not cover. It is the chokepoint at which scope creep is rejected; the bootstrap skills that consumed this document during initial project setup (`requirements-elicitation`, `feature-elicitation`, `project-bootstrap`) refused to take in-scope work that was not listed here, and refused to drop out-of-scope items back into the build. Post-bootstrap (the implementation phase the project is in today), scope changes flow through direct edits to this document plus an ADR plus a feature-node update — the skills are no longer in the loop.
 
 ### In scope for v1
 

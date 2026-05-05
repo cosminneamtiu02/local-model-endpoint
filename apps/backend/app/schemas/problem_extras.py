@@ -29,13 +29,15 @@ class ProblemExtras(BaseModel):
     is optional — only ``VALIDATION_FAILED`` populates ``validation_errors``
     today.
 
-    ``validation_errors`` carries :class:`ValidationErrorDetail` model
-    instances (not dumped dicts): Pydantic walks the tree at
-    ``model_dump_json`` time and serializes them once at the wire boundary,
-    instead of paying a construction-then-dump roundtrip per error in the
-    handler. Consumers should treat that array as canonical and ignore
-    root-level ``field`` / ``reason`` (which reflect only the first error
-    in a multi-field response). The list is capped at
+    ``validation_errors`` is typed as ``list[ValidationErrorDetail]``;
+    inside ``_build_problem_payload`` the handler calls
+    ``extras.model_dump(mode="python", exclude_none=True)`` which Pydantic
+    walks recursively, converting each entry to a plain dict before the
+    spread reaches ``ProblemDetails(**extras_widened)``. ``model_dump_json``
+    on the resulting ProblemDetails then serializes those dicts as the
+    final wire body. Consumers should treat the array as canonical and
+    ignore root-level ``field`` / ``reason`` (which reflect only the first
+    error in a multi-field response). The list is capped at
     ``VALIDATION_ERRORS_MAX_LENGTH`` entries — see that constant's docstring
     for the response-amplification rationale.
     """
