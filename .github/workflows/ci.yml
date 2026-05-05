@@ -18,8 +18,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PR runs share a group keyed on the PR ref so a force-push cancels the
+  # stale older run. ``push: main`` runs are keyed by SHA so back-to-back
+  # squash-merges (auto-merge has no rate limiter) don't cancel earlier
+  # post-merge canary runs — the lane-10.8 rationale ("main is always
+  # known-green") requires every squash on main to keep its CI record.
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'pr' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend-checks:
@@ -204,7 +209,13 @@ jobs:
   # gap. The job has no ``Install dependencies`` step because ``check:plist``
   # only invokes ``plutil``, which ships in the macOS runner image.
   darwin-checks:
-    runs-on: macos-latest
+    # Pin to the current major rather than ``macos-latest`` so a GitHub
+    # auto-bump to a future major doesn't silently shift the runner image
+    # under us — symmetric with the SHA-pinned actions and the
+    # python-version pin elsewhere in this file. The job invokes ``plutil``
+    # only, so a major bump is almost certainly safe; the discipline is
+    # pinning, not actual fragility.
+    runs-on: macos-15
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
