@@ -1,4 +1,16 @@
-"""Health endpoint — liveness probe mounted at root, outside /v1/."""
+"""Health endpoint — liveness probe mounted at root, outside /v1/.
+
+OpenAPI ``operation_id`` convention pinned at this single existing site:
+**camelCase verb-noun** (``getHealth``). SDK codegen tools
+(openapi-typescript, openapi-generator) emit method names directly from
+``operationId`` — camelCase is the JavaScript / TypeScript idiom that
+keeps consumer SDKs feeling native. New routes follow the same shape:
+``createChat``, ``getModels``, ``listSessions``, etc. The verb encodes
+the HTTP-method intent; the noun is the resource. Without a pinned
+convention, future routes drift between ``createChat`` /
+``inferenceCreate`` / ``postInferenceChat`` and SDK consumer types
+mutate noisily across PRs.
+"""
 
 from typing import Any, Final
 
@@ -6,7 +18,7 @@ from fastapi import APIRouter, status
 
 from app.schemas import HealthResponse, ProblemDetails
 
-router = APIRouter(tags=["health"])
+health_router = APIRouter(tags=["health"])
 
 # OpenAPI default-response for every error path. ``model=ProblemDetails``
 # triggers schema registration in ``/openapi.json`` components, and the
@@ -56,9 +68,10 @@ _HEALTH_OK_RESPONSE: Final[dict[str, Any]] = {
 }
 
 
-@router.get(
+@health_router.get(
     "/health",
     operation_id="getHealth",
+    summary="Liveness probe",
     status_code=status.HTTP_200_OK,
     responses={
         status.HTTP_200_OK: _HEALTH_OK_RESPONSE,

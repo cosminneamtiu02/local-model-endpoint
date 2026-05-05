@@ -35,17 +35,7 @@ def test_ollama_host_env_var_overrides_default(
     assert str(settings.ollama_host) == "http://127.0.0.1:11500/"
 
 
-@pytest.mark.parametrize(
-    "field_name",
-    [
-        "app_env",
-        "log_level",
-        "ollama_host",
-        "allow_external_ollama",
-        "allow_public_bind",
-        "bind_host",
-    ],
-)
+@pytest.mark.parametrize("field_name", sorted(Settings.model_fields))
 def test_settings_is_frozen_at_runtime(field_name: str) -> None:
     """Settings is frozen — field assignment after construction must raise.
 
@@ -58,9 +48,11 @@ def test_settings_is_frozen_at_runtime(field_name: str) -> None:
     both flag drift AND a future pydantic-settings change to what
     ``frozen=True`` means.
 
-    Parametrized over every field in Settings.model_fields so adding a new
-    field in the future automatically gets the immutability guarantee
-    asserted — no per-field test sweep needed.
+    Parametrized over ``Settings.model_fields`` directly so adding a new
+    field automatically gets the immutability guarantee asserted — no
+    per-field test-sweep maintenance burden. ``sorted(...)`` gives the
+    parametrize IDs deterministic ordering across pytest runs (matters
+    for failure-mode reproduction and ``-k`` filter ergonomics).
     """
     settings = make_settings()
     with pytest.raises(ValidationError):
@@ -99,7 +91,13 @@ def test_settings_extra_forbid_silently_ignores_unknown_env_var(
     settings = make_settings()
     dumped = settings.model_dump()
     assert "bogus_env_var" not in dumped
-    assert "bogus" not in str(dumped).lower()
+    # Tightened from ``"bogus" not in str(dumped).lower()`` (substring scan
+    # of the entire serialized repr — would catch unrelated drift while
+    # missing the actual regression). Walking ``dumped`` keys directly
+    # pins the contract precisely: no key carrying ``bogus`` lands on the
+    # constructed Settings, regardless of what other field defaults
+    # happen to render to.
+    assert all("bogus" not in k for k in dumped)
 
 
 def test_settings_case_sensitive_default_off() -> None:

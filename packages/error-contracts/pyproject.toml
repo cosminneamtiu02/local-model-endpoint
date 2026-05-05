@@ -4,10 +4,15 @@ version = "0.1.0"
 description = "YAML error-code definitions and Python codegen for the LIP error system; produces apps/backend/app/exceptions/_generated/ via `task errors:generate`. Not installable as a runtime library — no wheel build target."
 license = "MIT"
 authors = [{ name = "Cosmin Neamtiu" }]
+# Lockstep with ``apps/backend/pyproject.toml`` — bump together when
+# Python 3.14 lands and is validated against the codegen tests.
 requires-python = ">=3.13,<3.14"
-dependencies = [
-    "pyyaml==6.0.3",
-]
+# This workspace has no runtime surface (description above states "not
+# installable as a runtime library — no wheel build target"). Every
+# pyyaml consumer is in ``scripts/`` (codegen) or ``tests/`` — both
+# dev-time. Symmetric with the backend's classification (pyyaml is dev-
+# only there too because the backend has no runtime YAML need either).
+dependencies = []
 
 [dependency-groups]
 dev = [
@@ -23,6 +28,9 @@ dev = [
     # source-of-truth enforcer for errors.yaml invariants — carries a
     # coverage floor symmetric with the backend it generates code for.
     "pytest-cov==7.1.0",
+    # pyyaml is dev-only here: the codegen and the YAML-invariants tests
+    # are the ONLY consumers; this workspace has no runtime surface.
+    "pyyaml==6.0.3",
 ]
 
 [tool.pytest.ini_options]

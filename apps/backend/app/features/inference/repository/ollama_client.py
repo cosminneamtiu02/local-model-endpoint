@@ -89,9 +89,11 @@ def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
     log here would double-count the same failure.
     """
     # RFC 7231 §3.1.1.1: media-type names are case-insensitive.
-    # Lowercase before compare so a future reverse proxy that normalizes
-    # to ``Application/JSON`` does not silently bypass this guard.
-    content_type = response.headers.get("content-type", "").lower()
+    # Strip OWS (RFC 7231 §3.2.4 allows surrounding whitespace on field
+    # values) and lowercase before compare so a future reverse proxy that
+    # normalizes to ``  Application/JSON `` does not silently bypass this
+    # guard and re-bucket a real Ollama response as malformed-frame.
+    content_type = response.headers.get("content-type", "").strip().lower()
     if not content_type.startswith("application/json"):
         msg = f"Ollama returned non-JSON content-type {content_type!r}."
         raise ValueError(msg)
@@ -196,6 +198,13 @@ class OllamaClient:
             # Flip to False so the proxy decision is an explicit Settings
             # field if it ever becomes one.
             trust_env=False,
+            # Explicit ``verify=True`` (the httpx 0.28.1 default) so a
+            # future httpx default flip (or a contributor copy-pasting
+            # this constructor with ``verify=False`` for a self-signed
+            # local cert) cannot silently weaken TLS for the
+            # ``LIP_OLLAMA_HOST=https://...`` case. Kwarg parity with the
+            # ``follow_redirects``/``trust_env`` defense-in-depth toggles.
+            verify=True,
             transport=transport,
         )
         # No construction-time log: ``__aenter__`` (the actual lifecycle
@@ -448,6 +457,14 @@ class OllamaClient:
         # method (LIP-E002-F001) can reuse the ``ollama_call_*`` event
         # taxonomy and operators can ``select(.endpoint == "/api/chat")``
         # to disambiguate.
+        # Capture ``start`` BEFORE the started-event emit so the
+        # ``duration_ms`` on the completed/failed/cancelled lines
+        # encloses the started-event's structlog rendering cost too —
+        # microscopic on the JSON renderer (<100us) but it keeps
+        # ``duration_ms`` a true upper bound on Ollama work and aligns
+        # with the natural reading "start_clock → started → work →
+        # end_clock → completed".
+        start = time.perf_counter()
         logger.info(
             "ollama_call_started",
             model_name=model_tag,
@@ -455,7 +472,6 @@ class OllamaClient:
             message_count=len(messages),
             option_keys=option_keys,
         )
-        start = time.perf_counter()
         try:
             response = await self._request("POST", _CHAT_ENDPOINT, json=body)
             response.raise_for_status()
@@ -517,6 +533,11 @@ class OllamaClient:
             # with ``RequestIdMiddleware``'s X-Request-ID header sanitation —
             # so a malicious upstream cannot inject log-line forgeries under
             # the dev ConsoleRenderer.
+            # ``prompt_tokens=None`` / ``completion_tokens=None`` for
+            # field-set parity with ``ollama_call_completed`` so a jq filter
+            # ``select(.event | startswith("ollama_call_")) | .prompt_tokens``
+            # finds the field on every event in the lifecycle (same parity
+            # discipline as ``ollama_status_code: int | None``).
             logger.exception(
                 "ollama_call_failed",
                 model_name=model_tag,
@@ -526,6 +547,8 @@ class OllamaClient:
                 failure_category=failure_category,
                 ollama_status_code=ollama_status_code,
                 duration_ms=duration_ms,
+                prompt_tokens=None,
+                completion_tokens=None,
                 option_keys=option_keys,
                 message_count=len(messages),
             )
@@ -550,6 +573,10 @@ class OllamaClient:
             # dashboard against real failures. Lifespan-shutdown cancellation
             # is rarer but still normal — both fire here at info, peer to
             # ``ollama_call_completed``.
+            # ``prompt_tokens=None`` / ``completion_tokens=None`` for
+            # field-set parity with ``ollama_call_completed`` /
+            # ``ollama_call_failed`` so a single jq filter walks all four
+            # lifecycle events without coalesce-joins.
             logger.info(
                 "ollama_call_cancelled",
                 model_name=model_tag,
@@ -557,6 +584,8 @@ class OllamaClient:
                 exc_type=type(cancel_exc).__name__,
                 duration_ms=duration_ms,
                 ollama_status_code=ollama_status_code,
+                prompt_tokens=None,
+                completion_tokens=None,
                 option_keys=option_keys,
                 message_count=len(messages),
             )

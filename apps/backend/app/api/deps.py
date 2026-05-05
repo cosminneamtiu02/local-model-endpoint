@@ -69,7 +69,12 @@ def audit_lip_env_typos() -> None:
     # without this expansion, declaring a ``validation_alias`` would land the
     # alias as "unknown LIP" (false positive) and leave the alias-typo
     # surface unchecked (false negative). All current Settings fields have
-    # ``validation_alias=None``, so today this is preventive scaffolding.
+    # ``validation_alias=None``; only the ``str`` and ``AliasChoices``
+    # spellings are handled today. ``AliasPath`` (segment-list form) is NOT
+    # handled — adding it before any field uses it would be pre-feature
+    # scaffolding (per ADR-011); when a field declares ``AliasPath``, extend
+    # this loop to iterate ``getattr(validation_alias, "path", ())`` in the
+    # same PR that adds the field.
     declared: set[str] = set()
     for name, info in Settings.model_fields.items():
         declared.add(f"{env_prefix_upper}{name.upper()}")
@@ -77,16 +82,18 @@ def audit_lip_env_typos() -> None:
         if isinstance(validation_alias, str):
             declared.add(validation_alias.upper())
         elif validation_alias is not None:
-            # ``AliasChoices`` / ``AliasPath`` carry multiple alias spellings;
-            # pydantic-settings tries each one. Surface every literal-string
-            # spelling so the audit accepts whichever alias the operator
-            # actually exports. ``str(...)`` cast covers the documented
-            # ``choices`` attribute on AliasChoices and the ``path`` segments
-            # on AliasPath; non-string segments fall through unchanged.
+            # ``AliasChoices`` exposes a ``.choices`` attribute carrying
+            # multiple alias spellings; pydantic-settings tries each one.
+            # Surface every literal-string spelling so the audit accepts
+            # whichever alias the operator actually exports.
             for choice in getattr(validation_alias, "choices", ()):
                 if isinstance(choice, str):
                     declared.add(choice.upper())
-    actual = {name.upper() for name in os.environ if name.upper().startswith(env_prefix_upper)}
+    # Walrus-memoize ``name.upper()`` so each env-var name is upper-cased
+    # exactly once per startup audit (mirrors the ``o := ord(c)`` pattern in
+    # ``app/api/request_id_middleware.py``'s C0-control scan — same
+    # "compute-once, use twice" idiom).
+    actual = {upper for name in os.environ if (upper := name.upper()).startswith(env_prefix_upper)}
     unknown = sorted(actual - declared)
     if unknown:
         # ``phase="startup"`` keeps this warning grep-compatible with the

@@ -40,7 +40,14 @@ def test_inference_response_propagates_metadata_validation_errors(
 ) -> None:
     valid = _valid_metadata(valid_response_metadata_kwargs).model_dump()
     valid["finish_reason"] = "bad"
-    with pytest.raises(ValidationError, match="finish_reason"):
+    # Anchor on the Literal-rejection message rather than the bare field
+    # name. ``match="finish_reason"`` would also match an unrelated
+    # missing-field error message that happens to mention the field; this
+    # ``match=`` value pins the propagation specifically through the
+    # nested validator that rejects the closed enum, so a future regression
+    # that skipped the inner validator on the wrapping envelope would fail
+    # the test.
+    with pytest.raises(ValidationError, match=r"Input should be 'stop', 'length' or 'timeout'"):
         InferenceResponse.model_validate({"content": "x", "metadata": valid})
 
 

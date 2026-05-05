@@ -330,11 +330,16 @@ class RequestIdMiddleware:
                     content_length=content_length,
                     limit=_MAX_REQUEST_BODY_BYTES,
                 )
-                await _send_413_problem_json(send, request_id, path)
-                # Stamp the captured status manually since the 413 path
-                # bypasses ``send_with_request_id`` (it wraps neither the
-                # response.start nor calls into ``self.app``).
+                # Stamp the captured status BEFORE the wire flush so a
+                # consumer-disconnect mid-413 (the ``await`` raising
+                # transport-level) still surfaces ``status_code=413`` in the
+                # access-log finally block. With the assignment AFTER the
+                # await, a transport raise would leave ``captured_status=0``
+                # and ``_resolve_access_log_status`` would mis-attribute the
+                # access log to ``500`` — inflating the 5xx-rate dashboard
+                # for what is really a 413 the consumer abandoned.
                 captured_status = int(HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+                await _send_413_problem_json(send, request_id, path)
                 return
             await self.app(scope, receive, send_with_request_id)
         except BaseException as exc:

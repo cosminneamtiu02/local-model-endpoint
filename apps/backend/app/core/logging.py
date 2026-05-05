@@ -94,10 +94,17 @@ _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
         # Anthropic-SDK naming variants — a future adapter shipping any of
         # these without going through the redaction-aware logger would defeat
         # the CLAUDE.md "never log tool-call arguments" rule via this seam.
+        # ``tool_response`` / ``tool_result`` / ``tool_output`` cover the
+        # response-side variants for round-tripped tool output, which can
+        # echo consumer prompt content reflected by the tool — the
+        # CLAUDE.md ban on "model output" logging extends to these.
         "tools",
         "tool_arguments",
         "function_call",
         "function_arguments",
+        "tool_response",
+        "tool_result",
+        "tool_output",
         # Generic body / payload names a future debug-investigation diff
         # might use (``logger.info("oops", body=request_json)``). Operator
         # discipline catches it at code review; this is the
@@ -130,6 +137,18 @@ TOP-LEVEL keys — nested structures (e.g. ``logger.info("x", request=body)``
 where ``body["messages"]`` lives one level down) are NOT scanned. Caller
 discipline remains the primary contract; recursion would pay a per-call
 cost on every log line for a regression that has never appeared.
+
+Invariant: entries here MUST NOT collide with canonical-processor output
+keys (``level``, ``logger``, ``timestamp``, ``event``, ``exception``).
+``add_log_level``, ``add_logger_name``, and ``TimeStamper`` run AFTER
+``_redact_sensitive_keys`` in the processor chain (see
+``configure_logging`` below) and would clobber the ``<redacted>``
+sentinel on those keys silently. Today no entries collide. Routing /
+correlation keys (``path``, ``instance``, ``request_id``, ``method``,
+``env_vars``) are also intentionally NOT redacted — they are pre-
+sanitized at the bind site via ``ascii_safe`` and are load-bearing
+operator telemetry; the ``audit_lip_env_typos`` warning specifically
+needs ``env_vars`` names visible (CLAUDE.md ADR-014 carve-out).
 """
 
 
@@ -146,6 +165,14 @@ def _redact_sensitive_keys(
     infrastructure-level catch. Nested values are intentionally NOT
     scanned — see ``_REDACTION_BLOCKLIST`` docstring for the rationale.
     """
+    # ``event_dict.keys() & _REDACTION_BLOCKLIST`` materializes a fresh
+    # ``frozenset`` (not a live ``dict_keys`` view), so mutating
+    # ``event_dict`` during iteration is safe under CPython. Do NOT
+    # replace with ``for key in event_dict if key in _REDACTION_BLOCKLIST``
+    # (apparent perf optimization) — that form iterates the live keys
+    # view, and a future contributor adding key DELETION instead of value
+    # replacement would hit ``RuntimeError: dictionary changed size
+    # during iteration``.
     for key in event_dict.keys() & _REDACTION_BLOCKLIST:
         event_dict[key] = "<redacted>"
     return event_dict
@@ -156,6 +183,17 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
 
     ``log_level`` is the minimum log level (debug/info/warning/error/critical).
     ``json_output=True`` emits JSON; ``False`` emits pretty console format.
+
+    Mutates the stdlib root logger handlers via ``handlers.clear()`` +
+    ``addHandler(...)`` — first-call-wins. Subsequent calls (test fixtures
+    that ``configure_logging`` between cases) clear-and-replace; any
+    handler a third-party library may have parked on the root logger
+    between two calls would be silently dropped. The autouse
+    ``_reset_structlog_config`` fixture in ``test_logging.py`` is the
+    canonical reconfigurator and only invokes ``structlog.reset_defaults()``
+    plus a single ``configure_logging(...)`` re-call, so the contract holds
+    today; a future fixture binding a stdlib handler before
+    ``configure_logging`` would need to re-bind that handler after.
     """
     # Build the shared processor chain. Order matters here: ``merge_contextvars``
     # runs FIRST so contextvars-bound keys are present on the event dict before
@@ -163,7 +201,12 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     # ``TimeStamper``) have a chance to overwrite same-named keys. The
     # canonical-processor overwrites are intentional — operator filters key
     # off ``level`` / ``timestamp`` and a caller-bound ``level="custom"``
-    # would silently shadow them otherwise.
+    # would silently shadow them otherwise. The ``_redact_sensitive_keys``
+    # backstop slots in between (after merge, before the canonical-overwrite
+    # trio) so a contextvar-bound prompt key is also redacted before any
+    # downstream renderer sees it; the position is intentional and the
+    # ``_REDACTION_BLOCKLIST`` invariant pins that no blocklist entry
+    # collides with a canonical-processor output key.
     #
     # In JSON mode we append ``dict_tracebacks`` so structlog converts
     # ``exc_info`` into a structured ``exception`` key for the JSONRenderer;

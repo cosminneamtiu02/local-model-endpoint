@@ -243,6 +243,20 @@ def build_chat_result(
                 model_name=model_tag,
                 endpoint="/api/chat",
             )
+    elif candidate is not None:
+        # A future Ollama protocol drift (e.g. ``tool_calls: {...}`` with
+        # an envelope rather than a bare list) would otherwise be silently
+        # dropped by the ``isinstance(candidate, list)`` arm above —
+        # defeating the documented invariant that any tool-call surface
+        # is observable. Surfacing the unexpected shape (without raising,
+        # since the contract today is "tool_calls are ignored") keeps the
+        # silent-drop visible without escalating to malformed-frame.
+        logger.warning(
+            "ollama_tool_calls_unexpected_shape",
+            shape=type(candidate).__name__,
+            model_name=model_tag,
+            endpoint="/api/chat",
+        )
     return OllamaChatResult(
         content=content,
         prompt_tokens=response_json.get("prompt_eval_count", 0),
