@@ -169,6 +169,13 @@ jobs:
         # Defensive read pattern (set -euo pipefail + empty-check) so a
         # missing or empty ``.python-version`` is a loud CI failure, not
         # a silent ``setup-uv`` default fallback.
+        # Note: this job has NO job-level ``defaults: working-directory:``,
+        # so the ``tr -d ... < .python-version`` runs from the repo
+        # root by default. If a future maintainer ever adds a job-level
+        # ``defaults`` block, also add ``working-directory: .`` to this
+        # step (mirroring the sibling step at ci.yml:64 / :204) — the
+        # absence of an override is intentional but makes the
+        # working-directory pin invisible at edit time.
         run: |
           set -euo pipefail
           v=$(tr -d '[:space:]' < .python-version)

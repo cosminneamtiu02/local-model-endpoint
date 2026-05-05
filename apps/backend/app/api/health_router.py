@@ -6,7 +6,7 @@ from fastapi import APIRouter, status
 
 from app.schemas import HealthResponse, ProblemDetails
 
-router = APIRouter(tags=["health"])
+health_router = APIRouter(tags=["health"])
 
 # OpenAPI default-response for every error path. ``model=ProblemDetails``
 # triggers schema registration in ``/openapi.json`` components, and the
@@ -56,7 +56,7 @@ _HEALTH_OK_RESPONSE: Final[dict[str, Any]] = {
 }
 
 
-@router.get(
+@health_router.get(
     "/health",
     operation_id="getHealth",
     summary="Liveness probe",

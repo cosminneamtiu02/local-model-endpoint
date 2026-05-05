@@ -12,7 +12,7 @@ import structlog
 from fastapi import FastAPI
 
 from app.api.app_state import AppState
-from app.api.health_router import router as health_router
+from app.api.health_router import health_router
 from app.core.config import Settings
 from app.features.inference import OllamaClient
 

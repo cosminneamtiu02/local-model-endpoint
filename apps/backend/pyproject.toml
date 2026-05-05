@@ -83,7 +83,11 @@ dev = [
     # would carry 22 transitives (hypothesis, requests, werkzeug, …) that
     # Dependabot scans weekly and CI re-resolves on every job, for zero
     # runtime/test value today. When LIP-E001-F002 lands, schemathesis
-    # is added in that same PR alongside the fuzz tests.
+    # is added in that same PR alongside the fuzz tests. The same PR
+    # MUST also append ``schemathesis*`` to the ``dev-tools`` group in
+    # ``.github/dependabot.yml`` (the FORWARD note there mirrors this
+    # one) and re-add the narrowed ``ignore::DeprecationWarning:hypothesis``
+    # filterwarnings entry below.
 ]
 
 [tool.ruff]

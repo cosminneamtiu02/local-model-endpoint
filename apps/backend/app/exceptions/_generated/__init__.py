@@ -24,8 +24,10 @@ from app.exceptions._generated.registry_not_found_error import RegistryNotFoundE
 from app.exceptions._generated.registry_not_found_params import RegistryNotFoundParams
 from app.exceptions._generated.validation_failed_error import ValidationFailedError
 from app.exceptions._generated.validation_failed_params import ValidationFailedParams
+from app.exceptions._generated._registry import ERROR_CLASSES
 
 __all__ = [
+    "ERROR_CLASSES",
     "AdapterConnectionFailureError",
     "AdapterConnectionFailureParams",
     "ConflictError",

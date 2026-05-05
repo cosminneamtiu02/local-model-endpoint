@@ -250,9 +250,26 @@ jobs:
         working-directory: .
         run: task check:types:errors
 
-      - name: Codegen + validator tests
+      # Coverage-gated codegen + validator tests. Mirrors the backend job's
+      # ``check:coverage`` step: ``check:coverage:errors`` is a strict
+      # superset of ``test:errors`` (same ``tests/`` collection plus
+      # ``--cov`` + ``--cov-fail-under=80``). Without this gate, a regression
+      # deleting a ``test_codegen_rejects_*`` case would ship green on the
+      # codegen-side workspace, defeating the documented role of these
+      # tests as the source-of-truth enforcer for errors.yaml invariants.
+      - name: Codegen + validator tests (coverage-gated)
         working-directory: .
-        run: task test:errors
+        run: task check:coverage:errors
+
+      # _TEST_CLASS_PATTERN regex sync between apps/backend and
+      # packages/error-contracts conftest.py — pinned in CI (not just
+      # local ``task check``) so a PR editing only one workspace's
+      # regex cannot land asymmetric guards on main. Sacred rule "Never
+      # write a test class" depends on the regex equality across both
+      # workspaces.
+      - name: Test-class regex sync
+        working-directory: .
+        run: task check:test-class-regex-sync
 
       # Lane 16.6: strict CVE gate, mirror of the backend job's policy.
       - name: Dependency CVE scan

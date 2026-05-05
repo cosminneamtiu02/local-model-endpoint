@@ -83,6 +83,10 @@ updates:
           # ``open-pull-requests-limit: 5``, re-opening the
           # adjacent-line cascade-conflict surface in
           # ``pyproject.toml`` that the existing groups close.
+          # Note: hatchling is build-system only and never enters
+          # ``uv.lock`` — Dependabot's manifest scan of
+          # ``[build-system].requires`` is the single source of truth
+          # for drift on this pin.
           - "hatchling"
           # FORWARD: when LIP-E001-F002 lands and pins schemathesis (per
           # ADR-011), add `schemathesis*` here in the same PR so its 22
@@ -117,10 +121,14 @@ updates:
           - "pytest"
           - "pytest-*"
       # ``import-linter`` intentionally excluded — this workspace has no
-      # linter config. ``pip-audit`` co-grouped with ruff/pyright now
-      # that this workspace also runs ``task check:audit:errors``
-      # (mirrors the backend group), so a pip-audit bump rides the same
-      # PR as sibling dev-tool bumps rather than opening solo.
+      # linter config. If a future addition lands import-linter here
+      # (e.g. when codegen invariants warrant their own contracts),
+      # add ``import-linter`` to this group in lockstep with the
+      # backend's ``dev-tools`` group entry. ``pip-audit`` co-grouped
+      # with ruff/pyright now that this workspace also runs
+      # ``task check:audit:errors`` (mirrors the backend group), so a
+      # pip-audit bump rides the same PR as sibling dev-tool bumps
+      # rather than opening solo.
       dev-tools:
         patterns:
           - "ruff"

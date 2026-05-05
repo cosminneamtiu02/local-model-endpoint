@@ -785,12 +785,21 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
         registry_entries.append((code, error_class_name))
 
     # Generate __init__.py (sorted by name for deterministic output).
+    # ``ERROR_CLASSES`` is re-exported through this aggregator so consumers
+    # can ``from app.exceptions._generated import ERROR_CLASSES`` (matching
+    # how every error class is reached via this surface). Without this
+    # re-export, the parent ``app/exceptions/__init__.py`` would have to
+    # bypass the package surface and reach into ``_registry`` directly,
+    # leaving the registry as an asymmetric outlier among the otherwise-
+    # uniform per-file flow through the aggregator.
     sorted_entries = sorted(init_entries, key=itemgetter(0))
     init_file = output_dir / "__init__.py"
     init_content = (
         '"""Generated error classes. Do not edit."""\n\n'
         + "\n".join(imp for _, imp in sorted_entries)
-        + "\n\n__all__ = [\n"
+        + "\nfrom app.exceptions._generated._registry import ERROR_CLASSES\n"
+        + "\n__all__ = [\n"
+        + '    "ERROR_CLASSES",\n'
         + "\n".join(f'    "{name}",' for name, _ in sorted_entries)
         + "\n]\n"
     )
