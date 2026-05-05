@@ -1,4 +1,16 @@
-"""Health endpoint — liveness probe mounted at root, outside /v1/."""
+"""Health endpoint — liveness probe mounted at root, outside /v1/.
+
+OpenAPI ``operation_id`` convention pinned at this single existing site:
+**camelCase verb-noun** (``getHealth``). SDK codegen tools
+(openapi-typescript, openapi-generator) emit method names directly from
+``operationId`` — camelCase is the JavaScript / TypeScript idiom that
+keeps consumer SDKs feeling native. New routes follow the same shape:
+``createChat``, ``getModels``, ``listSessions``, etc. The verb encodes
+the HTTP-method intent; the noun is the resource. Without a pinned
+convention, future routes drift between ``createChat`` /
+``inferenceCreate`` / ``postInferenceChat`` and SDK consumer types
+mutate noisily across PRs.
+"""
 
 from typing import Any, Final
 

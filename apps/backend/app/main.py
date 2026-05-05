@@ -12,8 +12,9 @@ from fastapi import FastAPI
 
 from app.api.deps import audit_lip_env_typos, get_settings
 from app.api.exception_handler_registry import register_exception_handlers
+from app.api.lifespan_resources import lifespan_resources
 from app.api.request_id_middleware import configure_middleware
-from app.api.router_registry import lifespan_resources, register_routers
+from app.api.router_registry import register_routers
 from app.core.logging import (
     EXC_MESSAGE_PREVIEW_MAX_CHARS,
     ascii_safe,

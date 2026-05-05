@@ -7,8 +7,9 @@ through the package surface are insulated from internal file moves.
 from app.api.app_state import AppState
 from app.api.deps import get_app_state, get_ollama_client, get_settings
 from app.api.exception_handler_registry import register_exception_handlers
+from app.api.lifespan_resources import lifespan_resources
 from app.api.request_id_middleware import configure_middleware
-from app.api.router_registry import lifespan_resources, register_routers
+from app.api.router_registry import register_routers
 
 # ``RequestIdMiddleware`` is intentionally NOT re-exported. ``configure_middleware``
 # is the single mounting point — exporting the class here would invite a future
