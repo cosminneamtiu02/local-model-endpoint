@@ -14,6 +14,7 @@ Two concerns layered on the ASGI scope:
 """
 
 import asyncio
+import contextlib
 import time
 import uuid
 from http import HTTPStatus
@@ -208,6 +209,15 @@ class RequestIdMiddleware:
         method = str(scope.get("method", ""))
         path = str(scope.get("path", ""))
 
+        # Resolve client IP/port from the ASGI scope once. Bound to
+        # contextvars below so EVERY per-request log line — including
+        # exception handlers' ``*_raised`` events and the catch-all
+        # ``internal_error_5xx_raised`` — carries the originating client
+        # without joining by request_id. For a 4-consumer LAN service,
+        # knowing which consumer originated a 500 is the difference between
+        # "page that team's owner" and "page everyone."
+        client_ip, client_port = scope.get("client") or (None, None)
+
         rejected_client_id = bool(client_id) and match_result is None
         if match_result is not None:
             preview = ""
@@ -239,6 +249,8 @@ class RequestIdMiddleware:
             path=path,
             phase="request",
             request_id_source=request_id_source,
+            client_ip=client_ip,
+            client_port=client_port,
         )
 
         if rejected_client_id:
@@ -321,38 +333,41 @@ class RequestIdMiddleware:
             # Health-check pings are silenced unless degraded — a 4xx/5xx
             # /health response is the case operators DO want to see. The OK..<400
             # window matches the 2xx/3xx happy-path family per RFC 9110 §15.
-            suppress = (
+            should_suppress_access_log = (
                 path in _ACCESS_LOG_SUPPRESSED_PATHS
                 and HTTPStatus.OK <= effective_status < HTTPStatus.BAD_REQUEST
             )
-            if not suppress:
+            if not should_suppress_access_log:
                 duration_ms = elapsed_ms(start)
-                # ``method`` / ``path`` flow through ``merge_contextvars`` from
-                # the bind above; not re-passed here. ``client_ip`` matches
-                # the industry "remote IP" convention used by uvicorn access /
-                # RFC 7239 / common log format and disambiguates against the
-                # DNS-style ``ollama_host`` field on other log lines.
-                # ``client_port`` is the ephemeral peer port — needed to
-                # disambiguate two simultaneous LAN connections from the
-                # same consumer. Both are fine to log unconditionally for
-                # this single-developer LAN profile (consumers are self-owned).
-                client_ip, client_port = scope.get("client") or (None, None)
-                # ``request_id_source`` and ``had_rejected_client_id`` already
-                # ride via contextvars (bound above); re-passing them as
-                # explicit kwargs is defense-in-depth — same pattern the
+                # ``client_ip`` / ``client_port`` / ``method`` / ``path`` /
+                # ``request_id_source`` / ``error_code`` (set by exception
+                # handlers) flow in via ``merge_contextvars`` from the bind
+                # above. ``request_id_source``, ``had_rejected_client_id``,
+                # and ``error_code`` ARE re-read off contextvars and passed
+                # as explicit kwargs as defense-in-depth — same pattern the
                 # unhandled-exception handler uses for ``method``/``path``
                 # in ``exception_handlers``. A future refactor narrowing
                 # the contextvar lifetime won't drop these from the access
-                # log mid-flight.
-                logger.info(
-                    "request_completed",
-                    status_code=effective_status,
-                    duration_ms=duration_ms,
-                    client_ip=client_ip,
-                    client_port=client_port,
-                    request_id_source=request_id_source,
-                    had_rejected_client_id=rejected_client_id,
-                )
+                # log mid-flight. ``error_code`` is bound by typed exception
+                # handlers when an error fires; absent on the happy path.
+                bound = structlog.contextvars.get_contextvars()
+                error_code = bound.get("error_code")
+                # Wrap the access-log emit in suppress(Exception) so a
+                # rendering failure (e.g. a future contextvar with a
+                # non-JSON-serializable value tripping JSONRenderer) cannot
+                # mask the body's real BaseException via finally-raises-finally:
+                # Python re-raises the finally exception and drops the
+                # original. The access log is best-effort telemetry; losing
+                # one line is preferable to losing a 5xx traceback.
+                with contextlib.suppress(Exception):
+                    logger.info(
+                        "request_completed",
+                        status_code=effective_status,
+                        duration_ms=duration_ms,
+                        request_id_source=request_id_source,
+                        had_rejected_client_id=rejected_client_id,
+                        error_code=error_code,
+                    )
 
 
 def configure_middleware(application: FastAPI) -> None:

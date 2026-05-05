@@ -95,8 +95,15 @@ def get_app_state(request: Request) -> AppState:
         # cannot ANSI-inject into ConsoleRenderer output. Logged at
         # ``error`` (not ``warning``) because the consequence is a 500;
         # operator dashboards keyed on ``level=error`` need this signal.
+        # ``phase="request"`` defense-in-depth: the middleware ordinarily
+        # binds ``phase="request"`` via contextvars, but this diagnostic
+        # specifically fires on the path where the middleware-bound state may
+        # be missing (lifespan never ran). The literal kwarg is the
+        # safety net that keeps a jq filter ``select(.phase == "request")``
+        # finding this line on the misconfigured-app path.
         logger.error(
             "app_state_unavailable",
+            phase="request",
             path=ascii_safe(request.url.path, max_chars=INSTANCE_PATH_MAX_CHARS),
             has_context_attr=hasattr(request.app.state, "context"),
         )

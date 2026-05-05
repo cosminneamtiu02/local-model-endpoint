@@ -109,6 +109,90 @@ def test_settings_validate_default_is_true() -> None:
     assert Settings.model_config.get("validate_default") is True
 
 
+def test_settings_extra_forbid_flag_is_set() -> None:
+    """``extra='forbid'`` is the model_config flag that powers the kwarg-reject
+    test ``test_settings_extra_forbid_rejects_unknown_kwarg``. Pinning the
+    flag directly catches a future flip to ``"allow"`` (silent kwarg pass-
+    through) at the introspection layer rather than as a downstream symptom
+    in the kwarg test."""
+    assert Settings.model_config.get("extra") == "forbid"
+
+
+def test_settings_env_prefix_is_lip() -> None:
+    """``env_prefix='LIP_'`` is read at runtime by ``audit_lip_env_typos``.
+
+    Pinning the literal here means a future ADR rename (e.g. to ``INFER_``)
+    is a tripwire that forces the prefix flip, ``.env.example`` update, and
+    CLAUDE.md docs change to land in lockstep instead of as silent drift.
+    """
+    assert Settings.model_config.get("env_prefix") == "LIP_"
+
+
+def test_settings_env_ignore_empty_is_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``env_ignore_empty=True`` means an empty ``LIP_BIND_HOST=`` falls back
+    to the default rather than reaching ``_check_safety_invariants`` with
+    an empty string. Pinning the BEHAVIOR (empty env var → default value)
+    rather than the FLAG ensures a future model_config flip to False would
+    surface as a clamp-error at import time and fail this test."""
+    monkeypatch.setenv("LIP_BIND_HOST", "")
+    settings = make_settings()
+    assert settings.bind_host == "127.0.0.1"
+
+
+@pytest.mark.parametrize("level", ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+def test_settings_log_level_accepts_uppercase(
+    monkeypatch: pytest.MonkeyPatch,
+    level: str,
+) -> None:
+    """``LIP_LOG_LEVEL=INFO`` and ``LIP_LOG_LEVEL=info`` are both accepted.
+
+    The ``_normalize_log_level(mode='before')`` field validator lowercases
+    the incoming string so the case-sensitive ``Literal[...]`` constraint
+    on ``log_level`` passes for either form. Pinning every uppercase
+    variant catches a regression that drops the validator (silently
+    rejecting the natural form for operators copy-pasting from stdlib
+    ``logging`` docs).
+    """
+    monkeypatch.setenv("LIP_LOG_LEVEL", level)
+    settings = make_settings()
+    assert settings.log_level == level.lower()
+
+
+def test_settings_log_level_non_string_input_delegates_to_pydantic() -> None:
+    """Non-string ``log_level`` input must surface as the standard Pydantic
+    ``Literal`` error, not as a custom message from ``_normalize_log_level``.
+
+    The validator's ``return value if not isinstance(value, str) else value.lower()``
+    branch hands non-strings through unchanged so Pydantic's downstream
+    type-coercion produces the canonical error. A future "improvement"
+    that raises a custom error here would defeat the wire-shape principle
+    that Pydantic validation is the source of error semantics.
+    """
+    with pytest.raises(ValidationError, match="Input should be 'debug'"):
+        # ``42`` is the smallest non-string, non-tuple-of-Literal value
+        # that exercises the ``isinstance(value, str)`` False branch.
+        make_settings(log_level=42)  # pyright: ignore[reportArgumentType]
+
+
+@pytest.mark.parametrize("invalid_host", ["", "x" * 254])
+def test_settings_bind_host_field_constraints(
+    invalid_host: str,
+) -> None:
+    """``bind_host`` rejects empty strings and 254+-char inputs at the field.
+
+    The ``min_length=1`` / ``max_length=253`` Field constraints are belt-
+    and-suspenders against the env-var path's ``env_ignore_empty=True``:
+    a direct ``Settings(bind_host="")`` kwarg call (a malformed test
+    fixture, an internal helper) bypasses the env-var-empty short-circuit
+    and would otherwise reach ``_check_safety_invariants`` with an empty
+    string, where ``is_private_host("")`` returns False → confusing
+    "all-interfaces" error message. Pinning these bounds catches a future
+    constraint drop.
+    """
+    with pytest.raises(ValidationError):
+        make_settings(bind_host=invalid_host)
+
+
 @pytest.mark.parametrize(
     ("var", "value"),
     [
