@@ -96,7 +96,9 @@ across four files (one class each) to satisfy the sacred one-class-per-file rule
 extension-key container; `ValidationErrorDetail` is the per-field shape inside
 validation problem+json; `HealthResponse` is the liveness payload. A fifth file
 `wire_constants` centralizes the UUID regex and `REQUEST_ID_LENGTH` reused across
-the request_id middleware and `ProblemDetails`/`ProblemExtras` (per ADR-014).
+the request_id middleware and `ProblemDetails`/`ProblemExtras` — see the module
+docstring for rationale (ADR-014 governs `audit_lip_env_typos`, not wire-constant
+centralization).
 
 ---
 

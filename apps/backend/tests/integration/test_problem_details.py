@@ -22,6 +22,7 @@ from app.exceptions import (
     QueueFullError,
     RegistryNotFoundError,
 )
+from app.schemas.wire_constants import REQUEST_ID_HEADER
 from tests._helpers import assert_problem_json_envelope, make_async_client
 
 
@@ -58,7 +59,7 @@ def _build_app() -> FastAPI:
         raise RuntimeError(msg)
 
     @app.get("/raise/validate")
-    async def raise_validate(required_param: int) -> dict[str, Any]:  # noqa: ARG001
+    async def raise_validate(required_param: int) -> dict[str, Any]:  # noqa: ARG001 — FastAPI signature drives validation; body unused
         return {"ok": True}
 
     @app.get("/raise/multi-validate")
@@ -112,7 +113,7 @@ async def test_queue_full_full_envelope(asgi_client: AsyncClient) -> None:
         "detail": "Inference queue at capacity (5 waiters, max 4).",
         "instance": "/raise/queue-full",
         "code": "QUEUE_FULL",
-        "request_id": response.headers["X-Request-ID"],
+        "request_id": response.headers[REQUEST_ID_HEADER],
         "max_waiters": 4,
         "current_waiters": 5,
     }

@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
+from app.schemas.wire_constants import REQUEST_ID_HEADER
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -79,8 +81,9 @@ def assert_problem_json_envelope(
       5. Body carries a ``request_id`` (correlation handle).
 
     Optional invariant (``check_request_id_correlation=True``):
-      6. Body's ``request_id`` matches the ``X-Request-ID`` response header
-         (correlation contract — middleware ↔ handler).
+      6. Body's ``request_id`` matches the ``REQUEST_ID_HEADER`` response
+         header value (correlation contract — middleware ↔ handler;
+         see :data:`app.schemas.wire_constants.REQUEST_ID_HEADER`).
 
     Returns the parsed body so the call site can make code-specific
     follow-up assertions.
@@ -92,5 +95,5 @@ def assert_problem_json_envelope(
     assert body["code"] == code
     assert "request_id" in body
     if check_request_id_correlation:
-        assert body["request_id"] == response.headers["X-Request-ID"]
+        assert body["request_id"] == response.headers[REQUEST_ID_HEADER]
     return body

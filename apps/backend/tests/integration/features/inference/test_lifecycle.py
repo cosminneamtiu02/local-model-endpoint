@@ -10,8 +10,6 @@ Covers LIP-E003-F001 integration scenarios:
 - AC11: connection failures raise httpx.ConnectError uncaught from _request.
 """
 
-from __future__ import annotations
-
 from typing import Annotated
 
 import httpx

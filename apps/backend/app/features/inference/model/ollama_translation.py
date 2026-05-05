@@ -87,13 +87,13 @@ def _flatten_content_parts(parts: "Sequence[ContentPart]") -> _FlattenedParts:
                 text_parts.append(part.text)
             case ImageContent():
                 if part.base64 is None:
-                    error_message = "URL-only ImageContent is not supported; supply base64."
-                    raise NotImplementedError(error_message)
+                    msg = "URL-only ImageContent is not supported; supply base64."
+                    raise NotImplementedError(msg)
                 images.append(part.base64)
             case AudioContent():
                 if part.base64 is None:
-                    error_message = "URL-only AudioContent is not supported; supply base64."
-                    raise NotImplementedError(error_message)
+                    msg = "URL-only AudioContent is not supported; supply base64."
+                    raise NotImplementedError(msg)
                 audios.append(part.base64)
             case _:
                 assert_never(part)
@@ -118,10 +118,8 @@ def _attach_media_to_message(
         if not media:
             continue
         if role == "system":
-            error_message = (
-                f"system-role messages with {key} are not supported by Ollama /api/chat."
-            )
-            raise NotImplementedError(error_message)
+            msg = f"system-role messages with {key} are not supported by Ollama /api/chat."
+            raise NotImplementedError(msg)
         ollama_msg[key] = media
 
 
@@ -182,15 +180,13 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     same convention as ``_decode_ollama_json`` in ollama_client.py.
     """
     if not response_json.get("done", True):
-        error_message = (
-            "Ollama malformed frame: done=False under stream=False; expected terminal frame."
-        )
-        raise ValueError(error_message)
+        msg = "Ollama malformed frame: done=False under stream=False; expected terminal frame."
+        raise ValueError(msg)
     raw_finish = response_json.get("done_reason", "stop")
     finish_reason: FinishReason = _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop")
     if "message" not in response_json:
-        error_message = "Ollama malformed frame: response missing 'message' field."
-        raise ValueError(error_message)
+        msg = "Ollama malformed frame: response missing 'message' field."
+        raise ValueError(msg)
     raw_message_value: Any = response_json["message"]
     # The annotation on ``response_json`` types this as Any; runtime-check the
     # message is actually a dict so a future Ollama protocol drift (``message``
@@ -198,14 +194,14 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     # instead of a TypeError ("None is not subscriptable") that the
     # failure-mapping layer would not recognize.
     if not isinstance(raw_message_value, dict):
-        error_message = (
+        msg = (
             "Ollama malformed frame: 'message' field has non-object type "
             f"{type(raw_message_value).__name__}."
         )
         # ``ValueError`` (not the TRY004-preferred ``TypeError``) keeps every
         # malformed-Ollama-frame case routed through one exception type
         # the failure-mapping layer (LIP-E003-F003) catches uniformly.
-        raise ValueError(error_message)  # noqa: TRY004 — unified malformed-frame signal
+        raise ValueError(msg)  # noqa: TRY004 — unified malformed-frame signal
     # ``cast`` (not a typed assignment) because ``raw_message_value`` came in
     # as ``Any``; isinstance narrows to ``dict[Unknown, Unknown]`` which
     # pyright strict still flags. The cast is safe (we just isinstance-checked
@@ -213,8 +209,8 @@ def build_chat_result(response_json: dict[str, Any]) -> OllamaChatResult:
     # accesses below preserve the per-key type discipline.
     raw_message: dict[str, Any] = cast("dict[str, Any]", raw_message_value)
     if "content" not in raw_message:
-        error_message = "Ollama malformed frame: message missing 'content' field."
-        raise ValueError(error_message)
+        msg = "Ollama malformed frame: message missing 'content' field."
+        raise ValueError(msg)
     raw_content = raw_message["content"]
     # ``isinstance`` coerces ``None`` / non-str values to an empty string so
     # OllamaChatResult.content (typed ``str``) doesn't fail Pydantic validation

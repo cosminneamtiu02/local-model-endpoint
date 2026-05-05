@@ -430,6 +430,21 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     first_reason = validation_errors[0].reason if validation_errors else _UNKNOWN_FIELD_SENTINEL
     domain_err = ValidationFailedError(field=first_field, reason=first_reason)
 
+    # Symmetric peer of ``domain_error_raised`` (typed 4xx) and
+    # ``http_exception_5xx_raised`` (framework 5xx): a single jq filter
+    # ``select(.event | endswith("_error_raised"))`` finds every per-error
+    # surface uniformly, including the framework-validation 422 path.
+    # Without this line, the 422 happy path is greppable only via the
+    # contextvar-bound ``error_code=VALIDATION_FAILED`` riding into the
+    # ``request_completed`` line — a different filter shape than the
+    # other handlers, which the lane-17 review caught as the lone gap.
+    logger.warning(
+        "validation_error_raised",
+        code=ValidationFailedError.code,
+        status_code=int(HTTPStatus.UNPROCESSABLE_ENTITY),
+        error_count=len(validation_errors),
+    )
+
     if not validation_errors:
         # Pydantic emitting an empty errors list for a RequestValidationError
         # violates its own invariants — surface it loudly with a bounded

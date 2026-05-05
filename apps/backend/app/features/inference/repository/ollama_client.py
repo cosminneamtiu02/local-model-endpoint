@@ -83,21 +83,21 @@ def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
     # to ``Application/JSON`` does not silently bypass this guard.
     content_type = response.headers.get("content-type", "").lower()
     if not content_type.startswith("application/json"):
-        error_message = f"Ollama returned non-JSON content-type {content_type!r}."
-        raise ValueError(error_message)
+        msg = f"Ollama returned non-JSON content-type {content_type!r}."
+        raise ValueError(msg)
     try:
         payload: Any = response.json()
     except _json.JSONDecodeError as decode_exc:
-        error_message = "Ollama returned non-JSON body under stream=False."
-        raise ValueError(error_message) from decode_exc
+        msg = "Ollama returned non-JSON body under stream=False."
+        raise ValueError(msg) from decode_exc
     if not isinstance(payload, dict):
-        error_message = f"Ollama returned non-object JSON body of type {type(payload).__name__}."
+        msg = f"Ollama returned non-object JSON body of type {type(payload).__name__}."
         # ``ValueError`` (not the TRY004-preferred ``TypeError``) so every
         # malformed-Ollama-frame case routes through one exception type the
         # failure-mapping layer (LIP-E003-F003) catches uniformly. Mixing
         # TypeError with ValueError here would force the mapping to handle
         # two exception families for one logical failure category.
-        raise ValueError(error_message)  # noqa: TRY004 — unified malformed-frame signal
+        raise ValueError(msg)  # noqa: TRY004 — unified malformed-frame signal
     return cast("dict[str, Any]", payload)
 
 
@@ -297,11 +297,11 @@ class OllamaClient:
         only ``json=``.
         """
         if not path.startswith("/"):
-            error_message = f"path must be absolute (start with /), got {path!r}"
-            raise ValueError(error_message)
+            msg = f"path must be absolute (start with /), got {path!r}"
+            raise ValueError(msg)
         if self._client.is_closed:
-            error_message = "OllamaClient cannot be used after close()"
-            raise RuntimeError(error_message)
+            msg = "OllamaClient cannot be used after close()"
+            raise RuntimeError(msg)
         return await self._client.request(method, path, json=json)
 
     async def chat(
@@ -331,10 +331,13 @@ class OllamaClient:
         body["stream"] = False
 
         # Hoisted before ``try`` so both the ``Exception`` and
-        # ``BaseException`` arms log the same field set. The ``Exception``
-        # arm overrides ``status_code`` only when the exception is
-        # ``httpx.HTTPStatusError``; the ``BaseException`` arm leaves it
-        # at ``None``.
+        # ``CancelledError`` arms log the same field set. The
+        # ``Exception`` arm overrides ``status_code`` only when the
+        # exception is ``httpx.HTTPStatusError``; the ``CancelledError``
+        # arm leaves it at ``None``. (The narrow second arm catches
+        # ``asyncio.CancelledError`` rather than ``BaseException`` so
+        # ``KeyboardInterrupt`` / ``SystemExit`` continue to propagate
+        # without traversing this log path.)
         ollama_status_code: int | None = None
         # ``option_keys`` (sorted, keys-only) lets operators see the request
         # shape on the failure log without leaking sampling-param values or

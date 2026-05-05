@@ -9,28 +9,29 @@ pins the invariant across the registry so a regression in the codegen
 template fails CI rather than ship.
 """
 
-import inspect
-from typing import cast
-
 import pytest
 from pydantic import BaseModel
 
-from app.exceptions import _generated  # pyright: ignore[reportPrivateImportUsage]
+import app.exceptions as exceptions_pkg
 
 
 def _params_classes() -> list[type[BaseModel]]:
-    """Return every ``*Params`` class re-exported from ``app.exceptions._generated``.
+    """Return every ``*Params`` class re-exported from ``app.exceptions``.
 
-    The codegen emits one ``<Code>Params`` class per parameterized error code.
-    Iterating the public surface of the generated package decouples the test
-    from any specific error roster — adding a new parameterized error in
-    errors.yaml automatically extends the test's coverage.
+    Reads the public re-export surface (``app.exceptions.__all__``) so the
+    test depends on the same import path that production code uses — no
+    private ``_generated`` poke. Adding a new parameterized error in
+    errors.yaml lands a new ``*Params`` re-export and auto-extends the
+    test's coverage.
     """
-    members = inspect.getmembers(_generated, inspect.isclass)
-    return sorted(
-        (cast("type[BaseModel]", cls) for name, cls in members if name.endswith("Params")),
-        key=lambda c: c.__name__,
-    )
+    classes: list[type[BaseModel]] = []
+    for name in exceptions_pkg.__all__:
+        if not name.endswith("Params"):
+            continue
+        cls = getattr(exceptions_pkg, name)
+        if isinstance(cls, type) and issubclass(cls, BaseModel):
+            classes.append(cls)
+    return sorted(classes, key=lambda c: c.__name__)
 
 
 @pytest.mark.parametrize("params_cls", _params_classes(), ids=lambda c: c.__name__)

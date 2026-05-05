@@ -10,8 +10,6 @@ shadow a typed-extension key on the wire and trip
 ``_build_problem_payload``'s collision detector at request time as a 500.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import sys
 from pathlib import Path

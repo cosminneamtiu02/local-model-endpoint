@@ -113,8 +113,15 @@ permissions:
 # "non-fast-forward" and the workflow's ``git push || exit 0`` swallows it
 # correct-by-luck. Cancelling the older run makes the design intent
 # legible and guarantees only one push is ever in flight per PR.
+#
+# The group includes ``github.event.action`` so an ``opened`` event and
+# a follow-up ``synchronize`` (independent triggers from different
+# Dependabot operations) don't displace each other. The earlier shape
+# coalesced both into one group, which under pathological timing meant
+# the ``opened`` run that surfaces a lockfile gap could be cancelled by
+# an unrelated ``synchronize`` and the regenerator never re-fired.
 concurrency:
-  group: dependabot-lockfile-sync-${{ github.event.pull_request.number }}
+  group: dependabot-lockfile-sync-${{ github.event.pull_request.number }}-${{ github.event.action }}
   cancel-in-progress: true
 
 jobs:

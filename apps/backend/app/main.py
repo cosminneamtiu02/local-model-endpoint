@@ -73,7 +73,16 @@ def _emit_app_version_resolve_failure() -> None:
     if exc is None:
         return
     if isinstance(exc, _metadata.PackageNotFoundError):
-        logger.warning("app_version_resolve_failed", reason="package_not_found")
+        # ``phase="startup"`` matches the ``audit_lip_env_typos`` discipline
+        # so a single jq filter ``select(.phase == "startup")`` finds every
+        # pre-lifespan diagnostic uniformly — symmetric with ``phase="lifespan"``
+        # (router_registry.lifespan_resources) and ``phase="request"``
+        # (RequestIdMiddleware).
+        logger.warning(
+            "app_version_resolve_failed",
+            reason="package_not_found",
+            phase="startup",
+        )
         return
     # ``logger.warning(..., exc_type=..., exc_message=...)`` ships the
     # exception identity without ``exc_info=True`` — the traceback is
@@ -84,6 +93,7 @@ def _emit_app_version_resolve_failure() -> None:
         reason="unexpected",
         exc_type=type(exc).__name__,
         exc_message=str(exc)[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
+        phase="startup",
     )
 
 
@@ -263,7 +273,22 @@ def create_app() -> FastAPI:
             "local consumer backend projects."
         ),
         version=_APP_VERSION,
+        # ``contact`` and ``license_info`` ride into the OpenAPI ``info``
+        # block so consumers generating SDKs from /openapi.json inherit
+        # license metadata uniformly. Sourced from pyproject.toml's
+        # ``authors`` + ``license`` fields (kept in sync by hand here;
+        # codegen from package metadata is overkill for two short literals).
+        contact={"name": "Cosmin Neamtiu"},
+        license_info={"name": "MIT"},
         lifespan=lifespan,
+        # ``redirect_slashes=False`` makes a trailing-slash mismatch
+        # surface as a clean 404 problem+json (which the typed exception
+        # chain already handles via ``NotFoundError``) instead of a 307
+        # redirect that some httpx-based consumers drop the body on for
+        # POST. The wire contract is "use the path the OpenAPI spec
+        # advertises"; auto-redirecting to a different path silently
+        # papers over an SDK bug at the cost of one round-trip.
+        redirect_slashes=False,
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",
         openapi_url=None if is_prod else "/openapi.json",

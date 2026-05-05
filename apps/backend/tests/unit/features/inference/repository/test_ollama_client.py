@@ -9,8 +9,6 @@ Covers acceptance criteria from LIP-E003-F001 unit-test scenarios:
 - cancellation logging contract
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 
@@ -264,12 +262,17 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
     """A cancelled chat() call emits ``ollama_call_cancelled`` exactly once and
     NEVER ``ollama_call_failed``.
 
-    Drives a slow MockTransport handler so the chat() coroutine is parked
-    on the request, then cancels the surrounding task. The Exception arm
-    in ``OllamaClient.chat`` must bypass — only the BaseException arm
-    (``ollama_call_cancelled``) should fire. Without this test, a
-    future refactor that broadens the except to BaseException would
-    silently log the cancellation as a generic failure.
+    Drives a slow MockTransport handler so the chat() coroutine begins
+    running and yields once on the slow path, then cancels the surrounding
+    task. The Exception arm in ``OllamaClient.chat`` must bypass — only
+    the narrow ``CancelledError`` arm (``ollama_call_cancelled``) should
+    fire. Without this test, a future refactor that broadens the catch
+    to ``BaseException`` would silently log the cancellation as a generic
+    failure. (We do NOT promise the task is parked on the slow handler
+    when ``cancel()`` runs — a single ``await asyncio.sleep(0)`` may not
+    yield far enough on a contended session loop; what we DO assert is
+    that whichever ``await`` point CancelledError lands at, the cancel
+    arm fires the expected event_name.)
     """
 
     async def slow_handler(_request: httpx.Request) -> httpx.Response:

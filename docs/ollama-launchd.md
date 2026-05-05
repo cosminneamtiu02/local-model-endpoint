@@ -190,8 +190,10 @@ it reaches `launchctl bootstrap`.
 - **You edited the plist and the new env vars don't show up in `task
   ollama:status`** — `launchctl kickstart -k` does **not** re-read the
   on-disk plist; it only restarts the daemon under the already-bootstrapped
-  in-memory plist. Plist edits require `task ollama:uninstall && task
-  ollama:install` (or `launchctl bootout` + `bootstrap` directly).
+  in-memory plist. Plist edits require `task ollama:install` (the install
+  task is idempotent on re-run — it issues a tolerant `launchctl bootout
+  … || true` before `launchctl bootstrap`; see the **Install** section
+  above for details) or `launchctl bootout` + `bootstrap` directly.
 - **`task ollama:status` shows the agent loaded but Ollama isn't responding
   on `localhost:11434`** — check `~/Library/Logs/ollama/stderr.log` for the
   daemon's own error output. Common causes: the binary path in the plist is

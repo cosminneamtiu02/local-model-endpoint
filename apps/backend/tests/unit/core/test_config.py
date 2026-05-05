@@ -1,7 +1,5 @@
 """Unit tests for Settings (LIP-E003-F001 + safety-clamp coverage)."""
 
-from __future__ import annotations
-
 import pytest
 from pydantic import ValidationError
 
@@ -153,7 +151,7 @@ def test_settings_bind_host_rejects_public_without_acknowledgement(
         make_settings()
 
 
-@pytest.mark.parametrize("public_host", ["0.0.0.0", "::"])  # noqa: S104
+@pytest.mark.parametrize("public_host", ["0.0.0.0", "::"])  # noqa: S104 — reject-list
 def test_settings_bind_host_accepts_public_with_acknowledgement(
     monkeypatch: pytest.MonkeyPatch,
     public_host: str,

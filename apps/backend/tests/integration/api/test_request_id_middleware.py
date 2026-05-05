@@ -9,32 +9,32 @@ for X-Request-ID coverage greps the obvious filename.
 from httpx import AsyncClient
 
 from app.api.request_id_middleware import _MAX_REQUEST_BODY_BYTES
-from app.schemas.wire_constants import UUID_REGEX
+from app.schemas.wire_constants import REQUEST_ID_HEADER, UUID_REGEX
 
 
 async def test_response_includes_x_request_id(client: AsyncClient) -> None:
     """Every response should include a UUID-shaped X-Request-ID header."""
     response = await client.get("/health")
-    assert "X-Request-ID" in response.headers
+    assert REQUEST_ID_HEADER in response.headers
     # Pin the UUID shape (not just non-empty) — a regression that emits
     # ``"x"`` or any short non-UUID string would otherwise pass.
-    assert UUID_REGEX.match(response.headers["X-Request-ID"]) is not None
+    assert UUID_REGEX.match(response.headers[REQUEST_ID_HEADER]) is not None
 
 
 async def test_request_id_uses_client_provided_uuid(client: AsyncClient) -> None:
     """A valid client-provided UUID should be echoed back in the response."""
     client_uuid = "12345678-1234-1234-1234-123456789012"
-    response = await client.get("/health", headers={"X-Request-ID": client_uuid})
-    assert response.headers["X-Request-ID"] == client_uuid
+    response = await client.get("/health", headers={REQUEST_ID_HEADER: client_uuid})
+    assert response.headers[REQUEST_ID_HEADER] == client_uuid
 
 
 async def test_request_id_rejects_invalid_client_id(client: AsyncClient) -> None:
     """A non-UUID client-provided ID should be replaced with a fresh UUID-shaped one."""
-    response = await client.get("/health", headers={"X-Request-ID": "not-a-uuid"})
-    assert response.headers["X-Request-ID"] != "not-a-uuid"
+    response = await client.get("/health", headers={REQUEST_ID_HEADER: "not-a-uuid"})
+    assert response.headers[REQUEST_ID_HEADER] != "not-a-uuid"
     # Replacement must be UUID-shaped (regression guard against the
     # middleware emitting any non-empty string under the rejection branch).
-    assert UUID_REGEX.match(response.headers["X-Request-ID"]) is not None
+    assert UUID_REGEX.match(response.headers[REQUEST_ID_HEADER]) is not None
 
 
 async def test_oversize_content_length_rejected_with_413_problem_json(client: AsyncClient) -> None:
@@ -60,4 +60,4 @@ async def test_oversize_content_length_rejected_with_413_problem_json(client: As
     assert body["title"] == "Payload Too Large"
     assert body["instance"] == "/health"
     assert "request_id" in body
-    assert response.headers["X-Request-ID"] == body["request_id"]
+    assert response.headers[REQUEST_ID_HEADER] == body["request_id"]

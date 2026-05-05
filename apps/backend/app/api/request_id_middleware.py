@@ -13,6 +13,7 @@ Two concerns layered on the ASGI scope:
    (silenced in core/logging.py).
 """
 
+import asyncio
 import time
 import uuid
 from http import HTTPStatus
@@ -53,6 +54,16 @@ _REQUEST_ID_PREVIEW_MAX_CHARS: Final[int] = 32
 # cannot amplify a single 60K-char-URL POST into a multi-KB error body.
 _INSTANCE_PREVIEW_MAX_CHARS: Final[int] = 512
 
+# Sentinel status code emitted in the access log when a request is
+# cancelled before the handler reached ``http.response.start``. This is
+# the nginx convention "Client Closed Request" — not a real IANA HTTP
+# status (the wire response is whatever Starlette emits for the unhandled
+# CancelledError; this is access-log telemetry only). Distinguishing
+# cancelled-disconnects from genuine 5xx prevents long-poll inference
+# disconnects from inflating operator dashboards keyed on
+# ``status_code >= 500``.
+_CLIENT_CLOSED_REQUEST_STATUS: Final[int] = 499
+
 # Maximum allowed Content-Length on the request body. Larger payloads are
 # rejected before Starlette buffers them, defending against accidental retry
 # loops or pathological consumers OOM-ing uvicorn on the 16 GB M4 host.
@@ -61,6 +72,27 @@ _INSTANCE_PREVIEW_MAX_CHARS: Final[int] = 512
 _MAX_REQUEST_BODY_BYTES: Final[int] = 64 * 1024 * 1024
 
 logger = structlog.get_logger(__name__)
+
+
+def _resolve_access_log_status(captured_status: int, unhandled_exc: BaseException | None) -> int:
+    """Compute the access-log status from raw ASGI signals.
+
+    When the app raises before sending ``http.response.start``, ``captured_status``
+    stays at 0 — Starlette's outer ``ServerErrorMiddleware`` will translate the
+    exception to a 500 on the wire. We surface that as 500 in the access log
+    so log filters keyed on ``status_code >= 500`` actually find these requests.
+
+    ``CancelledError`` is special-cased to ``499`` (the nginx "Client Closed
+    Request" sentinel): a consumer disconnect mid-inference is a routine event
+    in LIP's domain (long-poll chats from up to 4 LAN consumers), not a server
+    bug. Logging those at ``status=500`` would inflate the 5xx rate metric
+    operators page on, masking real handler crashes.
+    """
+    if captured_status != 0 or unhandled_exc is None:
+        return captured_status
+    if isinstance(unhandled_exc, asyncio.CancelledError):
+        return _CLIENT_CLOSED_REQUEST_STATUS
+    return int(HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 def _content_length_from_scope(scope: Scope) -> int | None:
@@ -285,16 +317,7 @@ class RequestIdMiddleware:
             unhandled_exc = exc
             raise
         finally:
-            # When the app raises before sending http.response.start,
-            # captured_status stays 0 — Starlette's outer
-            # ServerErrorMiddleware will translate the exception to a 500 on
-            # the wire. Surface that as 500 in the access log so log filters
-            # keyed on ``status_code >= 500`` actually find these requests.
-            effective_status = (
-                int(HTTPStatus.INTERNAL_SERVER_ERROR)
-                if captured_status == 0 and unhandled_exc is not None
-                else captured_status
-            )
+            effective_status = _resolve_access_log_status(captured_status, unhandled_exc)
             # Health-check pings are silenced unless degraded — a 4xx/5xx
             # /health response is the case operators DO want to see. The OK..<400
             # window matches the 2xx/3xx happy-path family per RFC 9110 §15.
@@ -314,12 +337,21 @@ class RequestIdMiddleware:
                 # same consumer. Both are fine to log unconditionally for
                 # this single-developer LAN profile (consumers are self-owned).
                 client_ip, client_port = scope.get("client") or (None, None)
+                # ``request_id_source`` and ``had_rejected_client_id`` already
+                # ride via contextvars (bound above); re-passing them as
+                # explicit kwargs is defense-in-depth — same pattern the
+                # unhandled-exception handler uses for ``method``/``path``
+                # in ``exception_handlers``. A future refactor narrowing
+                # the contextvar lifetime won't drop these from the access
+                # log mid-flight.
                 logger.info(
                     "request_completed",
                     status_code=effective_status,
                     duration_ms=duration_ms,
                     client_ip=client_ip,
                     client_port=client_port,
+                    request_id_source=request_id_source,
+                    had_rejected_client_id=rejected_client_id,
                 )
 
 

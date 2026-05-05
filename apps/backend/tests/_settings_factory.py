@@ -5,8 +5,6 @@ pyright-suppression so the 12 individual call sites in test_config.py
 don't each carry a ``# pyright: ignore`` comment.
 """
 
-from __future__ import annotations
-
 from app.core.config import Settings
 
 

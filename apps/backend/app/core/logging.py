@@ -62,7 +62,7 @@ def ascii_safe(value: str | bytes, *, max_chars: int = EXC_MESSAGE_PREVIEW_MAX_C
     treat them as special.
     """
     text = value.decode("ascii", errors="replace") if isinstance(value, bytes) else value
-    return text.encode("ascii", "replace").decode("ascii")[:max_chars]
+    return text.encode("ascii", errors="replace").decode("ascii")[:max_chars]
 
 
 _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(

@@ -59,3 +59,13 @@ both ship un-typed HTTP errors that have no LIP-specific URN. Co-located
 with the other wire-shape constants so the ``ProblemDetails.type``
 regex can build itself from the same literal that the handlers emit
 (no risk of the regex and the emit-site drifting apart)."""
+
+REQUEST_ID_HEADER: Final[str] = "X-Request-ID"
+"""Canonical wire spelling of the request-id header.
+
+``RequestIdMiddleware`` emits the lowercase byte form (``b"x-request-id"``)
+on the response side — HTTP/1.1 headers are case-insensitive, so the
+distinction is presentation-only — but every consumer-facing reference
+(test helpers, contract tests, OpenAPI doc strings) reads this constant
+to defeat literal-vs-literal drift the same way the rest of
+``wire_constants`` defeats UUID-regex drift."""
