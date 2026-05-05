@@ -189,3 +189,52 @@ def test_redaction_processor_redacts_contextvar_bound_message_content(
         assert "SECRET-PROMPT-MARKER-12345" not in out, out
     finally:
         structlog.contextvars.clear_contextvars()
+
+
+def test_redaction_processor_does_not_recurse_into_nested_dicts(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Documented limitation pin: the redaction processor only inspects
+    TOP-LEVEL keys; nested structures are NOT scanned.
+
+    The ``_REDACTION_BLOCKLIST`` docstring states this explicitly. Without
+    a regression test, a future contributor adding recursion (apparent
+    safety improvement) would silently change behavior — the chain test
+    above would still pass while the no-recursion contract was broken.
+    Asserting the limitation as a positive contract here keeps the
+    cost/benefit trade-off (per-call recursion cost vs caller-discipline
+    primary) auditable.
+    """
+    configure_logging(log_level="info", json_output=True)
+    logger = structlog.get_logger("test")
+    # Nest the prompt content one level deep under an unrelated key.
+    # Caller discipline is what stops this in production; the test
+    # asserts the processor does NOT compensate for caller discipline.
+    logger.info(
+        "nested_smoke",
+        request={"messages": [{"role": "user", "content": "NESTED-PROMPT-MARKER"}]},
+    )
+    out = capsys.readouterr().out
+    # The marker survives because the nested ``messages`` key sits inside
+    # the ``request=`` value, which is rendered verbatim. This is the
+    # documented limitation.
+    assert "NESTED-PROMPT-MARKER" in out, out
+
+
+def test_configure_logging_round_trips_debug_event_via_capture_logs() -> None:
+    """``log_level="debug"`` round-trips a debug line through capture_logs.
+
+    Pin for the wrapper-class choice (``structlog.stdlib.BoundLogger``).
+    The pyproject.toml comment block trades off the
+    ``make_filtering_bound_logger`` perf short-circuit for stdlib-foreign-
+    logger uniformity. Without an explicit debug-level test, a future
+    contributor swapping the wrapper for perf would silently break
+    foreign-logger uniformity while every existing info/warning test
+    stayed green. This test asserts the debug level emits at all,
+    bounding the regression at the wrapper layer.
+    """
+    configure_logging(log_level="debug", json_output=False)
+    logger = structlog.get_logger("test_debug")
+    with capture_logs() as captured:
+        logger.debug("smoke_debug", k="v")
+    assert any(entry["event"] == "smoke_debug" for entry in captured), captured

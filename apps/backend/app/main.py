@@ -33,7 +33,14 @@ class _AppVersionResolution(NamedTuple):
     """
 
     version: str
-    error: BaseException | None
+    # ``Exception`` (not ``BaseException``) because both producer arms
+    # — ``except _metadata.PackageNotFoundError`` and ``except
+    # Exception``  in ``_resolve_app_version`` — root at ``Exception``.
+    # Widening to ``BaseException`` would falsely advertise that
+    # ``KeyboardInterrupt`` / ``SystemExit`` could ride this field;
+    # they cannot, and the failure-emit consumer below is safe on the
+    # narrower type.
+    error: Exception | None
 
 
 def _resolve_app_version() -> _AppVersionResolution:
@@ -257,14 +264,23 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             # so a jq filter ``select(.event | startswith("app_shutdown"))``
             # finds both events and joins on the same field set rather than
             # encountering ``version`` on one half of the pair only.
-            logger.info(
-                "app_shutdown_completed",
-                phase="lifespan",
-                reason=shutdown_reason,
-                version=application.version,
-                env=settings.app_env,
-                teardown_ms=elapsed_ms(shutdown_started),
-            )
+            #
+            # ``suppress(Exception)`` mirrors the access-log emit in
+            # ``app/api/request_id_middleware.py``'s ``finally`` block: a
+            # structlog regression mid-shutdown (e.g. a future redaction
+            # processor crash) would otherwise mask the cancellation /
+            # exception that triggered the shutdown via Python's "finally
+            # raises, original drops" rule. Best-effort telemetry should
+            # never replace the original failure that actually paged.
+            with suppress(Exception):
+                logger.info(
+                    "app_shutdown_completed",
+                    phase="lifespan",
+                    reason=shutdown_reason,
+                    version=application.version,
+                    env=settings.app_env,
+                    teardown_ms=elapsed_ms(shutdown_started),
+                )
 
 
 def create_app() -> FastAPI:

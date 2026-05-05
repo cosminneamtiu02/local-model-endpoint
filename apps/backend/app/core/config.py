@@ -150,9 +150,9 @@ class Settings(BaseSettings):
 
     # Interface to bind uvicorn to. Default is loopback only; binding to a
     # non-private host requires opt-in via allow_public_bind because LIP
-    # has no authentication layer. ``max_length=253`` is the RFC 1035
-    # hostname cap so garbage strings fail at the type boundary before
-    # reaching ``_check_safety_invariants``'s classifier.
+    # has no authentication layer. The hostname cap is documented at the
+    # ``max_length=`` arg below (single source of truth) — do not re-state
+    # the rationale in this lead-in.
     bind_host: str = Field(
         default="127.0.0.1",
         description="Interface to bind uvicorn to (loopback / private LAN).",
@@ -191,9 +191,12 @@ class Settings(BaseSettings):
         — the ``Literal[...]`` constraint on ``log_level`` is case-sensitive,
         so without this normalizer an uppercase value (the natural form for
         operators copy-pasting from stdlib ``logging`` docs) would fail
-        validation with a confusing "input should be 'debug', 'info', ..."
-        error. Returning the value unchanged for non-string inputs lets
-        Pydantic's downstream type-coercion produce the canonical error.
+        validation with a confusing "Input should be 'debug', 'info', ..."
+        error. Non-string inputs are returned unchanged so Pydantic's
+        downstream Literal-membership check produces the canonical
+        "Input should be 'debug', 'info', 'warning', 'error' or 'critical'"
+        error (the test ``test_settings_log_level_rejects_invalid_value``
+        pins this exact message).
         """
         return value.lower() if isinstance(value, str) else value
 
@@ -242,6 +245,20 @@ class Settings(BaseSettings):
                 "ollama_host must not embed URL userinfo; LIP has no auth model "
                 "that uses it and the credentials would surface in httpx exception "
                 "strings on failure paths."
+            )
+            raise ValueError(msg)
+        # Reject URL path segments on ollama_host. ``AnyHttpUrl`` accepts a
+        # ``path``, but LIP only ever calls the bare ``/api/chat`` endpoint
+        # against a base URL — a misconfigured ``LIP_OLLAMA_HOST=
+        # http://127.0.0.1:11434/foo/bar`` would either RFC-3986-merge into
+        # ``/foo/api/chat`` (silently broken) or land the unexpected path in
+        # the ``ollama_client_lifecycle_entered`` log line. ``""`` and ``"/"``
+        # are both legitimate "no path" forms that AnyHttpUrl normalizes.
+        ollama_path = self.ollama_host.path or ""
+        if ollama_path not in ("", "/"):
+            msg = (
+                f"ollama_host must not include a path segment (got {ollama_path!r}); "
+                "use the bare host:port form."
             )
             raise ValueError(msg)
         return self

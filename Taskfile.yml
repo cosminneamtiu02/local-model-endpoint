@@ -226,9 +226,10 @@ tasks:
     # the runtime backend it generates code for. Without this gate, a
     # regression deleting a ``test_codegen_rejects_*`` case would ship
     # green on the codegen-side workspace. The 80% floor is the
-    # measured-baseline-minus-margin; round-19 follow-up bumps to 90%
-    # in lockstep with backend after walking the uncovered defensive
-    # branches in ``generate.py``.
+    # measured-baseline-minus-margin; bumps to 90% are gated on walking
+    # the uncovered defensive branches in ``generate.py`` (mostly YAML-
+    # parser error arms) and either adding tests or pragma:no-cover-ing
+    # them in lockstep with the backend gate.
     dir: "{{.ERROR_CONTRACTS_DIR}}"
     cmds:
       - uv run --frozen pytest tests/ --cov=scripts --cov-report=term-missing --cov-fail-under=80

@@ -251,13 +251,18 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
     # InternalError problem+json (its own params/extras have no collisions).
     collisions = spread.keys() & extras_widened.keys()
     if collisions:
+        # Hoist ``sorted(collisions)`` once instead of evaluating it twice
+        # (log line + error message). Mirrors the ``error_count =
+        # len(validation_errors)`` hoist pattern used elsewhere in this
+        # module to keep "compute-once, use twice" consistent.
+        sorted_collisions = sorted(collisions)
         logger.error(
             "problem_details_extras_collision",
-            collisions=sorted(collisions),
+            collisions=sorted_collisions,
             original_code=exc.code,
         )
         error_message = (
-            f"ProblemDetails extras keys collide with typed params: {sorted(collisions)!r}"
+            f"ProblemDetails extras keys collide with typed params: {sorted_collisions!r}"
         )
         raise RuntimeError(error_message)
     try:
@@ -642,12 +647,18 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # InternalError, identical in severity to ``http_exception_5xx_raised``
         # below. Operators paging on ``level >= ERROR`` for 5xx misconfiguration
         # would otherwise miss this branch.
-        # Truncate ``detail`` to ``REASON_MAX_CHARS`` symmetric with the
-        # 5xx/wire-body branches below: an unbounded framework-supplied
-        # detail in a structured-log field is the same asymmetry the
-        # rest of the schema avoids.
-        raw_detail_str = str(http_exc.detail) if http_exc.detail else None
-        truncated_detail = raw_detail_str[:REASON_MAX_CHARS] if raw_detail_str else None
+        # ``ascii_safe`` truncates AND scrubs control characters so a future
+        # framework-internal ``HTTPException(detail=...)`` carrying a control
+        # char (e.g. mid-stream consumer-supplied content-type with raw
+        # \x1f) cannot inject ANSI escapes into the dev ConsoleRenderer.
+        # Symmetric with the ``ascii_safe`` discipline already used at the
+        # ValidationFailedError reason field and the 415-content-type
+        # surface in this same module.
+        truncated_detail = (
+            ascii_safe(str(http_exc.detail), max_chars=REASON_MAX_CHARS)
+            if http_exc.detail
+            else None
+        )
         logger.error(
             "http_exception_invalid_status_raised",
             status_code=status_code,
@@ -663,13 +674,15 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response
     status_phrase = _http_status_phrase(status_code)
-    # Truncate ``detail`` symmetric with ``ValidationErrorDetail.reason``'s
-    # 2048-char cap. Starlette today only constructs HTTPException with
-    # bounded internal strings, but reflecting an unbounded
-    # framework-supplied ``detail`` into the wire body is exactly the
+    # ``ascii_safe`` (truncate + control-char scrub) symmetric with
+    # ``ValidationErrorDetail.reason`` (2048-char cap) and the 415-content-
+    # type surface above. Starlette today only constructs HTTPException with
+    # bounded literal-internal strings, but reflecting an unbounded or
+    # control-char-bearing framework-supplied ``detail`` into the wire body
+    # — and into the dev ConsoleRenderer log line — is exactly the
     # asymmetry the rest of the schema avoids.
     raw_detail = str(http_exc.detail) if http_exc.detail else status_phrase
-    detail_text = raw_detail[:REASON_MAX_CHARS]
+    detail_text = ascii_safe(raw_detail, max_chars=REASON_MAX_CHARS)
     # Reuse ``initial_code`` computed above — for status>=400 it's the
     # final code (the <400 short-circuit already returned above), so a
     # second ``_http_code_for_status`` call would produce the same value.

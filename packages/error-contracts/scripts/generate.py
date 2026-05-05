@@ -30,7 +30,7 @@ _ErrorSpec = dict[str, Any]
 _ErrorsFile = dict[str, Any]
 
 # Module-level constants are ``Final`` to mirror the discipline in
-# ``apps/backend/app/api/request_id_middleware.py``, ``exception_handlers.py``,
+# ``apps/backend/app/api/request_id_middleware.py``, ``exception_handler_registry.py``,
 # and ``ollama_translation.py``: the rebind-immutable annotation lets pyright
 # catch accidental reassignment and keeps the codegen package idiomatically
 # consistent with the backend it generates into.
@@ -46,7 +46,7 @@ PARAM_TYPE_TO_PYTHON: Final[Mapping[str, str]] = MappingProxyType(
 
 # RFC 7807 standard fields plus LIP project extensions plus the validation_errors
 # extension array name. errors.yaml MUST NOT declare a param with any of these
-# names — the response handler in apps/backend/app/api/exception_handlers.py
+# names — the response handler in apps/backend/app/api/exception_handler_registry.py
 # spreads typed params at root level alongside these explicit kwargs, and a
 # collision raises TypeError at request time, masking the real error as a 500.
 #
@@ -84,6 +84,22 @@ HTTP_ERROR_STATUS_MIN: Final[int] = 400
 HTTP_ERROR_STATUS_MAX: Final[int] = 599
 HTTP_5XX_FLOOR: Final[int] = 500
 
+# Control character boundaries — symmetric with the ``_C0_CONTROL_UPPER`` /
+# ``_DEL_CHAR`` constants in ``apps/backend/app/api/request_id_middleware.py``
+# (the runtime ASCII-clean discipline pattern). Codes < 0x20 are the C0
+# control range (\\x00-\\x1f, ASCII control chars); 0x7f is DEL. Used by the
+# detail_template control-char rejector so a YAML author with a misbehaving
+# editor cannot inject raw control bytes that would ride into wire-body
+# ``ProblemDetails.detail`` and dev-mode ConsoleRenderer log lines.
+_C0_CONTROL_UPPER: Final[int] = 0x20
+
+# Sentinel that every codegen-emitted file's first source line MUST start
+# with. The orphan-cleanup pass uses this to discriminate codegen output
+# from a hypothetical hand-written sibling — the structural prefix-match
+# is stricter than a substring scan and prevents an accidental wrong-
+# output_dir invocation from wiping unrelated Python files.
+_GENERATED_SENTINEL_PREFIX: Final[str] = '"""Generated'
+
 # Compiled regex patterns hoisted to module scope (mirrors
 # ``apps/backend/app/schemas/wire_constants.py``'s precompile-at-module-
 # scope discipline). Codegen is cold-path so the perf delta is academic;
@@ -116,14 +132,17 @@ def _class_to_snake(name: str) -> str:
 
     e.g. ``WidgetNotFoundError`` -> ``widget_not_found_error``.
 
-    The regex inserts an underscore before EVERY uppercase letter and
-    relies on the caller's input being PascalCase derived from a
-    SCREAMING_SNAKE code (i.e., no consecutive uppercase letters in
-    practice — a code like ``HTTP_TIMEOUT`` becomes class
-    ``HttpTimeoutError`` then file stem ``http_timeout_error``, never
-    ``h_t_t_p_timeout_error``). Restricted to inputs derived from
-    ``_code_to_class_name``; do NOT use on arbitrary PascalCase strings
-    (``IOError`` would become ``i_o_error``).
+    The regex inserts an underscore before EVERY uppercase letter EXCEPT
+    the first. When the input is a ``_code_to_class_name`` output, each
+    uppercase letter marks a SCREAMING_SNAKE segment boundary (single-
+    letter or first-letter-of-multi-letter): ``HTTP_TIMEOUT`` round-trips
+    via class ``HttpTimeoutError`` to file stem ``http_timeout_error``,
+    and a degenerate code ``A_B_C`` round-trips via ``ABCError`` to
+    ``a_b_c_error`` (each segment is one upper letter, regex-correctly
+    underscored). Restricted to inputs derived from ``_code_to_class_name``;
+    do NOT use on arbitrary PascalCase strings (``IOError`` would become
+    ``i_o_error`` because the regex has no way to know "IO" is a single
+    initialism rather than two segments).
     """
     return _PASCAL_CASE_BOUNDARY_PATTERN.sub(r"_\1", name).lower()
 
@@ -218,7 +237,28 @@ def _validate_detail_template(code: str, template: str, params: _ParamsMap) -> N
     Also asserts that every ``{name}`` placeholder corresponds to a declared
     param key — catching template/params mismatches at build time rather than
     waiting for the first request that hits ``detail()``.
+
+    Rejects raw control characters (\\x00-\\x08, \\x0b, \\x0c, \\x0e-\\x1f,
+    \\x7f). The handler chain ASCII-cleans Pydantic-error ``field`` /
+    ``reason`` strings via ``ascii_safe`` before rendering them into the
+    wire body, but ``ProblemDetails.detail`` is rendered straight from
+    ``str.format(template, **params)`` — a control-char-laden template
+    would ride into every problem+json that uses the error AND into
+    dev-mode ``ConsoleRenderer`` log lines via ``error_message`` /
+    ``detail`` fields. Tab and newline are permitted (``\\t`` / ``\\n``)
+    so multi-line templates remain legal.
     """
+    allowed_control_chars = frozenset({"\t", "\n"})
+    bad = sorted(
+        {ch for ch in template if ord(ch) < _C0_CONTROL_UPPER and ch not in allowed_control_chars}
+        | ({"\x7f"} if "\x7f" in template else set())
+    )
+    if bad:
+        msg = (
+            f"Error {code} detail_template contains control characters "
+            f"{[hex(ord(c)) for c in bad]!r}; only \\t and \\n are permitted."
+        )
+        raise ValueError(msg)
     formatter = string.Formatter()
     referenced: set[str] = set()
     try:
@@ -392,7 +432,7 @@ def _validate_no_5xx_string_params(code: str, http_status: int, params: _ParamsM
             f"Error {code} is a {http_status} (5xx) with non-allowlisted string "
             f"param(s) {sorted(forbidden)!r}; 5xx response bodies must not include "
             "user-supplied free-form strings (PII discipline — see "
-            "exception_handlers.py _handle_unhandled_exception). Use integer "
+            "exception_handler_registry.py _handle_unhandled_exception). Use integer "
             f"params, restructure as a 4xx, or add the (code, param_name) pair "
             f"to _PII_SAFE_5XX_STRING_PARAMS (currently {allowlisted}) with "
             "justification that it carries closed-enum values only."
@@ -795,17 +835,23 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
     # Clean up orphan files: any *.py in output_dir that we didn't just write
     # AND that carries our generator sentinel marker. The sentinel guard
     # prevents an accidental wrong-output_dir invocation from wiping
-    # unrelated Python files; every emitter above starts the file with a
-    # ``Generated`` docstring on line 1, which serves as the sentinel.
+    # unrelated Python files. Every emitter above starts the file with the
+    # exact line ``"""Generated from errors.yaml. Do not edit."""`` (or
+    # ``"""Generated error classes. Do not edit."""`` for the package
+    # __init__ / ``"""Generated error registry. Do not edit.`` for the
+    # registry). Match on a structural line-1 prefix (module-level
+    # ``_GENERATED_SENTINEL_PREFIX``) rather than a substring-anywhere-in-
+    # head so a hypothetical hand-written file whose docstring merely
+    # mentions "Generated" is not eligible for unlink.
     keep = {f.name for f in generated_files}
     for stale in output_dir.glob("*.py"):
         if stale.name in keep:
             continue
         try:
-            head = stale.read_text(encoding="utf-8").splitlines()[:3]
+            head = stale.read_text(encoding="utf-8").splitlines()[:1]
         except (OSError, UnicodeDecodeError):
             continue
-        if any("Generated" in line for line in head):
+        if head and head[0].startswith(_GENERATED_SENTINEL_PREFIX):
             stale.unlink()
 
     return generated_files

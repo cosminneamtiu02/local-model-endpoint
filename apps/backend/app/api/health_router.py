@@ -59,6 +59,7 @@ _HEALTH_OK_RESPONSE: Final[dict[str, Any]] = {
 @router.get(
     "/health",
     operation_id="getHealth",
+    summary="Liveness probe",
     status_code=status.HTTP_200_OK,
     responses={
         status.HTTP_200_OK: _HEALTH_OK_RESPONSE,

@@ -19,7 +19,7 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
 - Python 3.13, uv
 - FastAPI, Pydantic v2, pydantic-settings, asyncio, httpx, structlog
 - Inference backend: Ollama (Gemma 4 E2B in v1)
-- Testing: pytest + pytest-asyncio + Schemathesis
+- Testing: pytest + pytest-asyncio (Schemathesis lands with LIP-E001-F002 per ADR-011)
 - Architecture enforcement: import-linter (contracts), Pyright (strict mode)
 - Task runner: Taskfile. No Make. No npm.
 - When unsure about a library API, use Context7 to fetch current documentation
@@ -35,7 +35,7 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
      carve-out exists because a stand-alone file for a private return-
      type tuple adds no discoverability value while doubling the indirection
      when reading the producer. Current sites: `_AppVersionResolution`
-     in `app/main.py`, `_RequestIdResolution` in `app/api/exception_handlers.py`,
+     in `app/main.py`, `_RequestIdResolution` in `app/api/exception_handler_registry.py`,
      `_FlattenedParts` in `app/features/inference/model/ollama_translation.py`.
      A class published as part of any module's public surface is NEVER
      covered by the carve-out — the rule binds for everything else.

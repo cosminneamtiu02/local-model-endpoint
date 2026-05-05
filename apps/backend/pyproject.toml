@@ -14,6 +14,9 @@ version = "0.1.0"
 description = "Local Inference Provider — FastAPI service wrapping a local Ollama daemon"
 license = "MIT"
 authors = [{ name = "Cosmin Neamtiu" }]
+# Lockstep with ``packages/error-contracts/pyproject.toml`` — bump
+# together when Python 3.14 lands and is validated against both the
+# backend test suite and the codegen tests.
 requires-python = ">=3.13,<3.14"
 # Versions are pinned exactly: CI runs ``uv sync --frozen`` so the lockfile
 # pins the actual environment; the manifest values are the floor that
@@ -125,24 +128,26 @@ testpaths = ["tests"]
 # pythonpath = ["."] would shadow the editable install in some invocation
 # paths and is "two ways to do the same thing" — drop it.
 asyncio_mode = "auto"
-# Session-scope keeps the suite under 4s on the current 391-test count by
-# sharing one event loop across every test+fixture (per-test loops would
-# add ~5-10s of construct/teardown overhead). The trade-off is that test
-# isolation against state-leakage in async resources is weaker — the
-# autouse ``_clear_structlog_contextvars`` fixture in tests/conftest.py
-# is the canary that this risk is real and the ``filterwarnings`` block
-# below converts unraised exceptions to test failures so leaks surface.
+# Session-scope keeps the suite fast (~3s on the current backend test
+# count) by sharing one event loop across every test+fixture (per-test
+# loops would add ~5-10s of construct/teardown overhead). The trade-off
+# is that test isolation against state-leakage in async resources is
+# weaker — the autouse ``_clear_structlog_contextvars`` fixture in
+# tests/conftest.py is the canary that this risk is real and the
+# ``filterwarnings`` block below converts unraised exceptions to test
+# failures so leaks surface.
 #
 # The ``test_loop_scope`` line below MUST stay in lockstep with the
 # fixture-loop scope above. pytest-asyncio 1.3.0 treats them as
 # independent settings (per the cached docs at
-# ~/.claude/context7-cache/.../schemathesis@*.md and the pytest-asyncio
-# upstream changelog: ``asyncio_default_test_loop_scope`` defaults to
-# ``function`` when unset). A function-scoped test loop alongside a
-# session-scoped fixture loop triggers ``ScopeMismatch`` the first time
-# a session-scoped async fixture is added (we have none today, but the
-# coupling is invisible at edit time and a future addition would tip
-# the suite over). Both at session scope keeps the invariant intact.
+# ~/.claude/context7-cache/.../pytest-asyncio@1.3.0.md and the
+# pytest-asyncio upstream changelog: ``asyncio_default_test_loop_scope``
+# defaults to ``function`` when unset). A function-scoped test loop
+# alongside a session-scoped fixture loop triggers ``ScopeMismatch`` the
+# first time a session-scoped async fixture is added (we have none
+# today, but the coupling is invisible at edit time and a future
+# addition would tip the suite over). Both at session scope keeps the
+# invariant intact.
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 # --strict-markers/-config fails the run on unknown markers or unknown
@@ -220,10 +225,13 @@ omit = [
 ]
 
 [tool.coverage.report]
-# Baseline measured at 95% on 2026-04-28 (LIP-E003-F001 landed). Set 5pt
-# below to leave room for transient regressions during feature-dev
-# without flapping the gate. Bump back up after each feature lands and
-# stabilizes its coverage.
+# Baseline measured at ~91% (post-LIP-E003-F001 + ollama_client +
+# translation work). Gate at 90% leaves a thin headroom band; if a PR
+# drops below, fix the regression rather than lowering the gate. The
+# uncovered branches concentrate in defensive arms of
+# ``app/api/exception_handler_registry.py`` and ``app/main.py`` — walk
+# those (or pragma: no cover them with rationale) before considering a
+# floor bump.
 fail_under = 90
 show_missing = true
 exclude_lines = [
@@ -250,8 +258,8 @@ typeCheckingMode = "strict"
 # checks (``reportUnnecessaryTypeIgnoreComment``,
 # ``reportImplicitOverride``) remain on.
 include = ["app", "tests"]
-# Strict mode does NOT enable these by default. Each adds a real round-10
-# guarantee:
+# Strict mode does NOT enable these by default. Each adds a real strict-mode
+# guarantee that the project depends on:
 # - reportUnnecessaryTypeIgnoreComment: a `# pyright: ignore[X]` that
 #   becomes obsolete after a Pydantic/httpx upgrade silently rots; this
 #   flips that into a build failure so the comment is removed alongside
@@ -260,8 +268,16 @@ include = ["app", "tests"]
 #   `@override`; enforcing it on hand-written code keeps the convention
 #   uniform and surfaces a missing-decorator regression at type-check
 #   time rather than at code-review time.
+# - reportUninitializedInstanceVariable: the ``DomainError`` base declares
+#   ``params: BaseModel | None`` at class scope; a future codegen-template
+#   change or hand-written subclass that forgets to assign ``self.params``
+#   in ``__init__`` would surface as a runtime ``AttributeError`` on first
+#   ``detail()`` call instead of a static error. The full ``app/`` + ``tests/``
+#   tree currently passes the rule (verified at round 19); enabling it
+#   converts that compliance into a CI gate.
 reportUnnecessaryTypeIgnoreComment = "error"
 reportImplicitOverride = "error"
+reportUninitializedInstanceVariable = "error"
 
 [[tool.pyright.executionEnvironments]]
 # Per-tree relaxations for ``tests/``. These are the noise categories

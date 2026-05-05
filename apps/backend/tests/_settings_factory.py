@@ -21,5 +21,5 @@ def make_settings(**overrides: object) -> Settings:
     # form ``Settings(_env_file=None, **overrides)`` at runtime — the
     # mapping form is preferred because it avoids the
     # ``reportCallIssue`` cache-flap pyright emits on the kwarg-spread
-    # form (see lane-3.1 round-18 fix discussion).
+    # form.
     return Settings.model_validate({"_env_file": None, **overrides})
