@@ -181,7 +181,7 @@ rationale and customization):
 
 | Command | Description |
 |---|---|
-| `task ollama:install` | Copy the plist to `~/Library/LaunchAgents/` and bootstrap the agent into the GUI session domain |
+| `task ollama:install` | Copy the plist to `~/Library/LaunchAgents/` and bootstrap the agent into the GUI session domain (idempotent on re-run; reapplies plist edits) |
 | `task ollama:uninstall` | Bootout the agent and remove the installed plist |
 | `task ollama:status` | Print the launchctl state (use to verify the env vars made it through) |
 | `task check:plist` | Validate the plist with `plutil -lint` (macOS only; also wired into `task check`) |
