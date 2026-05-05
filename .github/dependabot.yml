@@ -116,6 +116,11 @@ updates:
           - "ruff"
           - "pyright"
           - "pip-audit"
+          # ``pyyaml`` is the workspace's runtime dep but ships often enough
+          # that a solo bump can cascade-conflict with sibling dev-tool PRs
+          # on adjacent lines of pyproject.toml. Co-grouping mirrors the
+          # backend's ``dev-tools`` group rationale (lane 10.1).
+          - "pyyaml"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -165,14 +170,11 @@ updates:
       - "dependencies"
     groups:
       # ``update-types`` filter intentionally omitted — major bumps stay
-      # grouped. The bare ``"*"`` glob now reliably matches Dependabot's
-      # URL-form pre-commit names (the historical PR #20/#21 cascade
-      # was the symptom of a Dependabot matcher bug since fixed); the
-      # explicit URL forms previously listed below ``"*"`` were
-      # belt-and-braces against that bug and have been removed now that
-      # the matcher is reliable. If a future regression re-opens the
-      # cascade-conflict surface, the explicit URL forms can be re-added
-      # — but the current state is a single glob covers every hook.
+      # grouped. Bare ``"*"`` glob covers every Dependabot-resolved
+      # pre-commit hook URL form. If a future Dependabot regression
+      # re-opens the cascade-conflict surface (PR #20/#21-shaped bug),
+      # re-add explicit URL forms here as belt-and-braces — the
+      # load-bearing context lives in TEMPLATE_FRICTION.md.
       pre-commit-tools:
         patterns:
           - "*"

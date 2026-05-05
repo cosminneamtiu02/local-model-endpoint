@@ -227,7 +227,22 @@ class OllamaClient:
 
     async def __aenter__(self) -> Self:
         """Enter async context manager."""
-        logger.info("ollama_client_lifecycle_entered", base_url=self._loggable_base_url)
+        # Surface the timeout/limits config at the lifecycle-entry seam so an
+        # operator triaging a future ``PoolTimeout`` / read-timeout has the
+        # client-build config recorded in logs without spelunking source.
+        # One emit per process lifetime, so the cost is trivial and the
+        # rationale comments at DEFAULT_TIMEOUT/DEFAULT_LIMITS get an
+        # operator-readable echo that survives source refactors.
+        logger.info(
+            "ollama_client_lifecycle_entered",
+            base_url=self._loggable_base_url,
+            timeout_connect=DEFAULT_TIMEOUT.connect,
+            timeout_read=DEFAULT_TIMEOUT.read,
+            timeout_pool=DEFAULT_TIMEOUT.pool,
+            max_connections=DEFAULT_LIMITS.max_connections,
+            max_keepalive_connections=DEFAULT_LIMITS.max_keepalive_connections,
+            keepalive_expiry=DEFAULT_LIMITS.keepalive_expiry,
+        )
         return self
 
     async def __aexit__(
@@ -259,8 +274,12 @@ class OllamaClient:
         except Exception as close_exc:
             # ``logger.exception`` auto-resolves the active exception via
             # ``sys.exc_info()``; no need to thread ``exc_info=close_exc``.
+            # ``base_url=`` for field-set parity with the ``_lifecycle_entered``
+            # / ``_closed`` peers — operators triaging a close failure can
+            # attribute by URL without joining on ``phase="lifespan"`` alone.
             logger.exception(
                 "ollama_client_close_failed",
+                base_url=self._loggable_base_url,
                 exc_type=type(close_exc).__name__,
             )
             if _exc is None:
@@ -363,9 +382,22 @@ class OllamaClient:
         # ModelCapabilityNotSupportedError problem+json bodies — single
         # source of truth for the model identifier across logs and wire
         # contract (errors.yaml param naming).
-        logger.debug(
+        # ``info`` (not ``debug``): on a wedged-daemon path (httpx connect/
+        # read hangs forever, never raises and never completes), no
+        # ``ollama_call_completed``/``_failed``/``_cancelled`` line ever
+        # fires — operators querying ``select(.event == "ollama_call_*")``
+        # see no event for the request. The 600s read timeout bounds the
+        # gap, but bumping the start line to INFO closes the 10-minute
+        # observability hole at the cost of one log line per call (low LAN
+        # volume; the started/completed pair stays terse). ``endpoint=`` is
+        # the per-call path so a future sibling ``tags()`` / ``show()``
+        # method (LIP-E002-F001) can reuse the ``ollama_call_*`` event
+        # taxonomy and operators can ``select(.endpoint == "/api/chat")``
+        # to disambiguate.
+        logger.info(
             "ollama_call_started",
             model_name=model_tag,
+            endpoint="/api/chat",
             message_count=len(messages),
             option_keys=option_keys,
         )
@@ -424,6 +456,7 @@ class OllamaClient:
             logger.exception(
                 "ollama_call_failed",
                 model_name=model_tag,
+                endpoint="/api/chat",
                 exc_type=type(call_exc).__name__,
                 exc_message=ascii_safe(str(call_exc), max_chars=EXC_MESSAGE_PREVIEW_MAX_CHARS),
                 failure_category=failure_category,
@@ -456,6 +489,7 @@ class OllamaClient:
             logger.info(
                 "ollama_call_cancelled",
                 model_name=model_tag,
+                endpoint="/api/chat",
                 exc_type=type(cancel_exc).__name__,
                 duration_ms=duration_ms,
                 ollama_status_code=ollama_status_code,
@@ -472,6 +506,7 @@ class OllamaClient:
         logger.info(
             "ollama_call_completed",
             model_name=model_tag,
+            endpoint="/api/chat",
             duration_ms=duration_ms,
             finish_reason=result.finish_reason,
             prompt_tokens=result.prompt_tokens,

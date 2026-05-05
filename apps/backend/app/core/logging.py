@@ -86,6 +86,18 @@ _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
         "completion",
         "assistant_message",
         "model_output",
+        # Tool-call / function-call surface naming variants. ``tool_calls``
+        # above is Ollama's request-side key; ``tools`` is the request-side
+        # tool-list (defining the available tools, which can include
+        # prompt-shaped descriptions). ``tool_arguments`` / ``function_call``
+        # / ``function_arguments`` cover the OpenAI-compatible legacy and
+        # Anthropic-SDK naming variants — a future adapter shipping any of
+        # these without going through the redaction-aware logger would defeat
+        # the CLAUDE.md "never log tool-call arguments" rule via this seam.
+        "tools",
+        "tool_arguments",
+        "function_call",
+        "function_arguments",
         # Generic body / payload names a future debug-investigation diff
         # might use (``logger.info("oops", body=request_json)``). Operator
         # discipline catches it at code review; this is the
@@ -142,13 +154,20 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     # off ``level`` / ``timestamp`` and a caller-bound ``level="custom"``
     # would silently shadow them otherwise.
     #
-    # In JSON mode we insert ``dict_tracebacks`` AFTER StackInfoRenderer so
-    # structlog converts ``exc_info`` into a structured ``exception`` key for
-    # the JSONRenderer; without it, ``logger.exception`` would render an
-    # opaque ``repr`` of the exc_info tuple in production logs. In dev mode
-    # we omit the processor because ConsoleRenderer already pretty-prints
-    # exceptions itself (and structlog warns when ``format_exc_info`` is
-    # added on top of it).
+    # In JSON mode we append ``dict_tracebacks`` so structlog converts
+    # ``exc_info`` into a structured ``exception`` key for the JSONRenderer;
+    # without it, ``logger.exception`` would render an opaque ``repr`` of
+    # the exc_info tuple in production logs. In dev mode we omit the
+    # processor because ConsoleRenderer already pretty-prints exceptions
+    # itself (and structlog warns when ``format_exc_info`` is added on top
+    # of it).
+    #
+    # ``StackInfoRenderer`` is intentionally OMITTED — it only acts when a
+    # log call passes ``stack_info=True``, and no call site in the codebase
+    # does (verified by ``grep -rnE "stack_info=" apps/backend/app``). Per
+    # CLAUDE.md ADR-011 ("build only what the current feature requires"),
+    # the no-op processor was dead weight on every log line. Re-add it
+    # when a debug-time bind needs ``stack_info`` capture.
     shared_processors: list[structlog.typing.Processor] = [
         structlog.contextvars.merge_contextvars,
         # Defense-in-depth redaction sits AFTER ``merge_contextvars`` so a
@@ -165,7 +184,6 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
         # datetime.now(UTC) discipline (see CLAUDE.md). Without it,
         # structlog defaults to local time, producing tz-ambiguous lines.
         structlog.processors.TimeStamper(fmt="iso", utc=True),
-        structlog.processors.StackInfoRenderer(),
     ]
     if json_output:
         # ``dict_tracebacks`` is a singleton instance per structlog 25.x; if

@@ -141,11 +141,19 @@ jobs:
           fi
 
       - name: Checkout PR branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           token: ${{ secrets.DEPENDABOT_LOCKFILE_SYNC_PAT }}
+
+      - name: Read Python version from .python-version
+        # ``.python-version`` at the repo root is the single source of
+        # truth for the Python interpreter version (lane 10.2). Piped
+        # through ``$GITHUB_ENV`` so the setup-uv step references
+        # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
+        # read .python-version, so the explicit read step is the bridge.
+        run: echo "PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)" >> "$GITHUB_ENV"
 
       - name: Guard against self-triggered loops
         id: loop_guard
@@ -226,14 +234,20 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: '{apps/backend,packages/error-contracts}/uv.lock'
-          # Pin to the same Python interpreter ci.yml uses (3.13.13). Without
-          # the pin, ``uv lock`` runs under whatever 3.13.x ``setup-uv``
-          # downloads at job time — typically the most recent. If 3.13.14
-          # ships before the matrix is bumped, the regenerated ``uv.lock``
-          # could resolve against 3.13.14 while CI's ``uv sync --frozen``
-          # validates under 3.13.13, producing the exact divergence this
-          # workflow exists to prevent.
-          python-version: "3.13.13"
+          # ``.python-version`` source-of-truth via ``$GITHUB_ENV``
+          # (lane 10.2). Same file ci.yml's setup-uv invocations consult,
+          # so a single file controls the version across both workflows —
+          # eliminating the silent-skew window where ci.yml could pin
+          # 3.13.13 while this workflow regenerates uv.lock under
+          # 3.13.14 (the divergence this workflow exists to prevent).
+          python-version: ${{ env.PYTHON_VERSION }}
+          # Authenticated GitHub API requests pull uv interpreter downloads
+          # under the 5000/hr per-token rate limit instead of the shared
+          # 60/hr unauthenticated pool. Symmetric with the same pin in
+          # ci.yml; an intermittent rate-limit failure here is one of the
+          # few ways the auto-merge pipeline could land a stale-lockfile
+          # bump on main (lane 10.4).
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Regenerate backend uv.lock
         if: steps.loop_guard.outputs.skip != 'true' && steps.changed.outputs.needs_uv_backend == 'true'

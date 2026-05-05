@@ -42,6 +42,16 @@ jobs:
           # dep that might exfiltrate the runner's git config.
           persist-credentials: false
 
+      - name: Read Python version from .python-version
+        # ``.python-version`` at the repo root is the single source of
+        # truth for the Python interpreter version (lane 10.2). Piped
+        # through ``$GITHUB_ENV`` so subsequent steps reference
+        # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
+        # read .python-version (it has a ``python-version`` input that
+        # accepts a literal or a python-version-spec string only), so the
+        # explicit read step is the bridge.
+        run: echo "PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)" >> "$GITHUB_ENV"
+
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
         with:
@@ -66,11 +76,16 @@ jobs:
           # outbound IP pool and routinely exhaust the unauthenticated
           # bucket).
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          # ``python-version`` on setup-uv reuses uv's interpreter cache
-          # so the per-run download (~30s on cold cache) is amortized
-          # across PRs that touch the same Python version. Replaces
-          # the explicit ``uv python install`` step.
-          python-version: "3.13.13"
+          # Read the version from ``.python-version`` at the repo root
+          # (lane 10.2) so the interpreter pin lives in ONE place across
+          # this workflow's two setup-uv calls and the lockfile-sync
+          # workflow. setup-uv@v8 does not natively read .python-version,
+          # so we pipe it through ``${{ env.PYTHON_VERSION }}`` set at
+          # the job's ``env:`` block from the file's contents. setup-uv
+          # reuses uv's interpreter cache so the per-run download
+          # (~30s on cold cache) is amortized across PRs that touch the
+          # same Python version.
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         # No ``--all-extras`` because neither workspace declares
@@ -151,6 +166,16 @@ jobs:
           # dep that might exfiltrate the runner's git config.
           persist-credentials: false
 
+      - name: Read Python version from .python-version
+        # ``.python-version`` at the repo root is the single source of
+        # truth for the Python interpreter version (lane 10.2). Piped
+        # through ``$GITHUB_ENV`` so subsequent steps reference
+        # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
+        # read .python-version (it has a ``python-version`` input that
+        # accepts a literal or a python-version-spec string only), so the
+        # explicit read step is the bridge.
+        run: echo "PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)" >> "$GITHUB_ENV"
+
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
         with:
@@ -170,9 +195,9 @@ jobs:
           cache-dependency-glob: packages/error-contracts/uv.lock
           # Lane 10.3: see backend-checks job for the github-token rationale.
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          # Same setup-uv interpreter-cache reuse as the backend job —
-          # see backend-checks comment for the rationale.
-          python-version: "3.13.13"
+          # ``.python-version`` source-of-truth via ``$GITHUB_ENV`` — see
+          # backend-checks comment for the rationale.
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: uv sync --frozen --dev

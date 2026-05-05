@@ -152,6 +152,51 @@ def test_audit_lip_env_typos_catches_lowercase_typo(
     assert "LIP_BOGUS_TYPO_VAR" in warnings[0]["env_vars"]
 
 
+def test_audit_lip_env_typos_no_ops_when_env_prefix_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When Settings.model_config['env_prefix'] is empty, the audit must
+    no-op rather than surfacing every shell env var as an "unknown LIP".
+
+    The empty-prefix short-circuit at ``deps.py`` is the lockstep partner
+    of a future ADR removing the ``LIP_`` prefix entirely. Without this
+    test the branch is uncovered (line 57 in coverage gap) and a refactor
+    that drops the early-return would silently surface ``PATH``, ``HOME``,
+    and every other shell variable as a typo'd LIP env var.
+    """
+    from app.core.config import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_prefix", "")
+    monkeypatch.setenv("LIP_LOG_LEVEL", "warning")
+    monkeypatch.setenv("PATH", "/dummy")
+    with structlog.testing.capture_logs() as captured:
+        audit_lip_env_typos()
+    assert not [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
+
+
+def test_audit_lip_env_typos_de_dups_case_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setting both ``LIP_BOGUS=x`` and ``lip_bogus=y`` produces ONE warning.
+
+    The audit folds env-var names to upper before set-membership, so two
+    case forms of the same logical typo collapse to a single set entry.
+    A future regression that drops the case-fold on the iteration side
+    (``for name in os.environ`` without ``.upper()``) would silently emit
+    two warning lines for one typo and inflate operator log volume on
+    transitional ``set -a`` migrations.
+    """
+    monkeypatch.setenv("LIP_BOGUS_TYPO_VAR", "x")
+    monkeypatch.setenv("lip_bogus_typo_var", "y")
+    with structlog.testing.capture_logs() as captured:
+        audit_lip_env_typos()
+    warnings = [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
+    assert len(warnings) == 1
+    # Exactly ONE entry in the env_vars list (the upper-cased form),
+    # not two.
+    assert warnings[0]["env_vars"].count("LIP_BOGUS_TYPO_VAR") == 1
+
+
 def test_get_settings_construction_no_longer_emits_warnings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

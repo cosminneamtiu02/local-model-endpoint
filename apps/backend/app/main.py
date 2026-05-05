@@ -77,20 +77,21 @@ def _emit_app_version_resolve_failure() -> None:
         # so a single jq filter ``select(.phase == "startup")`` finds every
         # pre-lifespan diagnostic uniformly — symmetric with ``phase="lifespan"``
         # (router_registry.lifespan_resources) and ``phase="request"``
-        # (RequestIdMiddleware).
-        logger.warning(
-            "app_version_resolve_failed",
-            reason="package_not_found",
-            phase="startup",
-        )
+        # (RequestIdMiddleware). Distinct event names per failure mode so
+        # operator runbooks can route ``select(.event == "app_version_resolve_missing")``
+        # ("did the editable install break?") separately from
+        # ``select(.event == "app_version_resolve_unexpected_error")``
+        # (importlib.metadata internal regression) without joining on a
+        # ``reason=`` kwarg — symmetric with the ``app_startup_cancelled`` vs
+        # ``app_shutdown_cancelled`` discrimination pattern.
+        logger.warning("app_version_resolve_missing", phase="startup")
         return
     # ``logger.warning(..., exc_type=..., exc_message=...)`` ships the
     # exception identity without ``exc_info=True`` — the traceback is
     # unrecoverable across the module-import → ``create_app`` boundary
     # anyway, so encoding the type+preview here is a faithful record.
     logger.warning(
-        "app_version_resolve_failed",
-        reason="unexpected",
+        "app_version_resolve_unexpected_error",
         exc_type=type(exc).__name__,
         exc_message=str(exc)[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
         phase="startup",
@@ -243,10 +244,15 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # (resources never reached the inner finally) doesn't emit a
         # confusing teardown line for a teardown that never ran.
         if shutdown_started is not None:
+            # ``version=`` for field-set parity with ``app_shutdown`` (line 187)
+            # so a jq filter ``select(.event | startswith("app_shutdown"))``
+            # finds both events and joins on the same field set rather than
+            # encountering ``version`` on one half of the pair only.
             logger.info(
                 "app_shutdown_completed",
                 phase="lifespan",
                 reason=shutdown_reason,
+                version=application.version,
                 env=settings.app_env,
                 teardown_ms=elapsed_ms(shutdown_started),
             )

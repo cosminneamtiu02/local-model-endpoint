@@ -96,9 +96,8 @@ across four files (one class each) to satisfy the sacred one-class-per-file rule
 extension-key container; `ValidationErrorDetail` is the per-field shape inside
 validation problem+json; `HealthResponse` is the liveness payload. A fifth file
 `wire_constants` centralizes the UUID regex and `REQUEST_ID_LENGTH` reused across
-the request_id middleware and `ProblemDetails`/`ProblemExtras` — see the module
-docstring for rationale (ADR-014 governs `audit_lip_env_typos`, not wire-constant
-centralization).
+the request_id middleware, `ProblemDetails`, `app.api.deps`, and the inference
+response envelope — see the module docstring for the centralization rationale.
 
 ---
 
@@ -148,8 +147,11 @@ Run in well under 10 seconds. Cover:
 - **`tests/unit/exceptions/`** — `test_base.py` (DomainError ergonomics),
   `test_domain_errors.py` (per-code construction), `test_registry.py`
   (`ERROR_CLASSES` lookup invariants), plus `test_errors_yaml_invariants.py`,
-  `test_params_frozen_invariant.py`, and `test_problem_extras_drift_guard.py`
-  for codegen and ProblemExtras drift coverage.
+  `test_params_frozen_invariant.py`, `test_problem_extras_drift_guard.py`,
+  `test_screaming_snake_pattern_drift_guard.py`, and
+  `test_handwritten_files_invariant.py` for codegen, ProblemExtras drift,
+  SCREAMING_SNAKE pattern lockstep, and the "only base.py is hand-written"
+  invariant under `app/exceptions/`.
 - **`tests/unit/schemas/`** — `test_health_response.py`, `test_problem_details.py`,
   `test_problem_extras.py`, `test_validation_error_detail.py` (one test file per
   schema-package class).

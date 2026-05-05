@@ -24,7 +24,12 @@ _ERRORS_YAML_PATH = Path(__file__).parents[5] / "packages" / "error-contracts" /
 # a code removal is a wire-contract change that must come with an
 # explicit test update + ADR. Tracking the exact baseline catches both
 # silent removals AND an "I generated zero codes" regression at once.
-_MIN_CODE_COUNT = 10
+# Bumped to 11 after METHOD_NOT_ALLOWED landed: 5 generic codes
+# (NOT_FOUND, METHOD_NOT_ALLOWED, CONFLICT, INTERNAL_ERROR,
+# VALIDATION_FAILED) + 6 LIP-specific codes (RATE_LIMITED, QUEUE_FULL,
+# INFERENCE_TIMEOUT, MODEL_CAPABILITY_NOT_SUPPORTED, REGISTRY_NOT_FOUND,
+# ADAPTER_CONNECTION_FAILURE). Bump in lockstep with errors.yaml additions.
+_MIN_CODE_COUNT = 11
 
 
 @pytest.fixture(scope="module")

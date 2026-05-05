@@ -71,7 +71,6 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
-from app.api._constants import CONTENT_LANGUAGE, PROBLEM_JSON_MEDIA_TYPE
 from app.core.logging import ascii_safe
 from app.exceptions import (
     DomainError,
@@ -82,7 +81,13 @@ from app.exceptions import (
 )
 from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
 from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHARS
-from app.schemas.wire_constants import ABOUT_BLANK_TYPE, INSTANCE_PATH_MAX_CHARS, UUID_REGEX
+from app.schemas.wire_constants import (
+    ABOUT_BLANK_TYPE,
+    CONTENT_LANGUAGE,
+    INSTANCE_PATH_MAX_CHARS,
+    PROBLEM_JSON_MEDIA_TYPE,
+    UUID_REGEX,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -457,7 +462,7 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         raw_content_type = request.headers.get("content-type", "")
         raw_content_length = request.headers.get("content-length", "")
         logger.warning(
-            "validation_error_with_no_details",
+            "validation_error_empty_details_anomaly",
             raw_error_count=len(raw_errors),
             # Pydantic's ``errors()`` returns ``Sequence[ErrorDetails]`` typed
             # dicts; ``type(e).__name__`` would always be the constant
@@ -622,19 +627,40 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     # asymmetry the rest of the schema avoids.
     raw_detail = str(http_exc.detail) if http_exc.detail else status_phrase
     detail_text = raw_detail[:REASON_MAX_CHARS]
-    # ``code`` was already bound to contextvars upstream via _http_code_for_status.
-    code = _http_code_for_status(status_code)
+    # Reuse ``initial_code`` computed above — for status>=400 it's the
+    # final code (the <400 short-circuit already returned above), so a
+    # second ``_http_code_for_status`` call would produce the same value.
+    code = initial_code
     if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
         # 5xx HTTPExceptions raised by the framework would otherwise ship
         # without any log line — operators couldn't grep them by request_id.
-        # ``error`` (not ``warning``) so dashboards keyed on level alert
-        # symmetrically with the typed-DomainError 5xx branch (which uses
-        # ``logger.exception`` because it is inside an except-block; here
-        # there is no live exception to attach a traceback from).
+        # ``logger.exception`` (not ``logger.error``): Starlette dispatches
+        # this handler from inside its own ``except`` clause in
+        # ``ExceptionMiddleware._handle``, so ``sys.exc_info()`` IS populated
+        # here. ``logger.exception`` auto-attaches the framework-side traceback
+        # via ``dict_tracebacks`` so operators get the raise-site for free —
+        # symmetric with ``domain_error_5xx_raised`` (line 343).
         # ``code`` field-set parity with ``domain_error_5xx_raised`` so
         # ``select(.code == ...)`` queries find both event names.
-        logger.error(
+        logger.exception(
             "http_exception_5xx_raised",
+            code=code,
+            status_code=status_code,
+            detail=detail_text,
+        )
+    elif status_code >= HTTPStatus.BAD_REQUEST and status_code != HTTPStatus.UNPROCESSABLE_ENTITY:
+        # Framework-issued 4xx HTTPExceptions (404 missing route, 405 method
+        # mismatch, 415 wrong content-type, etc.) would otherwise ship
+        # without any per-error log line — only the trailing
+        # ``request_completed`` access-log carries the status. Operators
+        # querying ``select(.event | endswith("_raised"))`` for typed errors
+        # would miss the framework-4xx surface entirely. ``warning`` (not
+        # ``error``): client-side errors aren't operator-actionable in the
+        # same way 5xx is. 422 is excluded because
+        # ``_handle_validation_error`` owns that path and emits its own
+        # ``validation_error_raised`` line.
+        logger.warning(
+            "http_exception_4xx_raised",
             code=code,
             status_code=status_code,
             detail=detail_text,

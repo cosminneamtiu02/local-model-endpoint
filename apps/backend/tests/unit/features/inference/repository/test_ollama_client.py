@@ -277,9 +277,13 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
 
     async def slow_handler(_request: httpx.Request) -> httpx.Response:
         # Park the request long enough for the surrounding task to be
-        # cancelled before the response materializes. 10s is far above
-        # the event-loop tick we wait for below.
-        await asyncio.sleep(10)
+        # cancelled before the response materializes. 0.5s is well above
+        # the event-loop tick we wait for below; the prior 10s value risked
+        # a multi-second session-loop hang on a future cancellation-
+        # propagation regression (which would surface as "task never sees
+        # cancel()" — we'd wait the full sleep before the test bottoms out).
+        # Sub-second keeps regressions loud-but-fast.
+        await asyncio.sleep(0.5)
         return httpx.Response(200, json={"message": {"content": "x"}, "done_reason": "stop"})
 
     transport = httpx.MockTransport(slow_handler)

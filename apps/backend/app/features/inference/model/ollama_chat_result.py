@@ -19,12 +19,13 @@ class OllamaChatResult(BaseModel):
 
     # ``str_strip_whitespace`` is intentionally NOT set on the config: this
     # value-object carries the model's raw generated text. Trimming would
-    # silently drop trailing newlines on fenced code blocks (`````\n```) and
-    # other deliberate whitespace from the model. ``content`` has no
-    # ``min_length=1`` so the strip would serve no defensive purpose either —
-    # there is nothing for it to defend against. Sibling user-input schemas
-    # (Message text, Settings string fields) opt into the strip per-field
-    # via ``StringConstraints`` only where the cap-bypass concern is real.
+    # silently drop trailing newlines on fenced code blocks (the closing
+    # fence pattern with surrounding whitespace) and other deliberate
+    # whitespace from the model. ``content`` has no ``min_length=1`` so
+    # the strip would serve no defensive purpose either — there is nothing
+    # for it to defend against. Sibling user-input schemas (Message text,
+    # Settings string fields) opt into the strip per-field via
+    # ``StringConstraints`` only where the cap-bypass concern is real.
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     content: str = Field(max_length=CONTENT_MAX_LENGTH)

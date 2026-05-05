@@ -1,11 +1,12 @@
 """Cross-package wire-shape constants shared by ``schemas/`` and consumers.
 
-The module name has no leading underscore (unlike ``app/api/_constants.py``,
-which is api-package-internal): this surface is intentionally public —
-``app/features/inference/schemas/response_metadata.py`` imports
+The module name has no leading underscore: this surface is intentionally
+public — ``app/features/inference/schemas/response_metadata.py`` imports
 ``REQUEST_ID_LENGTH`` / ``UUID_PATTERN_STR`` from here so the request_id
 wire-shape constraints stay in lockstep across the two response envelopes
-(and any future sibling that carries a ``request_id`` field). Keeping a
+(and any future sibling that carries a ``request_id`` field), while the
+api/middleware layer reads ``CONTENT_LANGUAGE`` / ``PROBLEM_JSON_MEDIA_TYPE``
+to emit RFC 7807 problem+json with the canonical wire shape. Keeping a
 ``_`` prefix would mislabel the visibility scope and invite a contributor
 to mistakenly duplicate the constants in their own feature module.
 
@@ -69,3 +70,15 @@ distinction is presentation-only — but every consumer-facing reference
 (test helpers, contract tests, OpenAPI doc strings) reads this constant
 to defeat literal-vs-literal drift the same way the rest of
 ``wire_constants`` defeats UUID-regex drift."""
+
+CONTENT_LANGUAGE: Final[str] = "en"
+"""RFC 7807 §3.1 ``Content-Language`` header value emitted on every
+problem+json response. v1 wire contract is "the response is English-only";
+when i18n arrives in a future milestone, this becomes content-negotiated."""
+
+PROBLEM_JSON_MEDIA_TYPE: Final[str] = "application/problem+json; charset=utf-8"
+"""RFC 7807 §3 media-type emitted on every error response and on the 413
+short-circuit body in :class:`RequestIdMiddleware`. Co-located with the
+other wire-shape constants here so a future ``ProblemDetails`` schema-side
+validator pinning the media type can read it from the same module that
+the emit sites do — single source of truth for the wire content type."""

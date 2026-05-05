@@ -246,6 +246,43 @@ async def test_chat_propagates_http_status_error_for_every_non_2xx(
     assert exc_info.value.response.status_code == status_code
 
 
+async def test_chat_propagates_http_status_error_when_body_is_html() -> None:
+    """A non-2xx response with an HTML body (canonical reverse-proxy 502 page)
+    must surface as ``HTTPStatusError`` (transport-failure bucket) rather
+    than as ``ValueError`` (malformed-frame bucket).
+
+    Pins the layer ordering inside ``OllamaClient.chat``:
+    ``raise_for_status`` runs BEFORE ``_decode_ollama_json``, so a 502 with
+    ``content-type: text/html`` short-circuits at the status gate without
+    reaching the content-type guard. Without this test, a future refactor
+    that reorders the two could silently re-bucket every "Ollama crashed
+    behind nginx" failure as a malformed-frame event — defeating
+    operator runbooks that key on ``failure_category="transport"``
+    vs ``"malformed_frame"`` for triage.
+    """
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            502,
+            content=b"<html><body>nginx 502 Bad Gateway</body></html>",
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with OllamaClient(base_url="http://ollama.test", transport=transport) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await client.chat(
+                model_tag="gemma4:e2b",
+                messages=[Message(role="user", content="hi")],
+                params=ModelParams(),
+            )
+    # ``raise_for_status`` won the race against ``_decode_ollama_json`` — the
+    # exception is HTTPStatusError (NOT ValueError), and the status is the
+    # 502 from the simulated reverse proxy. The HTML body never reached the
+    # JSON decoder.
+    assert exc_info.value.response.status_code == 502
+
+
 @pytest.mark.parametrize(
     "timeout_cls",
     [httpx.ReadTimeout, httpx.ConnectTimeout, httpx.WriteTimeout, httpx.PoolTimeout],

@@ -3,8 +3,10 @@
 Decisions that shape this project. Each entry is final unless explicitly superseded.
 
 > **Note on numbering.** ADRs 002, 006, 007, 008 were retired during the
-> 2026-04-27 LIP bootstrap (template → LIP). See git history for the
-> original full-stack-template decisions.
+> 2026-04-27 LIP bootstrap (template → LIP). See
+> [docs/bootstrap-decisions.md](bootstrap-decisions.md) for the curated
+> rationale (retired ADRs documented in the "Decision log" table) or git
+> history for the original full-stack-template decisions.
 
 ## ADR-001: Vertical Slices over Layered-by-Role
 
@@ -305,8 +307,10 @@ escalate to a boot-blocking failure.
   behavior. Worse than the warning.
 
 **Mechanical pin.** `audit_lip_env_typos()` in `app/api/deps.py`
-emits at warning level and never raises. The unit test at
-`tests/unit/api/test_deps.py::test_audit_lip_env_typos_warns_on_unknown_lip_env_var`
-pins the warn-only contract. A future change of mind on this ADR
-needs to flip both sites in lockstep AND update the test to assert
-the raise path.
+emits at warning level and never raises. The unit tests at
+`tests/unit/api/test_deps.py::test_audit_lip_env_typos_*`
+(`warns_on_unknown_lip_env_var`, `does_not_warn_when_all_env_vars_known`,
+`catches_lowercase_typo`, `no_ops_when_env_prefix_empty`,
+`de_dups_case_variants`) pin the warn-only contract together. A future
+change of mind on this ADR needs to flip both sites in lockstep AND
+update all five tests to assert the raise path.
