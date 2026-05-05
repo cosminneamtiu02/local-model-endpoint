@@ -78,7 +78,7 @@ def test_model_capability_not_supported_renders_model_and_capability() -> None:
 
 
 def test_conflict_constructs_with_default_detail() -> None:
-    """ConflictError closes the unit-coverage gap flagged in earlier reviews.
+    """ConflictError per-class invariants.
 
     The registry-shape test in test_registry.py only iterates the keys; without
     a per-class assertion of code/status/type_uri/title/detail, a YAML edit

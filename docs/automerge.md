@@ -10,6 +10,7 @@ Dependabot-authored PRs that pass all required status checks are automatically s
 
 | Component | File / Setting | What it does |
 |---|---|---|
+| CI workflow | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | **Emits** the three required status check contexts the ruleset gates on (`backend-checks`, `error-contracts`, `darwin-checks`); the ruleset and this workflow are a paired contract — required-check names declared in the ruleset MUST match the job names this workflow publishes |
 | Auto-merge workflow | [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml) | **Who** gets auto-merged (scoped by PR author + a repo variable) |
 | Lockfile sync workflow | [.github/workflows/dependabot-lockfile-sync.yml](../.github/workflows/dependabot-lockfile-sync.yml) | **Fixes** Dependabot's lockfile-gap bug so the auto-merge pipeline can succeed |
 | Ruleset | `main-protection` (Settings → Rules → Rulesets) | **What** has to be green before any merge |
@@ -93,6 +94,9 @@ dependabot-automerge.yml workflow fires
   │
   ▼
 Guard: pull_request.user.login == 'dependabot[bot]'  ── false ──► skip (e.g. human PR)
+  │ true
+  ▼
+Guard: pull_request.draft == false  ── false ──► skip (draft PR — author still iterating)
   │ true
   ▼
 Guard: vars.DEPENDABOT_AUTOMERGE_ENABLED == 'true'  ── false ──► skip (variable unset)

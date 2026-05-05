@@ -32,7 +32,7 @@ def make_test_client(app: FastAPI) -> TestClient:
     the user-level Exception handler returns the 500 response and the
     framework re-raises only for telemetry — the consumer always sees the
     handler's response. Single source of truth for the contract-tier client
-    pattern (was repeated seven times across the contract suite).
+    pattern.
     """
     return TestClient(app, raise_server_exceptions=False)
 
@@ -42,11 +42,10 @@ async def make_async_client(app: ASGIApp) -> AsyncIterator[AsyncClient]:
     """Yield an httpx AsyncClient wired to ``app`` via ASGI transport.
 
     Single source of truth for the integration-tier client construction
-    pattern (was duplicated across ``tests/integration/conftest.py`` and
-    ``tests/integration/test_problem_details.py``). ``raise_app_exceptions
-    =False`` mirrors the production code path: under uvicorn the user-level
-    Exception handler returns the 500 response and the framework re-raises
-    only for telemetry — the consumer always sees the handler's response.
+    pattern. ``raise_app_exceptions=False`` mirrors the production code
+    path: under uvicorn the user-level Exception handler returns the 500
+    response and the framework re-raises only for telemetry — the consumer
+    always sees the handler's response.
 
     Note on lifespan: ``ASGITransport`` does NOT trigger FastAPI's lifespan
     events (that's a documented httpx + starlette intersection). Tests that

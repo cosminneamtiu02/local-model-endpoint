@@ -14,7 +14,12 @@ from app.api.deps import audit_lip_env_typos, get_settings
 from app.api.exception_handlers import register_exception_handlers
 from app.api.request_id_middleware import configure_middleware
 from app.api.router_registry import lifespan_resources, register_routers
-from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, configure_logging, elapsed_ms
+from app.core.logging import (
+    EXC_MESSAGE_PREVIEW_MAX_CHARS,
+    ascii_safe,
+    configure_logging,
+    elapsed_ms,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -90,10 +95,14 @@ def _emit_app_version_resolve_failure() -> None:
     # exception identity without ``exc_info=True`` — the traceback is
     # unrecoverable across the module-import → ``create_app`` boundary
     # anyway, so encoding the type+preview here is a faithful record.
+    # Route through ``ascii_safe`` so a control-char-bearing exception
+    # ``__str__`` cannot inject terminal escape sequences into stdout —
+    # symmetric with every other ``exc_message=`` site (ollama_client.py,
+    # exception_handlers.py, request_id_middleware.py, deps.py).
     logger.warning(
         "app_version_resolve_unexpected_error",
         exc_type=type(exc).__name__,
-        exc_message=str(exc)[:EXC_MESSAGE_PREVIEW_MAX_CHARS],
+        exc_message=ascii_safe(str(exc), max_chars=EXC_MESSAGE_PREVIEW_MAX_CHARS),
         phase="startup",
     )
 
@@ -115,9 +124,9 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     # Log host/port separately rather than the full URL so a future
     # userinfo-bearing form (unusual for Ollama, possible behind a reverse
     # proxy) cannot leak credentials into stdout.
-    # NOTE: ``bind_host`` / ``bind_port`` reflect the configured Settings
-    # values (driven by ``LIP_BIND_HOST`` / ``LIP_BIND_PORT``), not the
-    # actual uvicorn-bound socket. ``python -m app`` threads them into
+    # ``bind_host`` / ``bind_port`` reflect the configured Settings values
+    # (driven by ``LIP_BIND_HOST`` / ``LIP_BIND_PORT``), not the actual
+    # uvicorn-bound socket. ``python -m app`` threads them into
     # ``uvicorn.run`` so they match in production; an ad-hoc
     # ``uvicorn app.main:app --host X --port Y`` invocation would advertise
     # the Settings values here while uvicorn binds elsewhere — uvicorn's

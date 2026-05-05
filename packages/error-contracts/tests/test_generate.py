@@ -80,21 +80,6 @@ errors:
     params: {}
 """
 
-# Errors.yaml fragment used by test_codegen_detail_raises_keyerror_on_template_param_mismatch
-# to verify the detail() method reports a developer error when the template references
-# a placeholder that the params model does not declare.
-MISMATCHED_TEMPLATE_YAML = """
-version: 1
-errors:
-  TEMPLATE_MISMATCH:
-    http_status: 400
-    description: Template references unknown placeholder
-    title: Template Mismatch
-    detail_template: "Saw {present} but template wants {missing}."
-    params:
-      present: string
-"""
-
 DUPLICATE_YAML = """
 version: 1
 errors:
@@ -351,7 +336,7 @@ errors:
     assert 'type_uri: ClassVar[str] = "urn:lip:error:model-capability-not-supported"' in mcns
 
 
-def test_codegen_rejects_missing_title(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_missing_title(tmp_path: Path) -> None:
     """Codegen requires title on every error (RFC 7807 standard field)."""
     yaml_text = """
 version: 1
@@ -371,7 +356,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_missing_detail_template(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_missing_detail_template(tmp_path: Path) -> None:
     """Codegen requires detail_template on every error."""
     yaml_text = """
 version: 1
@@ -391,7 +376,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_missing_description(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_missing_description(tmp_path: Path) -> None:
     """Codegen requires description on every error.
 
     Symmetric with the missing-title and missing-detail_template tests
@@ -418,7 +403,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_description_over_cap(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_description_over_cap(tmp_path: Path) -> None:
     """Codegen enforces the 512-char cap on description.
 
     Pinning the cap from the backend side reciprocally enforces the
@@ -501,7 +486,7 @@ def test_codegen_emits_extra_forbid_and_frozen_on_params_classes(
     assert "from pydantic import BaseModel, ConfigDict" in content
 
 
-def test_codegen_rejects_reserved_param_names(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_reserved_param_names(tmp_path: Path) -> None:
     """errors.yaml params named after RFC 7807 / LIP envelope keys are rejected at codegen."""
     yaml_text = """
 version: 1
@@ -523,7 +508,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_positional_template_placeholders(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_positional_template_placeholders(tmp_path: Path) -> None:
     """detail_template with positional placeholders ({0}) is rejected at codegen."""
     yaml_text = """
 version: 1
@@ -545,7 +530,7 @@ errors:
         load_and_validate(path)
 
 
-def test_codegen_rejects_attribute_access_in_template(tmp_path: Path, output_dir: Path) -> None:
+def test_codegen_rejects_attribute_access_in_template(tmp_path: Path) -> None:
     """detail_template with attribute access ({x.attr}) is rejected at codegen."""
     yaml_text = """
 version: 1
@@ -568,7 +553,7 @@ errors:
 
 
 def test_codegen_rejects_template_referencing_undeclared_param(
-    tmp_path: Path, output_dir: Path
+    tmp_path: Path,
 ) -> None:
     """detail_template referencing a placeholder absent from params is rejected at codegen."""
     yaml_text = """

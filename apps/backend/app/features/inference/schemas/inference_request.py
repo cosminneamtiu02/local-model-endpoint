@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from app.features.inference.model.caps import (
     METADATA_KEY_MAX_LENGTH,
+    METADATA_NESTED_CARDINALITY_MAX,
     METADATA_VALUE_MAX_LENGTH,
     MODEL_NAME_MAX_LENGTH,
 )
@@ -35,11 +36,34 @@ def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
             raise ValueError(msg)
         return
     if isinstance(value, list):
+        if len(value) > METADATA_NESTED_CARDINALITY_MAX:
+            msg = (
+                f"metadata[{key_path}] nested list has {len(value)} elements; "
+                f"cap is {METADATA_NESTED_CARDINALITY_MAX}."
+            )
+            raise ValueError(msg)
         for index, element in enumerate(value):
             _bounded_strings_in_metadata(element, f"{key_path}[{index}]")
         return
     if isinstance(value, dict):
+        if len(value) > METADATA_NESTED_CARDINALITY_MAX:
+            msg = (
+                f"metadata[{key_path}] nested dict has {len(value)} entries; "
+                f"cap is {METADATA_NESTED_CARDINALITY_MAX}."
+            )
+            raise ValueError(msg)
         for inner_key, inner_value in value.items():
+            # Bound nested keys symmetric with top-level keys — without
+            # this, a consumer could bypass the top-level
+            # ``METADATA_KEY_MAX_LENGTH`` cap by nesting one level deeper
+            # (``metadata={"safe": {"<long-key>": "v"}}`` would land the
+            # long key under the unrestrained nested-dict path).
+            if len(inner_key) > METADATA_KEY_MAX_LENGTH:
+                msg = (
+                    f"metadata[{key_path}] nested key {inner_key!r} exceeds "
+                    f"the {METADATA_KEY_MAX_LENGTH}-character cap."
+                )
+                raise ValueError(msg)
             _bounded_strings_in_metadata(inner_value, f"{key_path}.{inner_key}")
         return
     # Other JsonValue branches (int, float, bool, None) are unbounded by

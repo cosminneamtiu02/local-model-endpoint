@@ -103,8 +103,10 @@ preserved but with redefined semantics for a no-DB feature:
 - Never use `os.environ` or `os.getenv`. Use pydantic-settings. The single
   production carve-out is `audit_lip_env_typos()` in `app/api/deps.py`
   (per [docs/decisions.md ADR-014](docs/decisions.md)), which enumerates
-  env-var NAMES (not values) once at startup to surface typo'd `LIP_*`
-  env vars that pydantic-settings silently ignores.
+  env-var NAMES (values are never read) once at startup to surface typo'd
+  `LIP_*` env vars that pydantic-settings silently ignores. The names
+  themselves ARE deliberately surfaced in the warning log line as a triage
+  affordance — see the `audit_lip_env_typos` docstring; do not redact them.
 - Never use `datetime.now()` without `tz=`. Use `datetime.now(UTC)`.
 - Never use `datetime.utcnow()`.
 - Never put business logic in route handlers. Handlers call one service method.
@@ -122,7 +124,7 @@ preserved but with redefined semantics for a no-DB feature:
 - Never import services or repositories directly in handlers. Wire via Depends() factories.
 - Never import from one feature into another feature. Features are independent.
 - Never import from `exceptions._generated` directly. Import from `exceptions`.
-- Never add a feature without adding its slice to `architecture/import-linter-contracts.ini`.
+- Never add a feature without adding its slice to `apps/backend/architecture/import-linter-contracts.ini`.
 - Never use `# type: ignore` without a comment explaining why.
 - Never log message content (`messages[].content`, prompt text, model output,
   tool-call arguments). LIP is a relay for multi-consumer prompts; logging

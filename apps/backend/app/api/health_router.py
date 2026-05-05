@@ -8,8 +8,19 @@ from app.schemas import HealthResponse, ProblemDetails
 
 router = APIRouter(tags=["health"])
 
-# OpenAPI default-response for every error path; content key advertises
-# the application/problem+json media type the error handler emits.
+# OpenAPI default-response for every error path. ``model=ProblemDetails``
+# triggers schema registration in ``/openapi.json`` components, and the
+# explicit ``content`` map binds the ProblemDetails schema to the SAME
+# media type the error handler actually emits
+# (``application/problem+json``). Without the explicit ``schema`` key in
+# the problem+json slot, FastAPI puts the schema only on the auto-
+# generated ``application/json`` slot the server never serves, breaking
+# SDK codegen tools that bind their typed error type to the wire-emitted
+# media type. (The auto-generated ``application/json`` content key is
+# redundant on the wire but harmless in the spec; FastAPI publishes it
+# whenever ``model=`` is set, and dropping ``model=`` would un-register
+# the schema from the components map.)
+#
 # ``/health`` itself never raises a DomainError (no deps, no validation,
 # no IO), but this declaration is the project-wide publishing point for
 # the ``ProblemDetails`` component in the OpenAPI components map — the
@@ -22,7 +33,11 @@ _PROBLEM_RESPONSE: Final[dict[str, Any]] = {
         "RFC 7807 problem+json envelope used by the global error contract; "
         "this route does not raise typed errors."
     ),
-    "content": {"application/problem+json": {}},
+    "content": {
+        "application/problem+json": {
+            "schema": {"$ref": "#/components/schemas/ProblemDetails"},
+        },
+    },
 }
 
 # Explicit 200 entry so the OpenAPI spec advertises both the success

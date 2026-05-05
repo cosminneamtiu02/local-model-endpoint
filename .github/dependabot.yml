@@ -74,6 +74,16 @@ updates:
           # ``pyyaml`` (runtime peer of types-pyyaml) co-grouped so a
           # stub-vs-runtime version drift cannot land across two PRs.
           - "pyyaml"
+          # ``hatchling`` is the build-system requirement pinned in
+          # ``[build-system].requires`` of ``apps/backend/pyproject.toml``.
+          # Grouped under dev-tools (rather than runtime-singletons)
+          # because it is build-time toolchain — same policy class as
+          # ruff/pyright. Without this entry a hatchling bump opens a
+          # solo PR and consumes a slot under
+          # ``open-pull-requests-limit: 5``, re-opening the
+          # adjacent-line cascade-conflict surface in
+          # ``pyproject.toml`` that the existing groups close.
+          - "hatchling"
           # FORWARD: when LIP-E001-F002 lands and pins schemathesis (per
           # ADR-011), add `schemathesis*` here in the same PR so its 22
           # transitives ride with ruff/pyright instead of opening solo.

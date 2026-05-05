@@ -204,7 +204,10 @@ class RequestIdMiddleware:
         # char hot path on every request resolves with one ``ord()`` call.
         if any((o := ord(c)) < _C0_CONTROL_UPPER or o == _DEL_CHAR for c in client_id):
             client_id = "<non-printable>"
-        match_result = UUID_REGEX.match(client_id) if client_id else None
+        # ``UUID_REGEX.match("")`` returns None, so the regex alone handles
+        # the empty-string case — symmetric with the resolver in
+        # ``exception_handlers._resolve_request_id``.
+        match_result = UUID_REGEX.match(client_id)
 
         # Resolve method/path early so the rejected-id warning below can
         # carry the routing context (operators need to know which endpoint

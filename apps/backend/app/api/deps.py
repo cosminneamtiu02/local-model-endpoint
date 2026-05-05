@@ -62,7 +62,30 @@ def audit_lip_env_typos() -> None:
     # this audit's whole reason for existing. Comparing both sides upper-cased
     # keeps the audit and the field-load layer in lockstep.
     env_prefix_upper = env_prefix.upper()
-    declared = {f"{env_prefix_upper}{name.upper()}" for name in Settings.model_fields}
+    # Build the declared-set from each FieldInfo so a future field that uses
+    # ``Field(validation_alias="X")`` (or ``AliasChoices(...)``) is honored.
+    # ``model_fields`` is keyed by Python attribute name, but pydantic-settings
+    # prefers ``validation_alias`` over the prefixed name when it's set —
+    # without this expansion, declaring a ``validation_alias`` would land the
+    # alias as "unknown LIP" (false positive) and leave the alias-typo
+    # surface unchecked (false negative). All current Settings fields have
+    # ``validation_alias=None``, so today this is preventive scaffolding.
+    declared: set[str] = set()
+    for name, info in Settings.model_fields.items():
+        declared.add(f"{env_prefix_upper}{name.upper()}")
+        validation_alias = info.validation_alias
+        if isinstance(validation_alias, str):
+            declared.add(validation_alias.upper())
+        elif validation_alias is not None:
+            # ``AliasChoices`` / ``AliasPath`` carry multiple alias spellings;
+            # pydantic-settings tries each one. Surface every literal-string
+            # spelling so the audit accepts whichever alias the operator
+            # actually exports. ``str(...)`` cast covers the documented
+            # ``choices`` attribute on AliasChoices and the ``path`` segments
+            # on AliasPath; non-string segments fall through unchanged.
+            for choice in getattr(validation_alias, "choices", ()):
+                if isinstance(choice, str):
+                    declared.add(choice.upper())
     actual = {name.upper() for name in os.environ if name.upper().startswith(env_prefix_upper)}
     unknown = sorted(actual - declared)
     if unknown:

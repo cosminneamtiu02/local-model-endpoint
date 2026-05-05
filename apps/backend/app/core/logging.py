@@ -186,17 +186,32 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
         structlog.processors.TimeStamper(fmt="iso", utc=True),
     ]
     if json_output:
-        # ``dict_tracebacks`` is a singleton instance per structlog 25.x; if
-        # upgraded to a factory, switch to
-        # ``any(isinstance(p, type(structlog.processors.dict_tracebacks))
-        # for p in processors)`` for the membership test in tests/lints.
-        shared_processors.append(structlog.processors.dict_tracebacks)
+        # ``dict_tracebacks`` is the singleton ExceptionRenderer that ships
+        # with structlog, but its default ``show_locals=True`` would
+        # serialize every frame's locals into the JSON ``exception`` field
+        # — and locals carrying ``messages`` / ``body`` / ``params`` would
+        # bypass ``_redact_sensitive_keys`` (which only inspects TOP-LEVEL
+        # event-dict keys). Construct an explicit ExceptionRenderer with
+        # ``show_locals=False`` so frame locals are never serialized,
+        # closing the CLAUDE.md "never log message content" leak surface.
+        shared_processors.append(
+            structlog.processors.ExceptionRenderer(
+                structlog.tracebacks.ExceptionDictTransformer(show_locals=False),
+            ),
+        )
     shared_processors.append(structlog.processors.UnicodeDecoder())
 
     if json_output:
         renderer: structlog.typing.Processor = structlog.processors.JSONRenderer()
     else:
-        renderer = structlog.dev.ConsoleRenderer()
+        # ConsoleRenderer's default ``exception_formatter`` is
+        # ``RichTracebackFormatter(show_locals=True, ...)`` — the dev-mode
+        # twin of the JSON-mode leak above. Construct it with
+        # ``show_locals=False`` so dev tracebacks never render frame
+        # locals carrying CLAUDE.md-banned message content.
+        renderer = structlog.dev.ConsoleRenderer(
+            exception_formatter=structlog.dev.RichTracebackFormatter(show_locals=False),
+        )
 
     structlog.configure(
         processors=[

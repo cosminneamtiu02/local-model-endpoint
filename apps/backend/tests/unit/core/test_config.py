@@ -87,9 +87,20 @@ def test_settings_extra_forbid_silently_ignores_unknown_env_var(
     env-var sources. A typo like ``LIP_OLLMA_HOST=...`` in .env is silently
     ignored rather than raising at import time. Pinning this surprise so the
     cache files / future docs cannot drift back to claiming env-var rejection.
+
+    The assertions cover BOTH halves of the contract:
+    1. ``make_settings()`` constructs successfully (no ValidationError).
+    2. The bogus name is dropped from the constructed instance (not landed
+       on a hidden ``_extras`` field). Without the second assertion, a
+       future pydantic-settings 3.x that started populating an ``_extras``
+       attribute would still pass ``# must not raise`` while breaking the
+       silent-ignore invariant the docstring claims to pin.
     """
     monkeypatch.setenv("LIP_BOGUS_ENV_VAR", "x")
-    make_settings()  # must not raise
+    settings = make_settings()
+    dumped = settings.model_dump()
+    assert "bogus_env_var" not in dumped
+    assert "bogus" not in str(dumped).lower()
 
 
 def test_settings_case_sensitive_default_off() -> None:

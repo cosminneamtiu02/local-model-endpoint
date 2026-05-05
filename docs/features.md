@@ -63,8 +63,12 @@ customization for non-Homebrew installs.
 ## Backend — Error System
 
 ### DomainError Hierarchy ([app/exceptions/base.py](../apps/backend/app/exceptions/base.py))
-Single `DomainError` base class carrying a `code: ClassVar[str]` and
-`http_status: ClassVar[int]`, plus an optional typed Pydantic `params` model. Only the
+Single `DomainError` base class carrying five required ClassVars enforced by
+`__init_subclass__`: `code: ClassVar[str]` (SCREAMING_SNAKE wire code),
+`http_status: ClassVar[int]` (4xx/5xx status code), `type_uri: ClassVar[str]`
+(`urn:lip:error:<code-kebab>` per RFC 7807 §3.1), `title: ClassVar[str]`
+(short summary), and `detail_template: ClassVar[str]` (per-instance
+str.format template). Plus an optional typed Pydantic `params` model. Only the
 code is stored in `args` so PII in params never accidentally ends up in stack traces.
 
 ### Generated Error Classes ([app/exceptions/_generated/](../apps/backend/app/exceptions/_generated/))

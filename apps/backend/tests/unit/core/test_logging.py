@@ -73,24 +73,57 @@ def test_configure_logging_round_trips_event_via_capture_logs() -> None:
     assert matching[0].get("k") == "v"
 
 
-def test_configure_logging_json_mode_adds_dict_tracebacks() -> None:
-    """JSON mode inserts dict_tracebacks for structured exception rendering."""
+def test_configure_logging_json_mode_adds_exception_renderer() -> None:
+    """JSON mode inserts an ExceptionRenderer for structured exception rendering.
+
+    Class-membership rather than identity check because the production
+    config builds a fresh ``ExceptionRenderer(ExceptionDictTransformer(
+    show_locals=False))`` — NOT the ``structlog.processors.dict_tracebacks``
+    singleton, which would default ``show_locals=True`` and leak frame
+    locals carrying CLAUDE.md-banned message content into the JSON
+    ``exception`` field.
+    """
     configure_logging(log_level="info", json_output=True)
     processors = structlog.get_config()["processors"]
-    # ``dict_tracebacks`` is a singleton ExceptionRenderer in structlog —
-    # identity comparison locks the exact processor (avoids matching any
-    # other ExceptionRenderer that may exist in the chain).
-    assert structlog.processors.dict_tracebacks in processors, processors
+    assert any(isinstance(p, structlog.processors.ExceptionRenderer) for p in processors), (
+        processors
+    )
 
 
-def test_configure_logging_dev_mode_omits_dict_tracebacks() -> None:
+def test_configure_logging_dev_mode_omits_exception_renderer() -> None:
     """Dev/console mode relies on ConsoleRenderer's own exception formatting."""
     configure_logging(log_level="debug", json_output=False)
     processors = structlog.get_config()["processors"]
-    # Inverse of the JSON-mode assertion: console mode must NOT install
-    # dict_tracebacks (ConsoleRenderer formats exceptions itself, and
-    # structlog warns when format_exc_info is layered on top of it).
-    assert structlog.processors.dict_tracebacks not in processors, processors
+    # Inverse of the JSON-mode assertion: console mode must NOT install an
+    # ExceptionRenderer (ConsoleRenderer formats exceptions itself via the
+    # explicit show_locals=False RichTracebackFormatter passed to it).
+    assert not any(isinstance(p, structlog.processors.ExceptionRenderer) for p in processors), (
+        processors
+    )
+
+
+def test_configure_logging_json_mode_disables_show_locals() -> None:
+    """JSON-mode ExceptionRenderer is constructed with ``show_locals=False``.
+
+    Defends the CLAUDE.md "never log message content" rule: ``show_locals=True``
+    (the structlog default for ``dict_tracebacks``) would serialize every
+    frame's locals into the ``exception`` field, bypassing
+    ``_redact_sensitive_keys`` which only inspects TOP-LEVEL keys. A future
+    refactor that re-uses the ``dict_tracebacks`` singleton would silently
+    re-enable the leak; this test pins the explicit-construction contract.
+    """
+    configure_logging(log_level="info", json_output=True)
+    processors = structlog.get_config()["processors"]
+    renderers = [p for p in processors if isinstance(p, structlog.processors.ExceptionRenderer)]
+    assert len(renderers) == 1, processors
+    # The transformer is stored on the ExceptionRenderer as
+    # ``format_exception``; reading the inner ``show_locals`` attribute is
+    # implementation-coupled but is the cheapest pin against the
+    # show_locals=True regression. If structlog renames either attribute,
+    # the rename is the signal to update this test in lockstep with the
+    # production constructor.
+    transformer = renderers[0].format_exception
+    assert transformer.show_locals is False
 
 
 # Reading the parametrize from the source frozenset prevents drift: a new
