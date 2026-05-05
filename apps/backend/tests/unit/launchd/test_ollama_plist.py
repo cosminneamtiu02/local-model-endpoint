@@ -84,8 +84,8 @@ def test_plist_file_at_infra_path_is_file(plist_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("plutil") is None, reason="plutil only on macOS")
 def test_plutil_lint_exits_zero(plist_path: Path) -> None:
-    result = subprocess.run(  # noqa: S603
-        ["plutil", "-lint", str(plist_path)],  # noqa: S607
+    result = subprocess.run(  # noqa: S603 — fixed argv, lint-only invocation
+        ["plutil", "-lint", str(plist_path)],  # noqa: S607 — system plutil; macOS-only
         capture_output=True,
         text=True,
         check=False,

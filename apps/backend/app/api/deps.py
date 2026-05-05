@@ -8,8 +8,10 @@ from fastapi import Request
 
 from app.api.app_state import AppState
 from app.core.config import Settings
+from app.core.logging import ascii_safe
 from app.exceptions import InternalError
 from app.features.inference import OllamaClient
+from app.schemas.wire_constants import INSTANCE_PATH_MAX_CHARS
 
 logger = structlog.get_logger(__name__)
 
@@ -47,8 +49,21 @@ def audit_lip_env_typos() -> None:
     future ADR renaming ``LIP_`` propagates here automatically.
     """
     env_prefix = Settings.model_config.get("env_prefix") or ""
-    declared = {f"{env_prefix}{name.upper()}" for name in Settings.model_fields}
-    actual = {name for name in os.environ if name.startswith(env_prefix)}
+    if not env_prefix:
+        # ADR-014 assumes a non-empty prefix; without one, ``startswith("")``
+        # would match every env var on the host and surface the operator's
+        # entire shell environment as "unknown LIP". A future ADR removing
+        # the prefix must update this audit in lockstep.
+        return
+    # Case-fold-symmetric with ``Settings.model_config["case_sensitive"]=False``:
+    # ``str.startswith`` is case-sensitive, but pydantic-settings folds env-var
+    # names to upper before matching declared fields. A lowercase
+    # ``lip_ollma_host`` typo would otherwise be ignored by both layers —
+    # this audit's whole reason for existing. Comparing both sides upper-cased
+    # keeps the audit and the field-load layer in lockstep.
+    env_prefix_upper = env_prefix.upper()
+    declared = {f"{env_prefix_upper}{name.upper()}" for name in Settings.model_fields}
+    actual = {name.upper() for name in os.environ if name.upper().startswith(env_prefix_upper)}
     unknown = sorted(actual - declared)
     if unknown:
         # ``phase="startup"`` keeps this warning grep-compatible with the
@@ -75,9 +90,14 @@ def get_app_state(request: Request) -> AppState:
         # paging on ``domain_error_5xx_raised`` can distinguish "AppState
         # invariant violated" (lifespan never ran / late request after
         # teardown — different runbook) from "real handler crash".
-        logger.warning(
+        # ``ascii_safe`` mirrors the per-request ``_bounded_instance``
+        # discipline in ``exception_handlers``: control chars in the path
+        # cannot ANSI-inject into ConsoleRenderer output. Logged at
+        # ``error`` (not ``warning``) because the consequence is a 500;
+        # operator dashboards keyed on ``level=error`` need this signal.
+        logger.error(
             "app_state_unavailable",
-            path=request.url.path,
+            path=ascii_safe(request.url.path, max_chars=INSTANCE_PATH_MAX_CHARS),
             has_context_attr=hasattr(request.app.state, "context"),
         )
         # ruff's RSE102 prefers ``raise X`` over ``raise X()`` for

@@ -218,6 +218,11 @@ class Settings(BaseSettings):
         # SSRF clamp: don't let a typo turn LIP into a forwarding proxy.
         # ``ollama_host=`` mirrors the ``bind_host=`` field name in the
         # bind-clamp above so a single grep finds both safety-clamp errors.
+        # ``AnyHttpUrl.host`` is typed ``str | None``; pydantic rejects
+        # host-less URLs before we get here, so the ``or ""`` fallback is
+        # effectively dead but is kept as a typed-None narrow. ruff S101
+        # forbids ``assert`` in production code, and the codebase has no
+        # other asserts in app/ — the ``or ""`` is the cheapest narrow.
         host = self.ollama_host.host or ""
         if not is_private_host(host) and not self.allow_external_ollama:
             msg = (

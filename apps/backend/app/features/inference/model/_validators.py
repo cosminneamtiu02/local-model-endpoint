@@ -23,6 +23,14 @@ def ensure_exactly_one_url_or_base64(model: BaseModel, label: str) -> None:
     """
     url = getattr(model, "url", None)
     base64 = getattr(model, "base64", None)
-    if (url is None) == (base64 is None):
-        msg = f"{label} must have exactly one of url or base64"
+    # Two-branch is_None check matches the per-leaf ``is None`` discipline
+    # used elsewhere in the inference model (e.g. ollama_translation.py),
+    # and surfaces the violated half ("got neither" vs "got both") instead
+    # of a single generic message. CLAUDE.md sacred rule "no paradigm
+    # drift" — the codebase already does explicit-leaf is-None checks.
+    if url is None and base64 is None:
+        msg = f"{label} must have exactly one of url or base64 (got neither)"
+        raise ValueError(msg)
+    if url is not None and base64 is not None:
+        msg = f"{label} must have exactly one of url or base64 (got both)"
         raise ValueError(msg)

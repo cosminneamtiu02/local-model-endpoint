@@ -154,7 +154,7 @@ async def test_chat_emits_body_keys_in_spec_order() -> None:
 # Extracted to a module-level constant so ``test_chat_always_sets_stream_false``
 # and ``test_chat_never_sends_tools_keep_alive_or_format_keys`` parametrize
 # over the same list (drift-proof).
-_FIVE_PARAM_SHAPES = [
+_PARAM_SHAPES = [
     pytest.param(ModelParams(), id="bare"),
     pytest.param(ModelParams(temperature=0.5), id="temperature-only"),
     pytest.param(ModelParams(max_tokens=100), id="max-tokens-only"),
@@ -166,14 +166,14 @@ _FIVE_PARAM_SHAPES = [
 ]
 
 
-@pytest.mark.parametrize("params", _FIVE_PARAM_SHAPES)
+@pytest.mark.parametrize("params", _PARAM_SHAPES)
 async def test_chat_always_sets_stream_false(params: ModelParams) -> None:
     """Every ``ModelParams`` shape must produce stream:false — non-negotiable invariant."""
     body, _, _ = await _send_and_capture(params=params)
     assert body.get("stream") is False, f"stream should be false for {params!r}"
 
 
-@pytest.mark.parametrize("params", _FIVE_PARAM_SHAPES)
+@pytest.mark.parametrize("params", _PARAM_SHAPES)
 async def test_chat_never_sends_tools_keep_alive_or_format_keys(params: ModelParams) -> None:
     """Forbidden fields invariant across every ``ModelParams`` shape."""
     forbidden = {"tools", "keep_alive", "format"}

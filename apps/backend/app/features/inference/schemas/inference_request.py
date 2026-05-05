@@ -59,13 +59,28 @@ class InferenceRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
-    messages: list[Message] = Field(min_length=1, max_length=64)
-    model: str = Field(min_length=1, max_length=MODEL_NAME_MAX_LENGTH)
-    # ``ModelParams`` is ``frozen=True`` (immutable), so a single class-time
-    # default instance is safe to share — no per-request construction needed.
-    # Mirrors the ``Settings.ollama_host = AnyHttpUrl("...")`` precedent
-    # (immutable singleton vs ``default_factory``) noted at config.py.
-    params: ModelParams = ModelParams()
+    messages: list[Message] = Field(
+        min_length=1,
+        max_length=64,
+        description="Ordered chat messages; first must be system or user.",
+    )
+    model: str = Field(
+        min_length=1,
+        max_length=MODEL_NAME_MAX_LENGTH,
+        description="Logical model name resolved by the registry to a backend tag.",
+    )
+    # ``default_factory=ModelParams`` is the Pydantic v2 idiom — symmetric
+    # with the ``metadata: dict[...] = Field(default_factory=dict, ...)``
+    # declaration two lines below, and matches the ``Settings.ollama_host
+    # = Field(default_factory=lambda: AnyHttpUrl(...))`` precedent in
+    # ``app/core/config.py``. ``ModelParams`` is ``frozen=True`` so a
+    # shared class-level instance would be safe today, but factory-based
+    # construction defends against a future ``frozen=False`` flip
+    # silently turning the field into a class-level mutable default.
+    params: ModelParams = Field(
+        default_factory=ModelParams,
+        description="Optional per-request inference parameters (temperature, etc.).",
+    )
     # ``JsonValue`` is Pydantic's recursive JSON-primitive type
     # (str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]).
     # Tightens the wire contract from ``dict[str, Any]`` so a consumer cannot
@@ -76,7 +91,15 @@ class InferenceRequest(BaseModel):
     # recursively — together they pin all three metadata-DoS surfaces
     # (key count via ``max_length``, key length via the key Annotated cap,
     # per-string-leaf length via the recursive validator).
-    metadata: dict[MetadataKey, JsonValue] = Field(default_factory=dict, max_length=16)
+    metadata: dict[MetadataKey, JsonValue] = Field(
+        default_factory=dict,
+        max_length=16,
+        description=(
+            "Pass-through per-project metadata; structural bounds enforced "
+            "(<=16 keys, key length, recursive string-leaf length), content "
+            "semantics opaque to LIP."
+        ),
+    )
 
     @model_validator(mode="after")
     def _bound_metadata_values(self) -> Self:

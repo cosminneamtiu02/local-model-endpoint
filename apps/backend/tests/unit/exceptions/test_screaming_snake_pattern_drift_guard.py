@@ -9,8 +9,6 @@ live in separate workspaces and cannot share imports (mirrors the
 enforced by hand-sync. This test backstops the hand-sync.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import sys
 from pathlib import Path

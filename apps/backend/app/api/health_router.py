@@ -59,9 +59,12 @@ async def get_health() -> HealthResponse:
     keeps the convention legible.
 
     The return type annotation is FastAPI's source of the response model
-    (FastAPI 0.100+ infers ``response_model`` from the annotation and the
-    explicit kwarg is now redundant — the FAST001 ruff rule enforces
-    this).
+    (FastAPI 0.100+ infers ``response_model`` from the annotation; the
+    FAST001 ruff rule forbids the explicit ``response_model=`` kwarg).
+    The ``responses[200]`` block above is **not** redundant with the
+    inferred entry — it overrides FastAPI's default ``"Successful
+    Response"`` description with the operator-friendly text, which the
+    inferred entry would not carry.
 
     The route is silent on the 2xx happy path (RequestIdMiddleware
     suppresses ``request_completed`` for /health 2xx/3xx) and only the

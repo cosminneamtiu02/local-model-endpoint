@@ -1,7 +1,5 @@
 """Tests for the RFC 7807 exception handler chain."""
 
-from __future__ import annotations
-
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -18,6 +16,7 @@ from app.exceptions import (
     RegistryNotFoundError,
 )
 from app.schemas import ValidationErrorDetail
+from app.schemas.wire_constants import REQUEST_ID_HEADER
 
 
 def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger routes is the simplest expression
@@ -50,7 +49,7 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
         raise ModelCapabilityNotSupportedError(model_name="text-only", requested_capability="audio")
 
     @test_app.get("/trigger-validation")
-    async def trigger_validation(required_param: int) -> dict[str, int]:  # noqa: ARG001
+    async def trigger_validation(required_param: int) -> dict[str, int]:  # noqa: ARG001 — FastAPI signature drives validation; body unused
         return {"ok": 1}
 
     @test_app.get("/trigger-multi-validation")
@@ -110,7 +109,7 @@ def test_domain_error_body_has_lip_extensions(client: TestClient) -> None:
     response = client.get("/trigger-queue-full")
     body = response.json()
     assert body["code"] == "QUEUE_FULL"
-    assert body["request_id"] == response.headers["X-Request-ID"]
+    assert body["request_id"] == response.headers[REQUEST_ID_HEADER]
 
 
 def test_domain_error_spreads_typed_params_at_root(client: TestClient) -> None:
@@ -282,7 +281,7 @@ def test_unhandled_exception_request_id_matches_response_header(client: TestClie
     body = response.json()
     assert isinstance(body["request_id"], str)
     assert len(body["request_id"]) > 0
-    assert body["request_id"] == response.headers["X-Request-ID"]
+    assert body["request_id"] == response.headers[REQUEST_ID_HEADER]
 
 
 # ── Handler ordering ──────────────────────────────────────────────────────
@@ -318,7 +317,7 @@ def test_http_exception_405_returns_typed_method_not_allowed_problem_json(
     assert body["type"] == "urn:lip:error:method-not-allowed"
     assert body["status"] == 405
     assert body["code"] == "METHOD_NOT_ALLOWED"
-    assert body["request_id"] == response.headers["X-Request-ID"]
+    assert body["request_id"] == response.headers[REQUEST_ID_HEADER]
 
 
 def test_unmatched_route_returns_about_blank_404_problem_json(client: TestClient) -> None:
@@ -331,4 +330,4 @@ def test_unmatched_route_returns_about_blank_404_problem_json(client: TestClient
     assert body["type"] == "urn:lip:error:not-found"
     assert body["status"] == 404
     assert body["code"] == "NOT_FOUND"
-    assert body["request_id"] == response.headers["X-Request-ID"]
+    assert body["request_id"] == response.headers[REQUEST_ID_HEADER]

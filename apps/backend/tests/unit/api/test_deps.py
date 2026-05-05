@@ -6,8 +6,6 @@ they exercise the misconfigured-app branches so a future refactor of
 AppState construction cannot break the type-narrowing without a red bar.
 """
 
-from __future__ import annotations
-
 import pytest
 import structlog
 from fastapi import FastAPI
@@ -129,6 +127,29 @@ def test_audit_lip_env_typos_does_not_warn_when_all_env_vars_known(
     with structlog.testing.capture_logs() as captured:
         audit_lip_env_typos()
     assert not [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
+
+
+def test_audit_lip_env_typos_catches_lowercase_typo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lowercase ``lip_*`` typo must also surface as an audit warning.
+
+    pydantic-settings 2.14 sets ``case_sensitive=False`` on Settings, so it
+    folds ``lip_ollma_host=...`` while looking for ``LIP_OLLAMA_HOST`` —
+    the names don't match after fold and pydantic silently ignores it.
+    The audit's ``str.startswith("LIP_")`` is case-sensitive, so a naive
+    implementation would also miss the lowercase form, defeating ADR-014.
+    Round-16 made the prefix-match case-fold-symmetric; this regression
+    test pins the fix.
+    """
+    monkeypatch.setenv("lip_bogus_typo_var", "x")
+    with structlog.testing.capture_logs() as captured:
+        audit_lip_env_typos()
+    warnings = [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]
+    assert len(warnings) == 1
+    # The audit upper-cases the surfaced names so a single jq filter
+    # `select(.env_vars[] | startswith("LIP_"))` matches both case forms.
+    assert "LIP_BOGUS_TYPO_VAR" in warnings[0]["env_vars"]
 
 
 def test_get_settings_construction_no_longer_emits_warnings(

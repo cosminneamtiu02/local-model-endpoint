@@ -43,7 +43,7 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
 app/core/           -- config, logging
 app/api/            -- middleware, exception handler, health, shared deps
 app/exceptions/     -- DomainError hierarchy (base + _generated/)
-app/schemas/        -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants (RFC 7807 problem+json + liveness shape; wire_constants centralizes UUID/REQUEST_ID_LENGTH per ADR-014)
+app/schemas/        -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants (RFC 7807 problem+json + liveness shape; wire_constants centralizes UUID/REQUEST_ID_LENGTH — see the module docstring for rationale)
 app/features/<feature>/ -- model, repository, service, router, schemas/  (target shape)
 ```
 
@@ -84,10 +84,13 @@ preserved but with redefined semantics for a no-DB feature:
 
 - Never use `print`. Use structlog.
 - Never use `logging.getLogger`. Use structlog. The single production
-  carve-outs are `app/core/logging.py:187` (root-handler bind) and
-  `app/core/logging.py:198` (uvicorn.access silencer); both are documented
-  in the module docstring. Adding a third stdlib-logger site requires
-  updating this rule and the module docstring in lockstep.
+  carve-outs are the two `logging.getLogger` calls at the bottom of
+  `configure_logging` in `app/core/logging.py` — root-handler bind and
+  uvicorn.access silencer; both are documented in the module docstring.
+  Adding a third stdlib-logger site requires updating this rule and the
+  module docstring in lockstep. Line numbers are intentionally elided
+  here because the carve-out drifts each time the redaction processor
+  is bumped; the prose pin keeps the lockstep clause armed.
 - Never use f-string log messages. Use structlog's key=value pairs:
   `logger.info("event_name", key=value)` not `logger.info(f"thing {value}")`.
 - Never set `cache_logger_on_first_use=True` in `configure_logging`; it

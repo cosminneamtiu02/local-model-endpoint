@@ -98,9 +98,24 @@ def _clean_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
     integration test that imports ``app.main.app``. Reading the prefix +
     field-name set at import time means a new Settings field is auto-
     covered — no per-test edit needed.
+
+    Case-fold-symmetric with ``Settings.model_config["case_sensitive"]=False``:
+    pydantic-settings folds ``lip_app_env=production`` onto the ``app_env``
+    field, but ``monkeypatch.delenv("LIP_APP_ENV")`` would not strip the
+    lowercase form, so a developer with ``lip_app_env=production`` in
+    their shell would still silently flip ``is_prod``. We iterate
+    ``os.environ`` once and drop every name whose ``.upper()`` starts
+    with the prefix — subsumes the upper-only delete in one pass.
     """
+    import os
+
     from app.core.config import Settings
 
     env_prefix = Settings.model_config.get("env_prefix") or ""
-    for field_name in Settings.model_fields:
-        monkeypatch.delenv(env_prefix + field_name.upper(), raising=False)
+    if not env_prefix:
+        # Defensive guard mirroring ``audit_lip_env_typos``: an empty
+        # prefix would match every env var on the host.
+        return
+    env_prefix_upper = env_prefix.upper()
+    for name in [n for n in os.environ if n.upper().startswith(env_prefix_upper)]:
+        monkeypatch.delenv(name, raising=False)
