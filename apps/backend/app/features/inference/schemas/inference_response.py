@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.features.inference.model.caps import CONTENT_MAX_LENGTH
+from app.features.inference.model.dos_caps import CONTENT_MAX_LENGTH
 from app.features.inference.schemas.response_metadata import ResponseMetadata
 
 

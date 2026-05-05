@@ -114,7 +114,7 @@ def get_app_state(request: Request) -> AppState:
         # invariant violated" (lifespan never ran / late request after
         # teardown — different runbook) from "real handler crash".
         # ``ascii_safe`` mirrors the per-request ``_bounded_instance``
-        # discipline in ``exception_handlers``: control chars in the path
+        # discipline in ``exception_handler_registry``: control chars in the path
         # cannot ANSI-inject into ConsoleRenderer output. Logged at
         # ``error`` (not ``warning``) because the consequence is a 500;
         # operator dashboards keyed on ``level=error`` need this signal.

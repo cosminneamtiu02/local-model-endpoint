@@ -150,7 +150,7 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     )
     # No ``exclude_none=False`` — that's the Pydantic v2 default; passing it
     # explicitly drifts from the bare ``model_dump_json()`` shape used at
-    # ``exception_handlers._problem_response``. The 413 path has no
+    # ``exception_handler_registry._problem_response``. The 413 path has no
     # ProblemExtras / typed-params spread that would need ``None`` preservation.
     body = problem.model_dump_json().encode("utf-8")
     await send(
@@ -215,7 +215,7 @@ class RequestIdMiddleware:
             client_id = "<non-printable>"
         # ``UUID_REGEX.match("")`` returns None, so the regex alone handles
         # the empty-string case — symmetric with the resolver in
-        # ``exception_handlers._resolve_request_id``.
+        # ``exception_handler_registry._resolve_request_id``.
         match_result = UUID_REGEX.match(client_id)
 
         # Resolve method/path early so the rejected-id warning below can
@@ -253,7 +253,7 @@ class RequestIdMiddleware:
         # ``select(.request_id_source == "client")`` find every per-request
         # log line on the happy client-supplied path — symmetric with the
         # ``request_id_source="fallback"`` bind in
-        # ``exception_handlers._resolve_request_id``. ``phase="request"``
+        # ``exception_handler_registry._resolve_request_id``. ``phase="request"``
         # mirrors the lifespan binding (``phase="lifespan"`` in
         # router_registry.lifespan_resources) so a jq filter
         # ``select(.phase == "request")`` greps every per-request log line.
@@ -362,7 +362,7 @@ class RequestIdMiddleware:
                 # and ``error_code`` ARE re-read off contextvars and passed
                 # as explicit kwargs as defense-in-depth — same pattern the
                 # unhandled-exception handler uses for ``method``/``path``
-                # in ``exception_handlers``. A future refactor narrowing
+                # in ``exception_handler_registry``. A future refactor narrowing
                 # the contextvar lifetime won't drop these from the access
                 # log mid-flight. ``error_code`` is bound by typed exception
                 # handlers when an error fires; absent on the happy path.

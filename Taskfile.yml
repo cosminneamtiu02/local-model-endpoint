@@ -33,7 +33,9 @@ tasks:
       - task: check:types
       - task: check:arch
       - task: check:coverage
+      - task: check:coverage:errors
       - task: check:errors
+      - task: check:test-class-regex-sync
       - task: check:plist
       - task: check:audit
       - task: check:secrets
@@ -215,6 +217,43 @@ tasks:
     dir: "{{.BACKEND_DIR}}"
     cmds:
       - uv run --frozen pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=90
+
+  check:coverage:errors:
+    desc: Run error-contracts test suite with coverage and enforce the fail_under gate
+    # Mirrors the apps/backend coverage gate so the codegen module
+    # (``scripts/generate.py`` — the source-of-truth enforcer for
+    # errors.yaml invariants) carries a coverage floor symmetric with
+    # the runtime backend it generates code for. Without this gate, a
+    # regression deleting a ``test_codegen_rejects_*`` case would ship
+    # green on the codegen-side workspace. The 80% floor is the
+    # measured-baseline-minus-margin; round-19 follow-up bumps to 90%
+    # in lockstep with backend after walking the uncovered defensive
+    # branches in ``generate.py``.
+    dir: "{{.ERROR_CONTRACTS_DIR}}"
+    cmds:
+      - uv run --frozen pytest tests/ --cov=scripts --cov-report=term-missing --cov-fail-under=80
+
+  check:test-class-regex-sync:
+    desc: Verify the no-test-classes regex stays in lockstep across both workspace conftests
+    # The CLAUDE.md "Never write a test class" sacred rule is enforced
+    # by the ``_TEST_CLASS_PATTERN`` regex declared identically in
+    # ``apps/backend/tests/conftest.py`` and
+    # ``packages/error-contracts/tests/conftest.py``. Cross-workspace
+    # import isn't installable, so the duplication is intentional —
+    # but the only sync mechanism today is a prose comment. This task
+    # diffs the regex declarations and exits non-zero on drift, so a
+    # tightening edit lands in both workspaces atomically.
+    cmds:
+      - |
+        set -euo pipefail
+        a=$(grep '_TEST_CLASS_PATTERN = re.compile' apps/backend/tests/conftest.py)
+        b=$(grep '_TEST_CLASS_PATTERN = re.compile' packages/error-contracts/tests/conftest.py)
+        if [ "$a" != "$b" ]; then
+          echo "::error::_TEST_CLASS_PATTERN drift between workspaces"
+          echo "apps/backend: $a"
+          echo "packages/error-contracts: $b"
+          exit 1
+        fi
 
   # ── Testing ──────────────────────────────────────────────────
   test:

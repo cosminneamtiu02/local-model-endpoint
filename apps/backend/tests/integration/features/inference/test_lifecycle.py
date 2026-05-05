@@ -53,7 +53,10 @@ def test_lifespan_constructs_and_closes_client_exactly_once(
     ) -> None:
         nonlocal init_count
         init_count += 1
-        original_init(self, *args, **kwargs)
+        # ``*args/**kwargs: object`` matches the original __init__'s typed
+        # surface positionally; pyright cannot see the structural match
+        # through the ``object`` spread, hence the suppression below.
+        original_init(self, *args, **kwargs)  # pyright: ignore[reportArgumentType]
 
     async def counting_close(self: OllamaClient) -> None:
         nonlocal close_count

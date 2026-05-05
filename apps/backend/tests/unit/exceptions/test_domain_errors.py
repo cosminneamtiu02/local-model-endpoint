@@ -149,7 +149,7 @@ def test_domain_error_subclass_missing_classvar_raises_typeerror() -> None:
     """__init_subclass__ enforces that every DomainError declares the 5 required ClassVars."""
     with pytest.raises(TypeError, match="must declare ClassVar"):
         # type_uri is intentionally missing — should fail at class-creation time.
-        class _BrokenError(DomainError):  # pyright: ignore[reportUnusedClass]
+        class _BrokenError(DomainError):
             code: ClassVar[str] = "BROKEN"
             http_status: ClassVar[int] = 500
             title: ClassVar[str] = "Broken"

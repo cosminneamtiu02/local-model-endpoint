@@ -29,6 +29,16 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
 
 1. One class per file. Always. No exceptions. If you believe two classes belong
    together, stop and ask.
+   - Documented carve-out: a private (`_`-prefixed) `NamedTuple` /
+     `dataclass` used solely as the typed return value of one producer
+     function in the same module may co-locate with that producer. The
+     carve-out exists because a stand-alone file for a private return-
+     type tuple adds no discoverability value while doubling the indirection
+     when reading the producer. Current sites: `_AppVersionResolution`
+     in `app/main.py`, `_RequestIdResolution` in `app/api/exception_handlers.py`,
+     `_FlattenedParts` in `app/features/inference/model/ollama_translation.py`.
+     A class published as part of any module's public surface is NEVER
+     covered by the carve-out — the rule binds for everything else.
 2. TDD. Always. Never write implementation before a failing test exists.
    Red -> green -> refactor.
 3. No paradigm drift. One way to do each thing. If you think a second way is

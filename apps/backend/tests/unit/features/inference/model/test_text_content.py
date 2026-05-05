@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.features.inference.model.caps import TEXT_PART_MAX_CHARS
+from app.features.inference.model.dos_caps import TEXT_PART_MAX_CHARS
 from app.features.inference.model.text_content import TextContent
 
 

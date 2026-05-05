@@ -64,12 +64,11 @@ def test_settings_is_frozen_at_runtime(field_name: str) -> None:
     """
     settings = make_settings()
     with pytest.raises(ValidationError):
-        # ``# pyright: ignore[reportAttributeAccessIssue]`` (not
-        # ``# type: ignore[misc]``): aligns dialect with the rest of the
-        # repo (12 sites use ``pyright: ignore``). frozen=True invariant
-        # test — assignment must raise at runtime, not get typed-out by
-        # pyright.
-        setattr(settings, field_name, "bogus")  # pyright: ignore[reportAttributeAccessIssue]
+        # ``setattr`` (not ``settings.field_name = ...``) so pyright
+        # doesn't statically reject the assignment under
+        # ``frozen=True``; the runtime ValidationError is what we want
+        # to assert.
+        setattr(settings, field_name, "bogus")
 
 
 def test_settings_extra_forbid_rejects_unknown_kwarg() -> None:
@@ -182,7 +181,9 @@ def test_settings_log_level_non_string_input_delegates_to_pydantic() -> None:
     with pytest.raises(ValidationError, match="Input should be 'debug'"):
         # ``42`` is the smallest non-string, non-tuple-of-Literal value
         # that exercises the ``isinstance(value, str)`` False branch.
-        make_settings(log_level=42)  # pyright: ignore[reportArgumentType]
+        # ``**overrides: object`` makes the call site type-permissive,
+        # so no ignore is needed.
+        make_settings(log_level=42)
 
 
 @pytest.mark.parametrize("invalid_host", ["", "x" * 254])

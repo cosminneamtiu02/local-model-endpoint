@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from app.schemas.wire_constants import REQUEST_ID_HEADER
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from fastapi import FastAPI
     from httpx import Response
@@ -38,7 +38,7 @@ def make_test_client(app: FastAPI) -> TestClient:
 
 
 @asynccontextmanager
-async def make_async_client(app: ASGIApp) -> AsyncIterator[AsyncClient]:
+async def make_async_client(app: ASGIApp) -> AsyncGenerator[AsyncClient]:
     """Yield an httpx AsyncClient wired to ``app`` via ASGI transport.
 
     Single source of truth for the integration-tier client construction

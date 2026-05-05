@@ -78,7 +78,7 @@ maps error code strings back to classes for handler lookup. The canonical list o
 lives in [`packages/error-contracts/errors.yaml`](../packages/error-contracts/errors.yaml)
 — do not duplicate it here (hand-curated lists drift the moment a code is added).
 
-### Exception Handlers ([app/api/exception_handlers.py](../apps/backend/app/api/exception_handlers.py))
+### Exception Handlers ([app/api/exception_handler_registry.py](../apps/backend/app/api/exception_handler_registry.py))
 Four handlers serialize `DomainError`, `RequestValidationError`, `StarletteHTTPException`,
 and unhandled `Exception` into a unified RFC 7807 `application/problem+json`
 ProblemDetails envelope (per LIP-E004-F004, PR #14). Every error the client sees is
@@ -147,7 +147,7 @@ Run in well under 10 seconds. Cover:
 - **`tests/unit/core/`** — `test_config.py` (pydantic-settings parsing + clamps),
   `test_logging.py` (structlog pipeline configuration).
 - **`tests/unit/api/`** — `test_deps.py` (Settings factory + DI wiring),
-  `test_exception_handlers.py` (DomainError → ProblemDetails serialization).
+  `test_exception_handler_registry.py` (DomainError → ProblemDetails serialization).
 - **`tests/unit/exceptions/`** — `test_base.py` (DomainError ergonomics),
   `test_domain_errors.py` (per-code construction), `test_registry.py`
   (`ERROR_CLASSES` lookup invariants), plus `test_errors_yaml_invariants.py`,
@@ -163,7 +163,7 @@ Run in well under 10 seconds. Cover:
   - `model/` — `test_message.py`, `test_model_params.py`, `test_content_part.py`,
     `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
     `test_ollama_chat_result.py`, `test_ollama_translation.py`. The internal
-    helpers `_validators.py`, `caps.py`, and `finish_reason.py` are exercised
+    helpers `_validators.py`, `dos_caps.py`, and `finish_reason.py` are exercised
     transitively through these test files (no dedicated test files).
   - `schemas/` — `test_inference_request.py`, `test_inference_response.py`,
     `test_response_metadata.py`, `test_inference_schema_shapes.py`

@@ -18,6 +18,11 @@ dev = [
     # pip-audit mirrors the backend's CVE scan via ``task check:audit:errors``
     # so both workspaces share the same gating shape.
     "pip-audit==2.10.0",
+    # pytest-cov mirrors the backend's coverage gate via
+    # ``task check:coverage:errors`` so the codegen module — the
+    # source-of-truth enforcer for errors.yaml invariants — carries a
+    # coverage floor symmetric with the backend it generates code for.
+    "pytest-cov==7.1.0",
 ]
 
 [tool.pytest.ini_options]
@@ -49,6 +54,29 @@ filterwarnings = ["error"]
 python_classes = ["NoTestClassesAllowed"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+
+[tool.coverage.run]
+source = ["scripts"]
+branch = true
+omit = ["**/__init__.py"]
+
+[tool.coverage.report]
+# Establish a coverage gate symmetric with the backend's. Measured
+# baseline at 2026-05-05 is 86% — set the floor 6pt below to leave
+# room for transient regressions without flapping the gate during
+# feature-dev. Round-19 follow-up: walk the uncovered branches in
+# ``generate.py`` (mostly defensive-error arms inside the YAML
+# parser) and either add tests or pragma:no-cover them, then bump
+# the gate to 90% in lockstep with the backend.
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.\\s*$",
+    "if __name__ == .__main__.:",
+]
 
 [tool.pyright]
 pythonVersion = "3.13"

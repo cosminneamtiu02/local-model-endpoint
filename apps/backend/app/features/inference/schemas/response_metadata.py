@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.features.inference.model.caps import MODEL_NAME_MAX_LENGTH, TOKEN_COUNT_MAX
+from app.features.inference.model.dos_caps import MODEL_NAME_MAX_LENGTH, TOKEN_COUNT_MAX
 from app.features.inference.model.finish_reason import FinishReason
 from app.schemas.wire_constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
 

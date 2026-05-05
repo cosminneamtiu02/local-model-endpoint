@@ -4,8 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.features.inference.model.caps import TEXT_PART_MAX_CHARS
 from app.features.inference.model.content_part import ContentPart
+from app.features.inference.model.dos_caps import TEXT_PART_MAX_CHARS
 
 
 class Message(BaseModel):

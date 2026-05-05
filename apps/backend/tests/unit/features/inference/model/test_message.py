@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.features.inference.model.caps import TEXT_PART_MAX_CHARS
+from app.features.inference.model.dos_caps import TEXT_PART_MAX_CHARS
 from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.message import Message
 from app.features.inference.model.text_content import TextContent
@@ -56,7 +56,10 @@ def test_message_rejects_invalid_role() -> None:
 @pytest.mark.parametrize("role", ["user", "assistant", "system"])
 def test_message_accepts_each_allowed_role_with_string_content(role: str) -> None:
     """Parametrized over allowed roles to avoid three near-duplicate per-role tests."""
-    msg = Message(role=role, content="hi")
+    # ``role: str`` is wider than the ``Literal`` union the schema requires;
+    # pyright catches the runtime-narrow case without seeing that the
+    # parametrize values are exactly the three Literal members.
+    msg = Message(role=role, content="hi")  # pyright: ignore[reportArgumentType]
     assert msg.role == role
 
 
@@ -136,6 +139,10 @@ def test_message_accepts_content_list_at_max_size() -> None:
     parts: list[TextContent | ImageContent] = [
         TextContent(text="x") for _ in range(_MESSAGE_CONTENT_LIST_MAX_PARTS)
     ]
-    msg = Message(role="user", content=parts)
+    # ``list[TextContent | ImageContent]`` widens beyond the schema's
+    # ``list[ContentPart]`` Annotated alias; the union is structurally
+    # identical at runtime but pyright cannot see through the schema
+    # alias without an explicit cast.
+    msg = Message(role="user", content=parts)  # pyright: ignore[reportArgumentType]
     assert isinstance(msg.content, list)
     assert len(msg.content) == _MESSAGE_CONTENT_LIST_MAX_PARTS

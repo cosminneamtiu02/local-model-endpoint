@@ -117,13 +117,14 @@ def test_configure_logging_json_mode_disables_show_locals() -> None:
     renderers = [p for p in processors if isinstance(p, structlog.processors.ExceptionRenderer)]
     assert len(renderers) == 1, processors
     # The transformer is stored on the ExceptionRenderer as
-    # ``format_exception``; reading the inner ``show_locals`` attribute is
-    # implementation-coupled but is the cheapest pin against the
-    # show_locals=True regression. If structlog renames either attribute,
-    # the rename is the signal to update this test in lockstep with the
-    # production constructor.
+    # ``format_exception``; reading the inner ``show_locals`` attribute
+    # is implementation-coupled but is the cheapest pin against the
+    # show_locals=True regression. structlog 25.5 stub-types the slot
+    # as the abstract ``ExceptionTransformer`` protocol (no
+    # ``show_locals``), so the suppression below is the documented
+    # escape hatch for the protocol-vs-concrete-impl gap.
     transformer = renderers[0].format_exception
-    assert transformer.show_locals is False
+    assert transformer.show_locals is False  # pyright: ignore[reportAttributeAccessIssue]
 
 
 # Reading the parametrize from the source frozenset prevents drift: a new

@@ -91,7 +91,7 @@ These are tracked as feature-dev work, not bootstrap work:
   it cleanly, but the commit will record the lock with whatever transitive resolutions
   uv chose during bootstrap. Future Dependabot PRs will refresh against fresh trees.
 - `_app` and unused-test-function pyright hints in the post-bootstrap exception-handler
-  unit test (now at `tests/unit/api/test_exception_handlers.py`) are decorator-registered
+  unit test (now at `tests/unit/api/test_exception_handler_registry.py`) are decorator-registered
   FastAPI route handlers that pyright thinks are unused. Pre-existing pattern; not
   introduced by bootstrap.
 - LIP feature work (LIP-E001 through LIP-E007) is the next pipeline step. Use

@@ -239,7 +239,17 @@ exclude_lines = [
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
-include = ["app"]
+# ``include`` widened to cover ``tests/`` so the same strict-mode
+# guarantees apply to test code (notably
+# ``reportUnnecessaryTypeIgnoreComment`` — a stale ``# pyright: ignore``
+# in a test was previously invisible to CI). Per-test-tree noise
+# (private-internal access via ``_helper`` references, autouse fixture
+# functions that pyright treats as unused, dict/list literal type
+# inference at boundaries) is silenced via the
+# ``executionEnvironments`` override below; the load-bearing strict
+# checks (``reportUnnecessaryTypeIgnoreComment``,
+# ``reportImplicitOverride``) remain on.
+include = ["app", "tests"]
 # Strict mode does NOT enable these by default. Each adds a real round-10
 # guarantee:
 # - reportUnnecessaryTypeIgnoreComment: a `# pyright: ignore[X]` that
@@ -252,3 +262,20 @@ include = ["app"]
 #   time rather than at code-review time.
 reportUnnecessaryTypeIgnoreComment = "error"
 reportImplicitOverride = "error"
+
+[[tool.pyright.executionEnvironments]]
+# Per-tree relaxations for ``tests/``. These are the noise categories
+# that fire on idiomatic pytest patterns (autouse fixtures pyright sees
+# as unused, private helpers tests legitimately reach into, dict/list
+# literal narrowing at the test boundary). The strict-mode flags
+# ``reportUnnecessaryTypeIgnoreComment`` and ``reportImplicitOverride``
+# remain enforced — those are the real upgrade-rot guards. Mirrors the
+# spirit of the existing ``[tool.ruff.lint.per-file-ignores]`` block
+# for ``tests/**/*.py``.
+root = "tests"
+reportPrivateUsage = "none"
+reportUnusedFunction = "none"
+reportUnusedClass = "none"
+reportUnknownVariableType = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"

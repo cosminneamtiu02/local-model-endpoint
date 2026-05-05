@@ -88,7 +88,7 @@ def test_rfc7807_envelope_field_names_are_reserved_in_codegen() -> None:
         f"RFC 7807 envelope fields {sorted(missing)} are not in codegen "
         f"RESERVED_PARAM_NAMES; rename in lockstep with "
         f"packages/error-contracts/scripts/generate.py and "
-        f"app/api/exception_handlers._build_problem_payload."
+        f"app/api/exception_handler_registry._build_problem_payload."
     )
 
 

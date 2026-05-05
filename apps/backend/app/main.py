@@ -11,7 +11,7 @@ import structlog
 from fastapi import FastAPI
 
 from app.api.deps import audit_lip_env_typos, get_settings
-from app.api.exception_handlers import register_exception_handlers
+from app.api.exception_handler_registry import register_exception_handlers
 from app.api.request_id_middleware import configure_middleware
 from app.api.router_registry import lifespan_resources, register_routers
 from app.core.logging import (
@@ -98,7 +98,7 @@ def _emit_app_version_resolve_failure() -> None:
     # Route through ``ascii_safe`` so a control-char-bearing exception
     # ``__str__`` cannot inject terminal escape sequences into stdout —
     # symmetric with every other ``exc_message=`` site (ollama_client.py,
-    # exception_handlers.py, request_id_middleware.py, deps.py).
+    # exception_handler_registry.py, request_id_middleware.py, deps.py).
     logger.warning(
         "app_version_resolve_unexpected_error",
         exc_type=type(exc).__name__,

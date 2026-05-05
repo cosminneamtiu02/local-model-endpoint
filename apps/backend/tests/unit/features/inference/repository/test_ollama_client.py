@@ -330,9 +330,7 @@ async def test_aexit_propagates_close_error_when_body_did_not_raise(
     # ``monkeypatch.setattr`` (rather than direct attribute rebind) so the
     # patch is undone at fixture teardown — symmetric with the integration-
     # tier sibling at ``tests/integration/features/inference/test_lifecycle.py``
-    # and aligned with the project-wide ``# pyright: ignore[<rule>]``
-    # dialect (avoids the mypy-style ``# type: ignore[method-assign]``
-    # pyright reads as a bare unnecessary ignore).
+    # and aligned with the project-wide pyright-suppression dialect.
     monkeypatch.setattr(client, "close", _broken_close)
     with capture_logs() as captured, pytest.raises(RuntimeError, match="simulated aclose failure"):
         async with client:

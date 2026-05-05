@@ -5,7 +5,7 @@ from typing import Annotated, Literal, Self
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, UrlConstraints, model_validator
 
 from app.features.inference.model._validators import ensure_exactly_one_url_or_base64
-from app.features.inference.model.caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
+from app.features.inference.model.dos_caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
 
 
 class ImageContent(BaseModel):

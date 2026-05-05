@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.features.inference.model.caps import (
+from app.features.inference.model.dos_caps import (
     METADATA_KEY_MAX_LENGTH,
     METADATA_NESTED_CARDINALITY_MAX,
     METADATA_VALUE_MAX_LENGTH,
@@ -109,22 +109,29 @@ def test_inference_request_rejects_metadata_with_oversized_nested_list() -> None
     DoS axes.
     """
     too_many = [None] * (METADATA_NESTED_CARDINALITY_MAX + 1)
+    # ``list[None]`` is structurally a JsonValue but pyright's invariant
+    # ``list[T]`` typing rejects it against ``list[JsonValue]``. Pydantic
+    # accepts the value at runtime (None is part of the JsonValue union);
+    # the schema rejects it on the cardinality cap, not the type.
     with pytest.raises(ValidationError, match="nested list"):
         InferenceRequest(
             messages=[Message(role="user", content="hi")],
             model="x",
-            metadata={"safe": too_many},
+            metadata={"safe": too_many},  # pyright: ignore[reportArgumentType]
         )
 
 
 def test_inference_request_rejects_metadata_with_oversized_nested_dict() -> None:
     """A dict with > METADATA_NESTED_CARDINALITY_MAX entries must be rejected."""
     too_many = {f"k{i}": "v" for i in range(METADATA_NESTED_CARDINALITY_MAX + 1)}
+    # See sibling-test rationale above: ``dict[str, str]`` is structurally
+    # a JsonValue but pyright invariance rejects it against ``dict[str,
+    # JsonValue]``. Runtime accepts; the schema rejects on cardinality.
     with pytest.raises(ValidationError, match="nested dict"):
         InferenceRequest(
             messages=[Message(role="user", content="hi")],
             model="x",
-            metadata={"safe": too_many},
+            metadata={"safe": too_many},  # pyright: ignore[reportArgumentType]
         )
 
 

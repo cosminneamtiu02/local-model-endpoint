@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.features.inference.model.audio_content import AudioContent
-from app.features.inference.model.caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
+from app.features.inference.model.dos_caps import BASE64_MEDIA_MAX_CHARS, URL_MAX_CHARS
 
 
 def test_audio_content_accepts_url_only() -> None:

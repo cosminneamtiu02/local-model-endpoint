@@ -40,7 +40,7 @@ def test_response_metadata_rejects_oversize_model_name(
     same logical name flows in (request) and out (response), so the bounds
     must be symmetric. Deriving the oversize length from the source-of-
     truth constant means a future cap bump only needs to change one site."""
-    from app.features.inference.model.caps import MODEL_NAME_MAX_LENGTH
+    from app.features.inference.model.dos_caps import MODEL_NAME_MAX_LENGTH
 
     kwargs = dict(valid_response_metadata_kwargs)
     kwargs["model"] = "x" * (MODEL_NAME_MAX_LENGTH + 1)

@@ -4,7 +4,7 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from app.features.inference.model.caps import (
+from app.features.inference.model.dos_caps import (
     METADATA_KEY_MAX_LENGTH,
     METADATA_NESTED_CARDINALITY_MAX,
     METADATA_VALUE_MAX_LENGTH,
