@@ -4,10 +4,15 @@
 
 ## Getting Started
 
+Follow the README's Quick Start through `task dev` — it is the canonical
+setup sequence and includes the Ollama daemon prerequisites that `task dev`
+needs at lifespan startup. Summary:
+
 1. Clone the repository.
-2. Install prerequisites: Python 3.13, uv (https://docs.astral.sh/uv/), Task (https://taskfile.dev/).
-3. Install dependencies: `cd apps/backend && uv sync --dev` (then `cd ../../packages/error-contracts && uv sync --dev` for the codegen workspace).
-4. Run `task dev` to start the backend with hot reload.
+2. Install prerequisites: Python 3.13, uv (https://docs.astral.sh/uv/), Task (https://taskfile.dev/), and Ollama (`brew install ollama`).
+3. Install + run the launchd-managed Ollama daemon: `task ollama:install && ollama pull gemma4:e2b`.
+4. Sync workspaces: `cd apps/backend && uv sync --dev`, then `cd ../../packages/error-contracts && uv sync --dev`.
+5. Run `task dev` to start the backend with hot reload.
 
 ## Development Setup
 

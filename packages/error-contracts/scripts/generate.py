@@ -903,7 +903,7 @@ def _cli_main() -> None:
     # ``parents[1]`` is ``packages/error-contracts/`` (workspace root).
     # ``parents[3]`` is the repo root. Indexed access mirrors the test-
     # suite idiom (``Path(__file__).parents[5]`` in
-    # ``test_errors_yaml_invariants.py``) and avoids the misleading
+    # ``test_errors_yaml_drift_guard.py``) and avoids the misleading
     # ``repo_root.parent.parent`` name-vs-depth mismatch the previous form
     # encoded.
     here = Path(__file__).resolve()

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.conftest import _TEST_CLASS_PATTERN  # pyright: ignore[reportPrivateUsage]
+from tests.conftest import _TEST_CLASS_PATTERN
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,6 @@
 """Drift-guard: every inference value-object class is frozen at runtime.
 
-Mirror of ``tests/unit/exceptions/test_params_frozen_invariant.py`` for
+Mirror of ``tests/unit/exceptions/test_params_frozen_drift_guard.py`` for
 the inference value-object family. The Params drift-guard auto-extends
 to any new generated class; this test does the same for the hand-written
 inference value-objects published via ``app.features.inference.model``'s

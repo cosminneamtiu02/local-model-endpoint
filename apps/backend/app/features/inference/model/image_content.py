@@ -14,6 +14,11 @@ class ImageContent(BaseModel):
     Carries either a public `url` reference or a base64-encoded `base64`
     blob. Exactly one must be set; the adapter layer translates whichever
     form is present into Ollama's wire format.
+
+    Field-level shape and caps are symmetric with :class:`AudioContent`;
+    both share the URL-or-base64 invariant via
+    :func:`app.features.inference.model._validators.ensure_exactly_one_url_or_base64`,
+    so a parametrized contract test can exercise both via one fixture.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)

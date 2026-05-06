@@ -17,7 +17,33 @@ from app.features.inference.model.model_params import ModelParams
 # validator below can both reference one declaration. Mirrors the
 # ``StopToken`` alias in ``model_params.py`` — single source of truth for
 # parametrized strings used both as a type and as a validator constant.
-type MetadataKey = Annotated[str, Field(max_length=METADATA_KEY_MAX_LENGTH)]
+# ``min_length=1`` rejects degenerate empty-string keys (``{"": "v"}``)
+# that would pass the top-level cardinality and per-key max-length
+# checks but be uninterpretable as attribution / project-tag handles
+# downstream.
+type MetadataKey = Annotated[str, Field(min_length=1, max_length=METADATA_KEY_MAX_LENGTH)]
+
+
+def _validate_nested_metadata_key(inner_key: str, key_path: str) -> None:
+    """Reject empty / over-cap nested-dict keys; symmetric with the top-
+    level ``MetadataKey`` ``min_length=1`` + ``max_length=METADATA_KEY_MAX_LENGTH``
+    constraints. Without this guard, a consumer could bypass the top-level
+    ``MetadataKey`` cap by nesting one level deeper (``metadata={"safe":
+    {"<long-key>": "v"}}`` would land the long key under the unrestrained
+    nested-dict path).
+    """
+    if not inner_key:
+        msg = (
+            f"metadata[{key_path}] nested key is the empty string; "
+            f"keys must be at least 1 character long."
+        )
+        raise ValueError(msg)
+    if len(inner_key) > METADATA_KEY_MAX_LENGTH:
+        msg = (
+            f"metadata[{key_path}] nested key {inner_key!r} exceeds "
+            f"the {METADATA_KEY_MAX_LENGTH}-character cap."
+        )
+        raise ValueError(msg)
 
 
 def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
@@ -53,17 +79,7 @@ def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
             )
             raise ValueError(msg)
         for inner_key, inner_value in value.items():
-            # Bound nested keys symmetric with top-level keys — without
-            # this, a consumer could bypass the top-level
-            # ``METADATA_KEY_MAX_LENGTH`` cap by nesting one level deeper
-            # (``metadata={"safe": {"<long-key>": "v"}}`` would land the
-            # long key under the unrestrained nested-dict path).
-            if len(inner_key) > METADATA_KEY_MAX_LENGTH:
-                msg = (
-                    f"metadata[{key_path}] nested key {inner_key!r} exceeds "
-                    f"the {METADATA_KEY_MAX_LENGTH}-character cap."
-                )
-                raise ValueError(msg)
+            _validate_nested_metadata_key(inner_key, key_path)
             _bounded_strings_in_metadata(inner_value, f"{key_path}.{inner_key}")
         return
     # Other JsonValue branches (int, float, bool, None) are unbounded by

@@ -127,3 +127,55 @@ def test_problem_details_model_dump_json_produces_valid_json() -> None:
     assert parsed["status"] == 503
     assert parsed["max_waiters"] == 4
     assert parsed["validation_errors"] == [{"field": "x", "reason": "y"}]
+
+
+@pytest.mark.parametrize(
+    "bad_code",
+    [
+        "",  # rejected by min_length=1
+        "queue-full",  # kebab-case
+        "QueueFull",  # PascalCase
+        "QUEUE__FULL",  # double underscore
+        "_QUEUE_FULL",  # leading underscore
+        "QUEUE_FULL_",  # trailing underscore
+        "42_FOO",  # leading digit
+    ],
+)
+def test_problem_details_rejects_malformed_code(bad_code: str) -> None:
+    """``code`` MUST match the SCREAMING_SNAKE regex from
+    ``apps/backend/app/schemas/problem_details.py:112``.
+
+    The drift-guard test ``test_screaming_snake_pattern_drift_guard.py``
+    pins the regex string itself across codegen + schema; this test
+    exercises the regex against the failing-input alphabet so a future
+    refactor that swaps the ``pattern=`` for a callable validator (or
+    drops the pattern entirely) would land red even if the literal-string
+    drift-guard stayed green.
+    """
+    kwargs: dict[str, object] = dict(_base_kwargs())
+    kwargs["code"] = bad_code
+    with pytest.raises(ValidationError, match="code"):
+        ProblemDetails.model_validate(kwargs)
+
+
+@pytest.mark.parametrize(
+    "bad_type",
+    [
+        "oops",  # bare string, not a URN nor about:blank
+        "http://example.com/error",  # http URL — disallowed in v1
+        "urn:lip:error:Mixed_Case",  # uppercase / underscores in tail
+        "urn:other:error:queue-full",  # wrong namespace
+    ],
+)
+def test_problem_details_rejects_malformed_type(bad_type: str) -> None:
+    """``type`` MUST match ``about:blank`` or ``urn:lip:error:<kebab>``.
+
+    Pinned via regex on the schema; this test asserts the rejection
+    alphabet so a future refactor of the regex (e.g. relaxing to allow
+    http URLs) lands as a deliberate diff with these cases editing in
+    lockstep.
+    """
+    kwargs: dict[str, object] = dict(_base_kwargs())
+    kwargs["type"] = bad_type
+    with pytest.raises(ValidationError, match="type"):
+        ProblemDetails.model_validate(kwargs)

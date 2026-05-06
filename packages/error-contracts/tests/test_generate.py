@@ -11,7 +11,7 @@ import pytest
 # Direct-test import for the control-char defense — PyYAML rejects most
 # C0 controls at parse time, so going through load_and_validate would not
 # exercise the in-codegen layer. Private-symbol access is justified.
-from scripts.generate import _validate_detail_template  # pyright: ignore[reportPrivateUsage]
+from scripts.generate import _validate_detail_template
 
 
 def _load_class_to_snake() -> Callable[[str], str]:

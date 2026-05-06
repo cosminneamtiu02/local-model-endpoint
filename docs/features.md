@@ -162,12 +162,21 @@ Run in well under 10 seconds. Cover:
 - **`tests/unit/schemas/`** — `test_health_response.py`, `test_problem_details.py`,
   `test_problem_extras.py`, `test_validation_error_detail.py` (one test file per
   schema-package class).
+- **`tests/unit/`** (top-level) — `test_filterwarnings_anyio_suppression.py`
+  (self-test that the anyio.streams.memory ResourceWarning narrowing in
+  `pyproject.toml`'s `filterwarnings` is still effective) and
+  `test_no_test_classes_guard.py` (sentinel asserting the
+  `pytest_sessionstart` hook + python_classes regex catch a stray
+  `class Test...` collection — sacred-rule "Never write a test class").
 - **`tests/unit/features/inference/`** — mirrors `app/features/inference/`:
   - `model/` — `test_message.py`, `test_model_params.py`, `test_content_part.py`,
     `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
-    `test_ollama_chat_result.py`, `test_ollama_translation.py`. The internal
-    helpers `_validators.py`, `dos_caps.py`, and `finish_reason.py` are exercised
-    transitively through these test files (no dedicated test files).
+    `test_ollama_chat_result.py`, `test_ollama_translation.py`,
+    `test_value_objects_frozen_drift_guard.py` (mirror of
+    `test_params_frozen_drift_guard.py` for the inference value-object
+    family). The internal helpers `_validators.py`, `dos_caps.py`, and
+    `finish_reason.py` are exercised transitively through these test files
+    (no dedicated test files).
   - `schemas/` — `test_inference_request.py`, `test_inference_response.py`,
     `test_response_metadata.py`, `test_inference_schema_shapes.py`
   - `repository/` — `test_ollama_client.py` (typed httpx wrapper)

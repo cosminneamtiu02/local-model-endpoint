@@ -86,8 +86,10 @@ from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHAR
 from app.schemas.wire_constants import (
     ABOUT_BLANK_TYPE,
     CONTENT_LANGUAGE,
+    CONTENT_LANGUAGE_HEADER,
     INSTANCE_PATH_MAX_CHARS,
     PROBLEM_JSON_MEDIA_TYPE,
+    REQUEST_ID_HEADER,
     UUID_REGEX,
 )
 
@@ -209,7 +211,7 @@ def _stamp_request_id_header_if_missed(
     app fallback path.
     """
     if missed:
-        response.headers["X-Request-ID"] = request_id
+        response.headers[REQUEST_ID_HEADER] = request_id
 
 
 def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes typed args (exc + request + 4 wire-shape kwargs); all positional-or-keyword required for readability at every call site.
@@ -327,7 +329,7 @@ def _problem_response(
     The catch-all 500 path injects it explicitly because Starlette's
     ``ServerErrorMiddleware`` runs OUTSIDE the user stack.
     """
-    headers: dict[str, str] = {"Content-Language": CONTENT_LANGUAGE}
+    headers: dict[str, str] = {CONTENT_LANGUAGE_HEADER: CONTENT_LANGUAGE}
     if extra_headers:
         headers.update(extra_headers)
     return Response(
@@ -477,7 +479,7 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # Hoist ``len(validation_errors)`` once instead of re-evaluating across
     # the log line, the detail-override branches, and the typed-params
     # suppress flag — symmetric with the surrounding code's
-    # hoist-once-then-dispatch idiom (e.g. the ``option_keys`` hoist in
+    # hoist-once-then-dispatch idiom (e.g. the ``option_keys_sorted`` hoist in
     # ``OllamaClient.chat``).
     error_count = len(validation_errors)
 
@@ -831,12 +833,20 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # so operators searching by error_code find the broken-middleware
     # diagnostic.
     structlog.contextvars.bind_contextvars(error_code=InternalError.code)
-    # ``_resolve_request_id`` returns ``(id, missed)``; this branch always
-    # passes ``missed=True`` literally below (ServerErrorMiddleware lives
-    # outside the user middleware stack, so the header is always absent).
-    # Bind the resolver's ``missed`` flag to ``_missed`` (rather than ``_``)
-    # so the comment block on ``_stamp_request_id_header_if_missed`` below
-    # can name the variable a future flip would consult.
+    # ``_resolve_request_id`` returns ``(id, missed)``; the resolver hits
+    # ``request.state.request_id`` (populated by ``RequestIdMiddleware``
+    # on the request side) so ``missed`` is False on the happy path. The
+    # response from this catch-all handler, however, flows OUT through
+    # ``ServerErrorMiddleware`` (outside the user middleware stack), NOT
+    # back through ``RequestIdMiddleware`` — so the response always
+    # arrives at the client without an ``X-Request-ID`` header unless we
+    # stamp it explicitly below. The ``missed`` bool is captured but not
+    # consulted: this is THE one path where we always stamp regardless of
+    # request-side middleware state. Future Starlette change
+    # (encode/starlette#1438 / encode/starlette#1715) that moves the
+    # catch-all inside the user stack would change this — flip the
+    # ``missed=True`` literal below to ``missed=missed_middleware`` in
+    # that PR.
     request_id, _missed = _resolve_request_id(request)
     # ``internal_error_5xx_raised`` so operator queries align with the
     # typed-domain-error pattern: every 5xx event in the codebase now
@@ -873,14 +883,14 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)
     response = _problem_response(problem)
-    # Defense-in-depth: pass ``missed=True`` literally rather than
-    # ``missed=_missed`` because ServerErrorMiddleware lives outside the
-    # user middleware stack today, so ``X-Request-ID`` is always missing on
-    # this path. If a future Starlette release moves catch-all ``Exception``
-    # back inside the user stack (encode/starlette#1438/#1715), flip this
-    # to ``missed=_missed`` to consult the resolver state. The
-    # underscore-prefixed ``_missed`` name above marks the local as
-    # intentionally retained for that future flip.
+    # ``missed=True`` is hard-coded here because ServerErrorMiddleware
+    # lives outside the user middleware stack today — the response goes
+    # back to the client without re-entering ``RequestIdMiddleware``, so
+    # the header is always missing on this catch-all path regardless of
+    # whether the request side stamped it. If encode/starlette#1438 /
+    # encode/starlette#1715 ever move this handler back inside the user
+    # stack, flip to ``missed=_missed`` so the resolver's flag prevents
+    # a duplicate stamp.
     _stamp_request_id_header_if_missed(response, request_id, missed=True)
     return response
 

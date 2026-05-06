@@ -8,27 +8,14 @@ don't drift their factories independently.
 
 import pytest
 
-from app.schemas.wire_constants import UUID_REGEX
-
 # Canonical UUID-shaped fixture id for inference-feature unit tests.
-# Drift between this literal and ``UUID_PATTERN_STR`` is pinned by the
-# ``test_valid_request_id_fixture_matches_wire_contract_regex`` test
-# below (a dedicated pytest function rather than a module-level assert
-# so the invariant survives ``python -O`` and shows up in pytest's
-# collection summary).
-_VALID_REQUEST_ID = "00000000-0000-4000-8000-000000000abc"
-
-
-def test_valid_request_id_fixture_matches_wire_contract_regex() -> None:
-    """Pin the ``valid_request_id`` literal against the wire-contract UUID regex.
-
-    A future regex tightening that no longer matches this literal fires here
-    rather than as 16 silent green tests with stale fixtures.
-    """
-    assert UUID_REGEX.match(_VALID_REQUEST_ID), (
-        f"valid_request_id fixture ({_VALID_REQUEST_ID}) no longer matches the wire-contract"
-        " UUID regex; tighten or update the fixture in lockstep with the regex."
-    )
+# Drift between this literal and the wire-contract regex is pinned by
+# ``test_request_id_fixture_drift_guard.py`` (a sibling test module
+# rather than an inline test function in this conftest, since pytest
+# collects tests from ``test_*.py`` files by convention — embedding a
+# test in conftest is undiscoverable to the standard ``find tests
+# -name 'test_*.py'`` audit).
+VALID_REQUEST_ID = "00000000-0000-4000-8000-000000000abc"
 
 
 @pytest.fixture
@@ -36,11 +23,11 @@ def valid_request_id() -> str:
     """UUID-shaped request_id matching the wire-contract regex.
 
     The regex is enforced by both ``RequestIdMiddleware`` and
-    ``ProblemDetails.request_id``. The literal is hoisted to
-    ``_VALID_REQUEST_ID`` so a regex-vs-literal drift fails at
-    collection time (see the assertion at module scope).
+    ``ProblemDetails.request_id``. The literal is hoisted to module
+    scope as ``VALID_REQUEST_ID`` so the drift-guard test module can
+    import and assert against it without duplicating the value.
     """
-    return _VALID_REQUEST_ID
+    return VALID_REQUEST_ID
 
 
 @pytest.fixture

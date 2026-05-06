@@ -203,7 +203,7 @@ def test_redaction_processor_is_in_shared_processors() -> None:
         "finish_reason",
         "model_name",
         "message_count",
-        "option_keys",
+        "option_keys_sorted",
         "duration_ms",
         "prompt_tokens",
         "completion_tokens",
@@ -306,3 +306,57 @@ def test_configure_logging_round_trips_debug_event_via_capture_logs() -> None:
     with capture_logs() as captured:
         logger.debug("smoke_debug", k="v")
     assert any(entry["event"] == "smoke_debug" for entry in captured), captured
+
+
+def test_redaction_blocklist_disjoint_from_canonical_processor_keys() -> None:
+    """Drift-guard pin: the redaction blocklist MUST NOT collide with the
+    canonical-processor output keys (``level``, ``logger``, ``timestamp``,
+    ``event``, ``exception``).
+
+    The processor chain runs ``_redact_sensitive_keys`` BEFORE
+    ``add_log_level``, ``add_logger_name``, and ``TimeStamper`` — so any
+    blocklist entry that happens to collide with those keys would be
+    silently overwritten by the canonical processor that runs AFTER the
+    redactor. The redactor's ``<redacted>`` sentinel would be replaced by
+    the live value, defeating the redaction.
+
+    The blocklist's docstring promises this disjointness explicitly; this
+    test pins the promise programmatically with no runtime cost. See
+    ``app/core/logging.py``'s ``_REDACTION_BLOCKLIST`` docstring for the
+    full rationale.
+    """
+    from app.core.logging import _REDACTION_BLOCKLIST
+
+    canonical_keys = {"level", "logger", "timestamp", "event", "exception"}
+    assert _REDACTION_BLOCKLIST.isdisjoint(canonical_keys), (
+        f"_REDACTION_BLOCKLIST overlaps with canonical-processor output keys: "
+        f"{_REDACTION_BLOCKLIST & canonical_keys!r}"
+    )
+
+
+def test_explicit_log_kwarg_wins_over_contextvar_bound_value() -> None:
+    """Pin structlog 25.5's ``merge_contextvars`` precedence behavior.
+
+    The middleware's ``request_completed`` access log relies on this
+    contract — explicit ``method=method``/``path=path`` kwargs are the
+    defense-in-depth that overrides any (e.g. malformed) contextvar
+    binding for those keys. structlog 25.5 implements this via
+    ``event_dict.setdefault(...)`` in ``merge_contextvars``, so explicit
+    caller kwargs win over contextvar-bound values. Without this test, a
+    future structlog version that flips the precedence would silently
+    break the access-log shape on every per-request log line, surfacing
+    only as cross-correlation drift in production.
+    """
+    configure_logging(log_level="info", json_output=False)
+    logger = structlog.get_logger("test_precedence")
+    structlog.contextvars.bind_contextvars(method="bound-value")
+    try:
+        with capture_logs() as captured:
+            logger.info("event", method="explicit-value")
+        assert captured, "no log line captured"
+        assert captured[0]["method"] == "explicit-value", (
+            "explicit kwarg should win over contextvar-bound value (structlog 25.5 "
+            f"setdefault semantics): got {captured[0]['method']!r}"
+        )
+    finally:
+        structlog.contextvars.clear_contextvars()

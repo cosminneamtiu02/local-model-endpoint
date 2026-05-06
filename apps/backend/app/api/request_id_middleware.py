@@ -1,8 +1,9 @@
 """Request middleware — request ID propagation + per-request access log.
 
 Implemented as pure ASGI middleware (not BaseHTTPMiddleware) to avoid the
-cancellation and contextvar-fork issues documented in encode/starlette
-#1438 and #1715 — cancellation must propagate cleanly so a disconnected
+cancellation and contextvar-fork issues documented in
+encode/starlette#1438 / encode/starlette#1715 — cancellation must
+propagate cleanly so a disconnected
 consumer releases the in-flight semaphore slot.
 
 Two concerns layered on the ASGI scope:
@@ -26,6 +27,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.logging import ascii_safe, elapsed_ms
 from app.schemas import ProblemDetails
+from app.schemas.validation_error_detail import FIELD_MAX_CHARS
 from app.schemas.wire_constants import (
     ABOUT_BLANK_TYPE,
     CONTENT_LANGUAGE,
@@ -55,10 +57,12 @@ _DEL_CHAR: Final[int] = 0x7F
 _REQUEST_ID_PREVIEW_MAX_CHARS: Final[int] = 32
 
 # Truncation cap on the rejected request path reflected into the 413
-# problem+json body's ``instance`` field. Symmetric with
-# ``ValidationErrorDetail.field``'s 512-char cap so a pathological consumer
-# cannot amplify a single 60K-char-URL POST into a multi-KB error body.
-_INSTANCE_PREVIEW_MAX_CHARS: Final[int] = 512
+# problem+json body's ``instance`` field. Sourced from
+# ``ValidationErrorDetail.FIELD_MAX_CHARS`` so a future bump of the wire-
+# field cap propagates here automatically — the documented "symmetric
+# with ValidationErrorDetail.field's 512-char cap" rationale is now a
+# mechanical link instead of a duplicated literal.
+_INSTANCE_PREVIEW_MAX_CHARS: Final[int] = FIELD_MAX_CHARS
 
 # Sentinel status code emitted in the access log when a request is
 # cancelled before the handler reached ``http.response.start``. This is
@@ -102,7 +106,7 @@ def _resolve_access_log_status(captured_status: int, unhandled_exc: BaseExceptio
 
 
 def _content_length_from_scope(scope: Scope) -> int | None:
-    """Read Content-Length from ASGI scope headers; None if absent or unparseable."""
+    """Read Content-Length from ASGI scope headers; None if absent, unparseable, or negative."""
     raw = next(
         (v for k, v in scope.get("headers", []) if k == b"content-length"),
         None,
@@ -110,7 +114,7 @@ def _content_length_from_scope(scope: Scope) -> int | None:
     if raw is None:
         return None
     try:
-        return int(raw)
+        parsed = int(raw)
     except ValueError:
         # Control-flow conversion: a malformed Content-Length header (non-int)
         # encodes "we don't know the length" — surface as None so the size
@@ -118,6 +122,15 @@ def _content_length_from_scope(scope: Scope) -> int | None:
         # uploads are also length-unknown). Not a "silent swallow" per
         # CLAUDE.md; the parse failure encodes a known business case.
         return None
+    # A negative ``Content-Length`` parses cleanly but is not a valid HTTP
+    # length per RFC 9110 §8.6 (must be a non-negative integer). Some
+    # servers re-interpret it as length-unknown; ours treats it the same
+    # as an unparseable header (return None) so the body-size guard's
+    # ``content_length > _MAX`` comparison cannot short-circuit on a
+    # negative value and bypass the cap entirely.
+    if parsed < 0:
+        return None
+    return parsed
 
 
 async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None:
@@ -232,9 +245,11 @@ class RequestIdMiddleware:
         # before this middleware sees it, so a request like
         # ``GET /%1b%5B31m...`` lands in scope with raw ESC bytes that would
         # render verbatim under dev-mode ConsoleRenderer (forging log lines,
-        # spoofing status codes). Symmetric with the ``client_id`` ASCII-clean
-        # at line 214 and with ``deps.py:_format_request_path`` (CLAUDE.md
-        # log-injection backstop).
+        # spoofing status codes). Symmetric with the ``client_id =
+        # ascii_safe(client_id_raw)`` bind above and with the
+        # ``ascii_safe(request.url.path, ...)`` call in
+        # ``deps.get_app_state`` (the ``app_state_unavailable`` log emit
+        # site, CLAUDE.md log-injection backstop).
         path = ascii_safe(str(scope.get("path", "")), max_chars=INSTANCE_PATH_MAX_CHARS)
 
         # Resolve client IP/port from the ASGI scope once. Bound to
@@ -324,12 +339,22 @@ class RequestIdMiddleware:
             nonlocal captured_status
             if message["type"] == "http.response.start":
                 captured_status = int(message.get("status", 0))
-                # Unpack the existing headers iterable into a fresh list
-                # with the request-id tuple appended; one allocation, no
-                # imperative ``append`` step on the hot per-response path.
+                # Filter out any pre-existing ``x-request-id`` header before
+                # appending ours, so the response always ships exactly one
+                # ``X-Request-ID`` header even if a future handler / nested
+                # middleware emits its own. Without the filter, a downstream
+                # write would shift the response into having two
+                # ``X-Request-ID`` values — making operator log correlation
+                # ambiguous (consumers seeing two values cannot tell which
+                # one matches the server-side ``request_id=`` log field).
+                # The walk is one O(n) pass on the response-header tuple
+                # iterable; n is small (a handful of headers per response).
+                existing_headers = [
+                    (k, v) for k, v in message.get("headers", []) if k != b"x-request-id"
+                ]
                 message = {
                     **message,
-                    "headers": [*message.get("headers", []), request_id_header],
+                    "headers": [*existing_headers, request_id_header],
                 }
             await send(message)
 

@@ -76,7 +76,14 @@ repos:
       # have ``task check`` as the sacred-rule entry point.
       - id: pytest-unit
         name: Backend unit tests
-        entry: bash -c "set -euo pipefail; cd apps/backend && uv run --frozen pytest tests/unit/ -q && cd ../../packages/error-contracts && uv run --frozen pytest tests/ -q"
+        # Wrapped in scripts/pre_push_unit_tests.sh so the chained
+        # workspace invocation lives in a real shell file with set -euo
+        # pipefail at the top, instead of a fragile inline ``bash -c
+        # "...cd ../../..."`` whose relative paths break under a future
+        # repo-restructure. The script uses ``uv run --directory`` (no
+        # ``cd``) so the pre-push contract "hook runs from repo root"
+        # is preserved.
+        entry: scripts/pre_push_unit_tests.sh
         language: system
         pass_filenames: false
         stages: [pre-push]

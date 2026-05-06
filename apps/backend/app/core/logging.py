@@ -157,7 +157,7 @@ or framework-emitted otherwise):
     ``exc_message`` (ASCII-cleaned + truncated at the emit site).
   * Lifecycle telemetry: ``phase``, ``version``, ``env``,
     ``finish_reason``, ``model_name``, ``message_count``,
-    ``option_keys``, ``duration_ms``, ``prompt_tokens``,
+    ``option_keys_sorted``, ``duration_ms``, ``prompt_tokens``,
     ``completion_tokens``.
   * Diagnostic NAMES (CLAUDE.md ADR-014 carve-out): ``env_vars``,
     ``unknown_lip_env_vars`` — the ``audit_lip_env_typos`` warning

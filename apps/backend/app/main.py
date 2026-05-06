@@ -332,7 +332,12 @@ def create_app() -> FastAPI:
         # ``authors`` + ``license`` fields (kept in sync by hand here;
         # codegen from package metadata is overkill for two short literals).
         contact={"name": "Cosmin Neamtiu"},
-        license_info={"name": "MIT"},
+        # ``identifier`` is the SPDX shortcut FastAPI 0.136 / OpenAPI
+        # 3.1 supports natively — preferred over ``url=...`` because it
+        # doesn't require a remote-URL lookup at audit time, and license-
+        # discovery tools (Snyk, FOSSA, GitHub's license API) read it as
+        # the canonical signal.
+        license_info={"name": "MIT", "identifier": "MIT"},
         lifespan=lifespan,
         # ``redirect_slashes=False`` makes a trailing-slash mismatch
         # surface as a clean 404 problem+json (which the typed exception

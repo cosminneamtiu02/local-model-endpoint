@@ -71,8 +71,19 @@ distinction is presentation-only — but every consumer-facing reference
 to defeat literal-vs-literal drift the same way the rest of
 ``wire_constants`` defeats UUID-regex drift."""
 
+CONTENT_LANGUAGE_HEADER: Final[str] = "Content-Language"
+"""Canonical wire spelling of the Content-Language header NAME.
+
+Symmetric with :data:`REQUEST_ID_HEADER` — every emit site reads this
+constant rather than hard-coding the literal so a future i18n bump that
+adds content negotiation is a single-line edit at this module rather
+than a grep across the api/ + schemas/ tree. ``RequestIdMiddleware``
+emits the lowercase byte form (``b"content-language"``) on the 413 ASGI
+short-circuit; HTTP headers are case-insensitive so the byte/string
+duality is presentation-only."""
+
 CONTENT_LANGUAGE: Final[str] = "en"
-"""RFC 7807 §3.1 ``Content-Language`` header value emitted on every
+"""RFC 7807 §3.1 ``Content-Language`` header VALUE emitted on every
 problem+json response. v1 wire contract is "the response is English-only";
 when i18n arrives in a future milestone, this becomes content-negotiated."""
 
