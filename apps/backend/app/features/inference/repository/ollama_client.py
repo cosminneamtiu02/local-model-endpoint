@@ -327,8 +327,16 @@ class OllamaClient:
         # lifecycle event uniformly. Track ``_lifecycle_entered_at`` so
         # ``__aexit__`` can compute ``duration_ms`` for the close event.
         self._lifecycle_entered_at = time.perf_counter()
+        # ``ollama_client_started`` (not the previous
+        # ``ollama_client_lifecycle_entered``) keeps the verb-tense
+        # uniform with the per-call ``ollama_call_started`` family
+        # AND the lifespan ``app_startup_started`` family — a single
+        # operator filter ``select(.event | endswith("_started"))``
+        # finds every operation-start event uniformly across the
+        # codebase. Sibling pair: ``ollama_client_completed`` /
+        # ``ollama_client_failed`` below.
         logger.info(
-            "ollama_client_lifecycle_entered",
+            "ollama_client_started",
             base_url=self._loggable_base_url,
             phase="lifespan",
             timeout_connect=DEFAULT_TIMEOUT.connect,
@@ -359,10 +367,14 @@ class OllamaClient:
         ``KeyboardInterrupt`` / ``SystemExit`` propagate either way (their
         suppression would break structured concurrency).
 
-        ``ollama_client_closed`` lands on the ``else:`` branch so the success
+        ``ollama_client_completed`` lands on the ``else:`` branch so the success
         and failure events are mutually exclusive — operators reading
-        ``ollama_client_close_failed`` are not also chased by a misleading
-        ``ollama_client_closed`` line on the same shutdown.
+        ``ollama_client_failed`` are not also chased by a misleading
+        ``ollama_client_completed`` line on the same shutdown. The
+        ``ollama_client_aexit_without_aenter`` warning is a SEPARATE
+        misuse-diagnostic event (caller's structured-concurrency bug)
+        and intentionally keeps its own name outside the
+        started/completed/failed family.
         """
         # ``duration_ms`` is the lifetime from ``__aenter__`` to close —
         # paired with ``_lifecycle_entered``'s timeout/limits config, the
@@ -388,14 +400,14 @@ class OllamaClient:
             # ``logger.exception`` auto-resolves the active exception via
             # ``sys.exc_info()``; no need to thread ``exc_info=close_exc``.
             # ``base_url=`` + ``phase="lifespan"`` for field-set parity with
-            # the ``_lifecycle_entered`` / ``_closed`` peers — operators
+            # the ``_started`` / ``_completed`` peers — operators
             # triaging a close failure can attribute by URL without
             # joining on a contextvar-bound ``phase`` alone (which is
             # absent when this client is constructed outside ``lifespan_
             # resources``, e.g. test fixtures using ``async with
             # OllamaClient(...)`` directly).
             logger.exception(
-                "ollama_client_close_failed",
+                "ollama_client_failed",
                 base_url=self._loggable_base_url,
                 phase="lifespan",
                 exc_type=type(close_exc).__name__,
@@ -408,7 +420,7 @@ class OllamaClient:
                 raise
         else:
             logger.info(
-                "ollama_client_closed",
+                "ollama_client_completed",
                 base_url=self._loggable_base_url,
                 phase="lifespan",
                 duration_ms=duration_ms,

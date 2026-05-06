@@ -1,6 +1,12 @@
-"""Contract tests for the ProblemDetails wire shape (LIP-E004-F004).
+"""Contract tests for the ProblemDetails COMPONENT shape (LIP-E004-F004).
 
-The OpenAPI-spec smoke tests live in :mod:`tests.contract.test_openapi_shape`.
+Strictly per-component shape concerns: the ``ProblemDetails`` schema's
+publication, RFC 7807 field set, and ``additionalProperties`` declaration.
+Per-route publication concerns (``/health``'s ``responses.default``
+content map; framework-404 RFC 7807 wire shape) live in
+:mod:`tests.contract.test_health_route_publication`. The OpenAPI-document
+smoke tests live in :mod:`tests.contract.test_openapi_document_validity`.
+
 A real Schemathesis fuzz suite will land alongside the LIP feature router
 (LIP-E001-F002) when there are operations to fuzz against.
 
@@ -45,48 +51,3 @@ def test_problem_details_component_allows_additional_properties(client: TestClie
     assert additional is True or isinstance(additional, dict), (
         f"ProblemDetails must declare additionalProperties; got {additional!r}"
     )
-
-
-def test_health_route_declares_problem_details_default_response(client: TestClient) -> None:
-    """The /health route advertises ProblemDetails on its OpenAPI ``default`` response.
-
-    The route uses ``responses={"default": ...}`` instead of enumerating
-    individual 5xx codes (``500``, ``503``). This matches the truth on the
-    ground: the global exception handler in ``app/api/exception_handler_registry.py`` runs
-    against every status code we don't enumerate, and ``/health`` itself
-    is liveness-only and never raises (so listing 500/503 as endpoint-
-    specific responses would imply behavior that doesn't exist).
-    """
-    spec = client.get("/openapi.json").json()
-    health = spec["paths"]["/health"]["get"]
-    responses = health.get("responses", {})
-
-    assert "default" in responses, (
-        "Expected a 'default' response on /health (the project-wide error "
-        f"shape), got responses keys: {sorted(responses.keys())}"
-    )
-    content = responses["default"].get("content", {})
-    # The ProblemDetails schema must be referenced under at least one
-    # media type. The route declares both ``application/json`` (FastAPI's
-    # default for ``model=...``) and ``application/problem+json`` (the
-    # runtime media type emitted by ``app/api/exception_handler_registry.py``).
-    assert any("ProblemDetails" in str(media) for media in content.values()), (
-        f"/health 'default' response must reference ProblemDetails, got {content}"
-    )
-    assert "application/problem+json" in content, (
-        "Expected the runtime media type 'application/problem+json' to be "
-        f"declared on /health's default response, got: {sorted(content.keys())}"
-    )
-
-
-def test_problem_details_response_advertises_content_language_en(client: TestClient) -> None:
-    """Any error response must carry Content-Language: en per RFC 7807 §3.1.
-
-    The integration suite already asserts this on a typed-handler path; the
-    contract tier locks it for any framework-generated error too (e.g. 404
-    from a missing route).
-    """
-    response = client.get("/this-route-definitely-does-not-exist")
-    assert response.status_code == 404
-    assert response.headers.get("content-language") == "en"
-    assert response.headers.get("content-type", "").startswith("application/problem+json")

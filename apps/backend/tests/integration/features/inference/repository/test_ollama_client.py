@@ -1,9 +1,18 @@
-"""Integration tests for OllamaClient.chat() (LIP-E003-F002).
+"""Integration tests for :class:`OllamaClient` (LIP-E003-F001 + LIP-E003-F002).
 
-Pattern: a `httpx.MockTransport` records the outgoing request body and
-returns canned Ollama JSON. We never speak to a live Ollama. Same shape
-as test_lifecycle.py's MockTransport round-trip; this file is the
-typed-method counterpart that exercises the full chat round trip.
+Mirrors the source path ``app/features/inference/repository/ollama_client.py``
+so a reviewer navigating from source to tests follows the obvious path. The
+unit-tier sibling lives at
+``tests/unit/features/inference/repository/test_ollama_client.py`` — the
+two are intentionally separate so unit-tier coverage stays fast (no MockTransport
+round-trip) while integration-tier covers the real ``__aenter__`` / ``__aexit__``
+plumbing through ``httpx.MockTransport``.
+
+Pattern: a ``httpx.MockTransport`` records the outgoing request body and
+returns canned Ollama JSON. We never speak to a live Ollama. Lifespan-side
+integration tests for ``app/api/lifespan_resources.py`` and
+``app/api/app_state.py`` live at ``tests/integration/api/test_lifespan_resources.py``
+(api-layer concerns belong under ``tests/integration/api/``).
 """
 
 from __future__ import annotations
@@ -22,6 +31,53 @@ from app.features.inference.model.text_content import TextContent
 
 if TYPE_CHECKING:
     from app.features.inference.model.ollama_chat_result import OllamaChatResult
+
+
+# ── _request plumbing (round-trip canary) ───────────────────────────
+
+
+async def test_mock_transport_allows_full_request_round_trip() -> None:
+    """``httpx.MockTransport`` round-trip canary for ``OllamaClient._request``.
+
+    Validates the ``__aenter__`` / ``__aexit__`` plumbing + the
+    MockTransport injection pattern other integration tests reuse.
+    Lower-level than the ``chat()`` tests below — those exercise the
+    typed-method round trip; this one just confirms ``_request`` reaches
+    the transport.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": []})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    async with OllamaClient(base_url="http://localhost:11434", transport=transport) as client:
+        response = await client._request("GET", "/api/tags")
+
+    assert response.status_code == 200
+    assert response.json() == {"models": []}
+
+
+async def test_request_propagates_httpx_connect_error_uncaught() -> None:
+    """AC11: connection failures raise ``httpx.ConnectError``; F001 doesn't catch.
+
+    Mapping httpx exceptions to typed DomainError is LIP-E003-F003's job.
+    """
+    # 127.0.0.1 with an unbound port is the canonical "guaranteed refused"
+    # endpoint — it short-circuits without leaving the loopback stack.
+    async with OllamaClient(base_url="http://127.0.0.1:1") as client:
+        # Anchor on the connect-error message form so a future regression
+        # that surfaces ``ConnectError`` from a different code path (e.g.
+        # __aenter__ setup) doesn't silently satisfy the assertion.
+        with pytest.raises(
+            httpx.ConnectError,
+            match=r"127\.0\.0\.1|Connection refused|All connection attempts failed",
+        ):
+            await client._request("GET", "/api/tags")
+
+
+# ── chat() outbound request shape ───────────────────────────────────
 
 
 def _ollama_ok_response() -> httpx.Response:
@@ -68,9 +124,6 @@ async def _send_and_capture(
     request = captured["request"]
     parsed: dict[str, Any] = json.loads(request.content) if request.content else {}
     return parsed, request, result
-
-
-# ── Outbound request shape ──────────────────────────────────────────
 
 
 async def test_chat_simple_text_produces_minimal_ollama_chat_body() -> None:
@@ -311,7 +364,11 @@ async def test_chat_propagates_timeout_uncaught(
 
     transport = httpx.MockTransport(handler)
     async with OllamaClient(base_url="http://ollama.test", transport=transport) as client:
-        with pytest.raises(timeout_cls):
+        # Anchor on the message the parametrized handler raised so a
+        # regression that swallows the simulated timeout and re-raises a
+        # different ``timeout_cls`` instance from a sibling code path
+        # cannot silently satisfy the assertion.
+        with pytest.raises(timeout_cls, match=rf"simulated {timeout_cls.__name__}"):
             await client.chat(
                 model_tag="gemma4:e2b",
                 messages=[Message(role="user", content="hi")],

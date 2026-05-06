@@ -36,7 +36,7 @@ router lands and there is end-to-end behavior worth covering against the real ba
   + LIP extensions present, `application/problem+json` advertised on the `/health` default
   response). A full Schemathesis fuzz against every endpoint will be wired once the LIP
   feature router (LIP-E001-F002) lands and there are inference operations to fuzz.
-- **Location:** `tests/contract/test_openapi_shape.py` (canary), `tests/contract/test_problem_details_shape.py` (RFC 7807).
+- **Location:** `tests/contract/test_openapi_document_validity.py` (document-level canary), `tests/contract/test_problem_details_shape.py` (per-component RFC 7807 wire shape), `tests/contract/test_health_route_publication.py` (per-route OpenAPI publication).
 
 ## Lifecycle and lifespan integration
 
@@ -45,7 +45,7 @@ shutdown timer, etc.) against Ollama without hitting the network is
 `httpx.MockTransport` injected directly into an `OllamaClient` constructor
 inside each test (NOT through the integration `conftest.py`'s shared ASGI
 client — that fixture targets `app.main.app`, which uses the production
-lifespan). See [tests/integration/features/inference/test_lifecycle.py](../apps/backend/tests/integration/features/inference/test_lifecycle.py)
+lifespan). See [tests/integration/api/test_lifespan_resources.py](../apps/backend/tests/integration/api/test_lifespan_resources.py)
 for the working example: the test builds its own `OllamaClient(...,
 transport=httpx.MockTransport(...))`, drives it through `__aenter__` /
 `chat` / `__aexit__`, and asserts on the orchestration shape (request
@@ -65,7 +65,7 @@ order, payload, error mapping) without any real Ollama process running.
 
 - Unit: `tests/unit/<mirrors source tree>/test_<module>.py`
 - Integration: `tests/integration/<mirrors source tree>/test_<module>.py`
-- Contract: `tests/contract/test_openapi_shape.py` (OpenAPI canary), `tests/contract/test_problem_details_shape.py` (RFC 7807 wire shape).
+- Contract: `tests/contract/test_openapi_document_validity.py` (OpenAPI canary), `tests/contract/test_problem_details_shape.py` (per-component RFC 7807 wire shape), `tests/contract/test_health_route_publication.py` (per-route OpenAPI publication).
 
 ## Pre-commit / Pre-push / CI
 

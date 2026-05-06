@@ -40,7 +40,7 @@ tests + a passing `task check`.
 - `tests/unit/` and `tests/integration/` mirror the source tree.
   `app/features/inference/repository/ollama_client.py` ->
   `tests/unit/features/inference/repository/test_ollama_client.py`.
-- `tests/contract/test_openapi_shape.py` (OpenAPI canary) and `tests/contract/test_problem_details_shape.py` (RFC 7807 wire shape) for OpenAPI/contract validation.
+- `tests/contract/test_openapi_document_validity.py` (OpenAPI canary), `tests/contract/test_problem_details_shape.py` (per-component RFC 7807 wire shape), and `tests/contract/test_health_route_publication.py` (per-route OpenAPI publication) for OpenAPI/contract validation.
 - Test package `__init__.py` files are empty by convention; production
   package `__init__.py` files carry a one-line module docstring describing
   the package surface.

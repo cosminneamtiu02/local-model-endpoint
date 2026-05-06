@@ -1,9 +1,17 @@
-"""Contract-level OpenAPI shape assertions.
+"""Contract-level OpenAPI DOCUMENT-validity assertions.
 
 These run as the canary for "did the OpenAPI even generate correctly."
-The full Schemathesis fuzz across endpoints arrives with LIP-E001-F002; this file exercises
-the spec endpoints directly so mis-shaped output is caught before fuzz
-attempts to load it.
+Per-component shape concerns (``ProblemDetails`` fields, additional
+properties) live in :mod:`tests.contract.test_problem_details_shape`;
+per-route publication concerns (e.g. ``/health``'s
+``responses.default`` content map and the framework-404 RFC 7807 wire
+shape) live in :mod:`tests.contract.test_health_route_publication`.
+This file is strictly document-level: "does the OpenAPI document parse
+and carry the expected envelope keys."
+
+The full Schemathesis fuzz across endpoints arrives with LIP-E001-F002;
+this file exercises the spec endpoints directly so mis-shaped output is
+caught before fuzz attempts to load it.
 
 Uses the per-test ``client`` fixture from ``tests/contract/conftest.py``
 (rather than the module-singleton ``app.main:app``) so the autouse

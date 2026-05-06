@@ -557,7 +557,21 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         # rather than the noun-form ``_anomaly`` — a jq filter
         # ``endswith("_missing")`` then groups all "expected-but-absent"
         # diagnostic surfaces uniformly.
-        logger.warning(
+        #
+        # ``logger.exception`` (NOT ``logger.warning``) on this branch:
+        # the abnormal-empty-errors path IS the "Pydantic upstream bug"
+        # 5xx-shaped case in spirit even though the wire status is 422
+        # — the framework-side traceback (Pydantic's internal raise
+        # site) is the canonical operator-actionable signal, and a
+        # warning level without ``exc_info`` would drop it. The 4xx-
+        # warning vs 5xx-exception convention used elsewhere in this
+        # module is "log the wire-status's level"; this branch
+        # deliberately escapes that convention because the abnormal
+        # path means the framework lied about its own contract.
+        # Sibling 4xx ``warning`` calls (line ~510 above and the
+        # http-exception 4xx branch) keep their level — only the
+        # framework-bug abnormal path escalates.
+        logger.exception(
             "validation_error_details_missing",
             raw_error_count=len(raw_errors),
             # Pydantic's ``errors()`` returns ``Sequence[ErrorDetails]`` typed

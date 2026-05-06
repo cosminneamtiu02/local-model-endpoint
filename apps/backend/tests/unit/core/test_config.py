@@ -74,7 +74,7 @@ def test_settings_secret_named_fields_use_secret_str() -> None:
 
     The ``.env.example`` lead-in instructs that any future secret-bearing
     field MUST use ``pydantic.SecretStr`` so the value never reaches
-    ``logger.info("app_startup", ...settings...)``. Without enforcement,
+    ``logger.info("app_startup_started", ...settings...)``. Without enforcement,
     a future PR wiring ``LIP_OLLAMA_AUTH_TOKEN: str`` would land plain-`str`
     secrets into log payloads. Today no fields match the heuristic — the
     test is the canary that fires the moment a secret-named field lands
@@ -487,8 +487,8 @@ def test_settings_ollama_host_rejects_url_path_segment(
     LIP only ever calls the bare ``/api/chat`` endpoint against a base
     URL; a misconfigured ``LIP_OLLAMA_HOST=http://127.0.0.1:11434/foo``
     would either RFC-3986-merge into ``/foo/api/chat`` (silently broken)
-    or land the unexpected path in the ``ollama_client_lifecycle_entered``
-    log line. The clamp surfaces the typo at startup with an actionable
+    or land the unexpected path in the ``ollama_client_started`` log
+    line. The clamp surfaces the typo at startup with an actionable
     message instead of a wedged-daemon-shaped runtime failure.
 
     Symmetric coverage with the userinfo-rejection sibling above

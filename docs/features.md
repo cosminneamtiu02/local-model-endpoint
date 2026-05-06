@@ -205,14 +205,17 @@ Testcontainers. Covers:
 - `test_exception_handler_chain.py` — RFC 7807 problem+json envelope shapes through
   the registered handlers (DomainError, RequestValidationError, StarletteHTTPException,
   generic Exception).
-- `features/inference/test_lifecycle.py` — startup/shutdown lifespan against
-  Ollama via `httpx.MockTransport` (no network).
-- `features/inference/test_chat.py` — `OllamaClient.chat()` against
-  `httpx.MockTransport` covering happy path, error mapping, body-shape invariants.
+- `api/test_lifespan_resources.py` — lifespan-managed `OllamaClient`
+  init/close discipline, `app.state.context` survival across requests
+  (ADR-012), and the AC8 finally-runs-on-error contract.
+- `features/inference/repository/test_ollama_client.py` —
+  `OllamaClient` round-trip via `httpx.MockTransport` (no network):
+  `chat()` happy path, error mapping, body-shape invariants, and the
+  `_request` plumbing canary.
 - `test_main.py` — `create_app` switches OpenAPI exposure on `LIP_APP_ENV`.
 
 ### Contract Tests ([apps/backend/tests/contract/](../apps/backend/tests/contract/))
-`test_openapi_shape.py` validates the generated OpenAPI spec shape (one canary
+`test_openapi_document_validity.py` validates the generated OpenAPI spec shape (one canary
 test that runs before any fuzz attempts to load it).
 `test_problem_details_shape.py` covers the LIP-E004-F004 RFC 7807 wire shape
 (ProblemDetails as a published component, RFC 7807 fields + LIP extensions

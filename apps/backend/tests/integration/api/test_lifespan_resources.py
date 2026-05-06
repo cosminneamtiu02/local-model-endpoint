@@ -1,18 +1,15 @@
-"""Integration tests for OllamaClient lifecycle and FastAPI wiring.
+"""Integration tests for :mod:`app.api.lifespan_resources` and :class:`AppState`.
 
-Covers LIP-E003-F001 integration scenarios:
-- MockTransport + OllamaClient round-trip (validates the _request plumbing
-  + the MockTransport injection pattern other features will reuse).
-- Lifespan-managed singleton: exactly one OllamaClient is constructed
-  at app startup and exactly one close() at shutdown.
-- app.state.context.ollama_client identity (per ADR-012 typed AppState container) survives across multiple requests.
-- AC8: shutdown calls close() from finally even when the app body raises.
-- AC11: connection failures raise httpx.ConnectError uncaught from _request.
+Mirrors the source path ``app/api/lifespan_resources.py`` (with adjacent
+coverage of ``app/api/app_state.py``) — api-layer integration concerns live
+under ``tests/integration/api/``, alongside ``test_health_router.py`` and
+``test_request_id_middleware.py``. The OllamaClient round-trip /
+``chat()`` integration tests live at
+``tests/integration/features/inference/repository/test_ollama_client.py``.
 """
 
 from typing import Annotated
 
-import httpx
 import pytest
 from fastapi import Depends
 from fastapi.testclient import TestClient
@@ -21,23 +18,10 @@ from app.api.deps import get_ollama_client
 from app.features.inference import OllamaClient
 
 
-async def test_mock_transport_allows_full_request_round_trip() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == "/api/tags":
-            return httpx.Response(200, json={"models": []})
-        return httpx.Response(404)
-
-    transport = httpx.MockTransport(handler)
-    async with OllamaClient(base_url="http://localhost:11434", transport=transport) as client:
-        response = await client._request("GET", "/api/tags")
-
-    assert response.status_code == 200
-    assert response.json() == {"models": []}
-
-
 def test_lifespan_constructs_and_closes_client_exactly_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The lifespan wires exactly one ``OllamaClient`` __init__ and one ``close``."""
     from app.features.inference.repository import ollama_client as oc_mod
     from app.main import create_app
 
@@ -77,6 +61,7 @@ def test_lifespan_constructs_and_closes_client_exactly_once(
 
 
 def test_app_state_client_survives_across_requests() -> None:
+    """``app.state.context.ollama_client`` identity holds across requests (ADR-012)."""
     from app.main import create_app
 
     app = create_app()
@@ -127,15 +112,3 @@ async def test_lifespan_close_runs_even_when_yield_body_raises(
             raise RuntimeError(boom)
 
     assert close_count == 1
-
-
-async def test_request_propagates_httpx_connect_error_uncaught() -> None:
-    """AC11: connection failures raise httpx.ConnectError; F001 doesn't catch.
-
-    Mapping httpx exceptions to typed DomainError is LIP-E003-F003's job.
-    """
-    # 127.0.0.1 with an unbound port is the canonical "guaranteed refused"
-    # endpoint — it short-circuits without leaving the loopback stack.
-    async with OllamaClient(base_url="http://127.0.0.1:1") as client:
-        with pytest.raises(httpx.ConnectError):
-            await client._request("GET", "/api/tags")

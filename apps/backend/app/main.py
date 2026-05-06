@@ -142,7 +142,14 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     # the Settings values here while uvicorn binds elsewhere — uvicorn's
     # own startup line is the source of truth for the actual bind.
     logger.info(
-        "app_startup",
+        # ``app_startup_started`` (not the bare ``app_startup``) keeps
+        # the lifespan family's verb-tense uniform with the per-call
+        # ``ollama_call_started`` taxonomy: a jq filter
+        # ``select(.event | endswith("_started"))`` finds every
+        # operation-start event uniformly. Sibling pair: the
+        # ``app_startup_completed`` line below, the
+        # ``app_startup_cancelled`` / ``app_startup_failed`` arms.
+        "app_startup_started",
         phase="lifespan",
         env=settings.app_env,
         version=application.version,
@@ -221,24 +228,25 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                 # the moment teardown finished. The pair lets operators
                 # bound resource-teardown duration (e.g. a stuck httpx
                 # pool drain) without joining log lines by request_id.
-                # Field-set asymmetry within the pair is deliberate:
-                # ``app_shutdown`` carries ``uptime_ms`` (process-clock
-                # delta from ``start``), ``app_shutdown_completed``
-                # carries ``teardown_ms`` (delta from
-                # ``shutdown_started``). Each event reports the
-                # window whose *start* it was the natural pair to —
-                # joining the two lets an operator compute either
-                # window without sharing one ``duration_ms`` field that
-                # would silently mean "uptime" on one event and
-                # "teardown" on the other.
+                # Both events share a unified ``duration_ms`` key so jq
+                # filters that walk every elapsed-time field across the
+                # codebase (``request_completed.duration_ms``,
+                # ``ollama_call_completed.duration_ms``) find these too;
+                # the ``scope`` discriminator ("uptime" here, "teardown"
+                # on ``app_shutdown_completed``) preserves the semantic
+                # distinction on the same key.
                 shutdown_started = time.perf_counter()
                 logger.info(
-                    "app_shutdown",
+                    # ``app_shutdown_started`` keeps the verb-tense
+                    # uniform with ``app_startup_started`` and the
+                    # ``ollama_*_started`` family.
+                    "app_shutdown_started",
                     phase="lifespan",
                     reason=shutdown_reason,
                     version=application.version,
                     env=settings.app_env,
-                    uptime_ms=elapsed_ms(start),
+                    duration_ms=elapsed_ms(start),
+                    scope="uptime",
                 )
                 # Drop the torn-down AppState reference so a stray request
                 # arriving after lifespan exits raises ``InternalError`` via
@@ -296,12 +304,13 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     finally:
         # Outer finally fires on every exit path (clean / cancelled /
         # exception) AFTER ``async with lifespan_resources`` has unwound
-        # — so ``teardown_ms`` bounds the post-yield resource-close
-        # duration. Gate on ``shutdown_started`` so a startup-time failure
-        # (resources never reached the inner finally) doesn't emit a
-        # confusing teardown line for a teardown that never ran.
+        # — so ``duration_ms`` (with ``scope="teardown"``) bounds the
+        # post-yield resource-close duration. Gate on ``shutdown_started``
+        # so a startup-time failure (resources never reached the inner
+        # finally) doesn't emit a confusing teardown line for a teardown
+        # that never ran.
         if shutdown_started is not None:
-            # ``version=`` for field-set parity with ``app_shutdown``
+            # ``version=`` for field-set parity with ``app_shutdown_started``
             # so a jq filter ``select(.event | startswith("app_shutdown"))``
             # finds both events and joins on the same field set rather than
             # encountering ``version`` on one half of the pair only.
@@ -320,7 +329,8 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                     reason=shutdown_reason,
                     version=application.version,
                     env=settings.app_env,
-                    teardown_ms=elapsed_ms(shutdown_started),
+                    duration_ms=elapsed_ms(shutdown_started),
+                    scope="teardown",
                 )
 
 
