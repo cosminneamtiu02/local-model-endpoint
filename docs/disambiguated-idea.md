@@ -145,7 +145,7 @@ These targets are derived from measured 52 tok/s sustained decode and 611–715 
 
 ### Security
 
-**Threat model.** Local-network trust only. The service trusts every caller reachable on the loopback interface and on the local network. There is no authentication, no authorization, and no input sanitization beyond what Pydantic validation provides for envelope shape. Binding is mandatory to `127.0.0.1` or to a local-network interface; binding to `0.0.0.0` is forbidden. Internet exposure is explicitly out of scope and explicitly not required.
+**Threat model.** Local-network trust only. The service trusts every caller reachable on the loopback interface and on the local network. There is no authentication, no authorization, and no input sanitization beyond what Pydantic validation provides for envelope shape. Binding to non-loopback / non-private hosts is rejected at startup unless the operator explicitly opts in via `LIP_ALLOW_PUBLIC_BIND=true` (the SSRF clamp; see `apps/backend/.env.example` for the runtime knob and `apps/backend/app/core/config.py:_check_safety_invariants` for the validator). Internet exposure is explicitly out of scope and explicitly not required.
 
 ### Observability
 
@@ -211,7 +211,7 @@ The following capabilities are not part of the v1 deliverable. Each is named exp
 - **In-process crash auto-recovery during an active session.** A FastAPI crash surfaces to the consumer as a connection error; Cosmin investigates manually.
 - **Generated client libraries.** Consumers either hand-roll `httpx` calls against the OpenAPI schema or run their own codegen.
 - **Backend-swap stub or proof of swappability.** G1 establishes the architectural decoupling; v1 does not deliver a second backend implementation as evidence.
-- **Internet exposure.** Binding to `0.0.0.0` is forbidden; the service binds to loopback or a local-network interface only.
+- **Internet exposure.** Binding to non-loopback / non-private hosts is rejected at startup unless the operator opts in via `LIP_ALLOW_PUBLIC_BIND=true` (the SSRF clamp implemented in `apps/backend/app/core/config.py:_check_safety_invariants`); the service binds to loopback or a local-network interface only on the supported path.
 - **Docker, Docker Compose, or container packaging.** The service runs as a native `uv`-managed Python process; the Ollama daemon runs as a native `launchd`-managed service.
 - **Per-project quotas, per-project rate limits, per-project priorities.** Architectural foundation only (G4); no v1 implementation.
 - **macOS-side observability stack.** No Prometheus, no OpenTelemetry, no Grafana, no external monitoring of any kind.

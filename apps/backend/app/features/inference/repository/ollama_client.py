@@ -88,6 +88,15 @@ def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
     ``chat`` except path's ``ollama_call_failed`` line carries
     ``exc_message=`` with the same diagnostic information, so a per-branch
     log here would double-count the same failure.
+
+    Caller contract: ``response`` must come from a non-streaming httpx call
+    (``client.request(...)``, NOT ``client.stream(...)``). httpx 0.28
+    auto-reads the body during ``client.request`` so ``response.headers`` /
+    ``response.json()`` work without an explicit ``aread()``. A future
+    sibling method that switches to streaming (e.g. for an Ollama ``pull``
+    progress feed) MUST ``await response.aread()`` before reusing this
+    helper, or the non-JSON / decode-error arms below will leak a
+    streaming connection slot until GC.
     """
     # RFC 7231 §3.1.1.1: media-type names are case-insensitive.
     # Strip OWS (RFC 7231 §3.2.4 allows surrounding whitespace on field
@@ -95,7 +104,13 @@ def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
     # normalizes to ``  Application/JSON `` does not silently bypass this
     # guard and re-bucket a real Ollama response as malformed-frame.
     content_type = response.headers.get("content-type", "").strip().lower()
-    if not content_type.startswith("application/json"):
+    # Tighter than ``startswith("application/json")``: that prefix would
+    # admit ``application/json-seq`` (streaming-JSON sequences),
+    # ``application/jsonp`` (browser bridge formats), and any future
+    # ``application/json*`` family member with surprise framing.
+    # Accept only the bare media-type or media-type-with-parameters form
+    # (``application/json`` exact, or ``application/json;charset=utf-8``).
+    if content_type != "application/json" and not content_type.startswith("application/json;"):
         msg = f"Ollama returned non-JSON content-type {content_type!r}."
         raise ValueError(msg)
     try:
@@ -155,8 +170,16 @@ class OllamaClient:
         # this branch is unreachable today — but keeping it preserves
         # full-target visibility if a future ADR relaxes the path screen
         # (e.g. for an Ollama gateway that requires ``/api/v1`` prefix).
+        # Normalize a missing path to "/" so the loggable URL shape is
+        # invariant under ``AnyHttpUrl``'s trailing-slash normalization
+        # (production passes ``str(AnyHttpUrl(...))`` which adds the
+        # slash; test fixtures often pass the bare ``"http://host:port"``
+        # form). Operator dashboards keying on
+        # ``select(.base_url == "http://localhost:11434/")`` then match
+        # both shapes.
+        path_segment = parsed.path or "/"
         self._loggable_base_url = (
-            f"{parsed.scheme}://{parsed.netloc.decode('ascii', errors='replace')}{parsed.path}"
+            f"{parsed.scheme}://{parsed.netloc.decode('ascii', errors='replace')}{path_segment}"
         )
         # Lifetime measurement seam — set in ``__aenter__`` and read in
         # ``__aexit__`` to compute ``duration_ms`` on the close event so
@@ -166,15 +189,26 @@ class OllamaClient:
 
         # User-Agent is computed per-instance so the ``PackageNotFoundError``
         # fallback is reachable from unit tests via monkeypatch on the
-        # instance method.
-        self._user_agent = self._build_user_agent()
+        # instance method. Local (not ``self._user_agent``) because the
+        # value is consumed exactly once below and the instance attribute
+        # would widen the public-via-introspection surface unnecessarily.
+        user_agent = self._build_user_agent()
+        # Defense-in-depth vs userinfo leakage: ``Settings._check_safety_
+        # invariants`` already rejects userinfo on ``LIP_OLLAMA_HOST``, but
+        # the public ``OllamaClient`` constructor accepts any ``base_url``
+        # str (test fixtures, future sibling callers). Strip userinfo
+        # before threading into ``httpx.AsyncClient`` so a credential-
+        # bearing URL cannot reach the wire even if the Settings clamp is
+        # ever bypassed. ``copy_with(userinfo=b"")`` is an unconditional
+        # no-op when userinfo is already empty, so the strip is cheap.
+        safe_base_url = str(parsed.copy_with(userinfo=b""))
         # Pass ``transport=transport`` unconditionally: ``httpx.AsyncClient``
         # treats ``transport=None`` as "use the default transport," so the
         # branch-on-None pattern was extra typing surface for no behavior
         # difference. Direct kwargs keeps the precise httpx types instead of
         # collapsing to ``dict[str, Any]``.
         self._client = httpx.AsyncClient(
-            base_url=base_url,
+            base_url=safe_base_url,
             timeout=timeout,
             limits=DEFAULT_LIMITS,
             # Explicit ``Accept`` header makes the symmetry with the
@@ -182,8 +216,15 @@ class OllamaClient:
             # only consumes JSON, and a future Ollama version supporting
             # content negotiation (or a misconfigured reverse proxy) gets a
             # clear signal rather than landing as an HTML error page.
+            # ``Content-Type`` is NOT set here at the client level: httpx
+            # 0.28 auto-stamps ``Content-Type: application/json`` per-
+            # request when the caller threads ``json=...`` (every
+            # ``_request`` POST does). A future sibling adapter that uses
+            # ``content=...`` or ``data=...`` instead would need to set
+            # the header explicitly at that call site — declaring it
+            # globally here would mis-tag those bodies.
             headers={
-                "User-Agent": self._user_agent,
+                "User-Agent": user_agent,
                 "Accept": "application/json",
             },
             # Defense-in-depth vs SSRF: a redirected target bypasses
@@ -241,10 +282,18 @@ class OllamaClient:
         try:
             lip_version = _metadata.version("lip-backend")
         except _metadata.PackageNotFoundError:
+            # ``phase="lifespan"`` for field-set parity with the rest of
+            # the OllamaClient lifecycle events (entered/closed/close_failed)
+            # so an operator's ``select(.phase == "lifespan")`` filter
+            # finds the editable-install diagnostic uniformly even when
+            # the client is constructed outside the lifespan_resources
+            # contextvar binding (test fixtures using ``async with
+            # OllamaClient(...)`` directly).
             logger.warning(
                 "ollama_user_agent_version_missing",
                 package_name="lip-backend",
                 fallback_version="unknown",
+                phase="lifespan",
             )
             lip_version = "unknown"
         return f"lip-backend/{lip_version} httpx/{httpx.__version__}"
@@ -321,12 +370,18 @@ class OllamaClient:
         # client. ``None`` only when ``__aexit__`` is called outside the
         # ``async with`` happy path (a misuse the caller should fix); we
         # still emit the close events so the field-set asymmetry is the
-        # diagnostic, not a hidden crash.
-        duration_ms = (
-            elapsed_ms(self._lifecycle_entered_at)
-            if self._lifecycle_entered_at is not None
-            else None
-        )
+        # diagnostic, not a hidden crash. The named warning below makes
+        # the misuse a greppable event so an operator does not have to
+        # infer it from a ``duration_ms=null`` field.
+        if self._lifecycle_entered_at is None:
+            logger.warning(
+                "ollama_client_aexit_without_aenter",
+                base_url=self._loggable_base_url,
+                phase="lifespan",
+            )
+            duration_ms = None
+        else:
+            duration_ms = elapsed_ms(self._lifecycle_entered_at)
         try:
             await self.close()
         except Exception as close_exc:
@@ -383,6 +438,15 @@ class OllamaClient:
         actually needs them, per ADR-011 ("build only what the current
         feature requires"). Today only ``chat`` calls in, and it threads
         only ``json=``.
+
+        Path validation is intentionally minimal today (absolute-path-only)
+        because ``path`` is a closed-alphabet literal at every current call
+        site (the module-level ``_CHAT_ENDPOINT``). The first sibling
+        adapter method that interpolates *consumer-controlled* data into
+        ``path`` (e.g. ``f"/api/show/{model_tag}"``) MUST land a
+        path-segment validation helper rejecting ``..`` / control chars /
+        scheme-injection in the same PR — without it, a model-tag-shaped
+        attacker input could escape the API root.
         """
         if not path.startswith("/"):
             msg = f"path must be absolute (start with /), got {path!r}"
@@ -406,8 +470,11 @@ class OllamaClient:
         mapping (httpx exceptions -> typed DomainError) wraps this method.
         """
         # Field order intentionally mirrors the Ollama /api/chat spec
-        # example body (model, messages, options, stream) so wire dumps
-        # are reviewable side-by-side with upstream API docs. ``think``
+        # example body — ``(model, messages, options, stream)`` when
+        # consumer-set sampling overrides exist, ``(model, messages,
+        # stream)`` when ``options`` would be empty (omitted entirely so
+        # the wire stays terse). Both shapes are spec-compatible; Ollama
+        # treats a missing ``options`` field as "no overrides." ``think``
         # rides inside ``options`` (see ``translate_params``).
         body: dict[str, Any] = {
             "model": model_tag,
@@ -427,12 +494,16 @@ class OllamaClient:
         # ``KeyboardInterrupt`` / ``SystemExit`` continue to propagate
         # without traversing this log path.)
         ollama_status_code: int | None = None
-        # ``option_keys`` (sorted, keys-only) lets operators see the request
-        # shape on the failure log without leaking sampling-param values or
-        # any consumer prompt content. base_url is intentionally not logged
+        # ``option_keys_sorted`` (keys-only, sorted) lets operators see the
+        # request shape on the failure log without leaking sampling-param
+        # values or any consumer prompt content. The wire body
+        # ``body["options"]`` preserves Pydantic's field-declaration insertion
+        # order; the log key is renamed to ``option_keys_sorted`` so a
+        # reviewer cross-referencing log vs request capture is not surprised
+        # by the order mismatch. base_url is intentionally not logged
         # per-call: it's constant for the client's lifetime and present on
         # the lifecycle-entered/closed lines.
-        option_keys = sorted(options) if options else []
+        option_keys_sorted = sorted(options) if options else []
 
         # The ``except Exception`` below narrows to Exception (NOT
         # BaseException) so a ``CancelledError`` from a disconnected
@@ -442,7 +513,7 @@ class OllamaClient:
         # started/completed pair.
         #
         # Log key is ``model_name`` (not ``model``) so a jq filter
-        # ``select(.model_name == "gemma3:1b")`` matches both per-call lines
+        # ``select(.model_name == "gemma4:e2b")`` matches both per-call lines
         # AND the ``model_name`` field on RegistryNotFoundError /
         # ModelCapabilityNotSupportedError problem+json bodies — single
         # source of truth for the model identifier across logs and wire
@@ -472,7 +543,7 @@ class OllamaClient:
             model_name=model_tag,
             endpoint=_CHAT_ENDPOINT,
             message_count=len(messages),
-            option_keys=option_keys,
+            option_keys_sorted=option_keys_sorted,
         )
         try:
             response = await self._request("POST", _CHAT_ENDPOINT, json=body)
@@ -561,7 +632,7 @@ class OllamaClient:
                 duration_ms=duration_ms,
                 prompt_tokens=None,
                 completion_tokens=None,
-                option_keys=option_keys,
+                option_keys_sorted=option_keys_sorted,
                 message_count=len(messages),
             )
             raise
@@ -598,7 +669,7 @@ class OllamaClient:
                 ollama_status_code=ollama_status_code,
                 prompt_tokens=None,
                 completion_tokens=None,
-                option_keys=option_keys,
+                option_keys_sorted=option_keys_sorted,
                 message_count=len(messages),
             )
             raise
@@ -617,6 +688,6 @@ class OllamaClient:
             prompt_tokens=result.prompt_tokens,
             completion_tokens=result.completion_tokens,
             message_count=len(messages),
-            option_keys=option_keys,
+            option_keys_sorted=option_keys_sorted,
         )
         return result

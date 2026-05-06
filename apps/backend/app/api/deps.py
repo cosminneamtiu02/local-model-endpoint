@@ -96,6 +96,14 @@ def audit_lip_env_typos() -> None:
     actual = {upper for name in os.environ if (upper := name.upper()).startswith(env_prefix_upper)}
     unknown = sorted(actual - declared)
     if unknown:
+        # ``ascii_safe`` per-name defense-in-depth: POSIX permits
+        # control-byte-bearing env-var names, and a malicious ``LIP_X\x1b[31mY``
+        # would otherwise inject ANSI escapes into dev-mode ConsoleRenderer
+        # output via this warning's structured fields. Symmetric with the
+        # ``ascii_safe`` discipline applied at every other log-injection
+        # vector site (``RequestIdMiddleware``'s X-Request-ID preview,
+        # ``OllamaClient.chat``'s ``exc_message``).
+        sanitized = [ascii_safe(name) for name in unknown]
         # ``phase="pre_lifespan"`` discriminates pre-``configure_logging``
         # diagnostics from the lifespan-window events (which carry
         # ``phase="lifespan"``). The two values are intentionally
@@ -107,7 +115,7 @@ def audit_lip_env_typos() -> None:
         # operators searching "did this typo fire" can grep the unknown
         # set directly. CLAUDE.md's prompt-content ban applies to
         # message bodies; env-var names are operator metadata.
-        logger.warning("unknown_lip_env_vars_ignored", env_vars=unknown, phase="pre_lifespan")
+        logger.warning("unknown_lip_env_vars_ignored", env_vars=sanitized, phase="pre_lifespan")
 
 
 def get_app_state(request: Request) -> AppState:

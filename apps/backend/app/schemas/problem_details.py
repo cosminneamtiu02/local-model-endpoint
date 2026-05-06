@@ -31,6 +31,7 @@ consumers MUST treat both as untrusted strings — escape on render, never
 interpolate into shells, queries, or HTML without sanitization.
 """
 
+import re
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -73,8 +74,12 @@ class ProblemDetails(BaseModel):
         # violates the URN convention consumers pattern-match on. The
         # ``about:blank`` literal is sourced from ``wire_constants`` so the
         # schema regex and the framework-HTTPException handler emit-site
-        # cannot drift apart.
-        pattern=rf"^({ABOUT_BLANK_TYPE}|urn:lip:error:[a-z0-9-]+)$",
+        # cannot drift apart. ``re.escape`` defends against a future
+        # ``ABOUT_BLANK_TYPE`` value that introduces a regex metachar
+        # (``.``, ``+``, ``?``, ``*``, ``(``, ``)``, ``|``, ``\``) — today
+        # ``"about:blank"`` is regex-safe so the escape is a no-op, but
+        # the no-op makes the anti-drift contract mechanical.
+        pattern=rf"^({re.escape(ABOUT_BLANK_TYPE)}|urn:lip:error:[a-z0-9-]+)$",
         # Explicit ``min_length=1`` symmetric with the sibling
         # ``title``/``detail``/``instance`` fields so OpenAPI consumers
         # reading ``minLength`` (not the regex) enforce non-empty

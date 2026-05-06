@@ -98,10 +98,20 @@ verifies committed generated files match the YAML.
 No auth middleware, no JWT, no OAuth, no per-project credentials. Local-network trust
 is the entire security model in v1.
 
-### No structured logging emission
-v1 ships only the architectural placement — the request envelope's `metadata` field
-is reserved for `project_id`, `request_id`, `trace_id` as a pass-through. Actual
-log emission, log shipping, and log indexing are deferred.
+### No project-attribution structured logging
+The request envelope's `metadata` field is reserved as a pass-through for
+`project_id`, `request_id`, `trace_id` and similar caller-supplied attribution
+keys. Per-project log routing, distributed cross-service tracing, and log
+indexing / shipping pipelines are deferred — they require integration with
+external systems that are out of v1 scope.
+
+*In scope and shipped:* in-process `structlog` configuration, the per-request
+`request_completed` JSON access log (method, path, status, duration_ms, request_id,
+client addr), and the lifespan event family (`app_startup` / `app_startup_completed` /
+`app_shutdown` / `app_shutdown_completed` / `*_cancelled` / `*_failed`). See
+[runbook.md](runbook.md) "Logs & triage" for the full event taxonomy. The
+disambiguated-idea Observability section's carve-out (line 153-154) is the
+authoritative pin.
 
 ### No quotas or rate limiting
 Architectural foundation only (G4 from the disambiguated idea). The request envelope

@@ -203,7 +203,7 @@ def test_redaction_processor_is_in_shared_processors() -> None:
         "finish_reason",
         "model_name",
         "message_count",
-        "option_keys",
+        "option_keys_sorted",
         "duration_ms",
         "prompt_tokens",
         "completion_tokens",

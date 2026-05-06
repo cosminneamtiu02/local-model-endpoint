@@ -397,7 +397,14 @@ async def test_build_user_agent_falls_back_when_package_metadata_missing(
     with capture_logs() as captured:
         client = OllamaClient(base_url="http://localhost:11434")
         try:
-            assert client._user_agent.startswith("lip-backend/unknown httpx/")
+            # The user-agent is a local in ``__init__`` (no longer parked
+            # on ``self._user_agent``) so we read it from the live httpx
+            # AsyncClient headers — the canonical destination of the
+            # constructor's UA build. ``str.startswith`` keeps the test
+            # tolerant of httpx version-string drift.
+            assert client._client.headers["User-Agent"].startswith(
+                "lip-backend/unknown httpx/",
+            )
         finally:
             await client.close()
 
@@ -405,3 +412,33 @@ async def test_build_user_agent_falls_back_when_package_metadata_missing(
     assert len(warnings) == 1, captured
     assert warnings[0]["package_name"] == "lip-backend"
     assert warnings[0]["fallback_version"] == "unknown"
+    # ``phase="lifespan"`` is asserted so an operator's
+    # ``select(.phase == "lifespan")`` filter finds the editable-install
+    # diagnostic uniformly even on the rare path where OllamaClient is
+    # constructed outside the lifespan_resources contextvar binding.
+    assert warnings[0]["phase"] == "lifespan"
+
+
+# ── __aexit__ misuse signal ──────────────────────────────────────────
+
+
+async def test_aexit_without_aenter_emits_misuse_warning() -> None:
+    """``__aexit__`` called without a paired ``__aenter__`` emits a named
+    warning so the misuse is greppable rather than inferred from a
+    ``duration_ms=null`` field. The close still runs so the connection
+    is not leaked — the warning is the diagnostic, not a crash.
+    """
+    transport = httpx.MockTransport(lambda _r: httpx.Response(200, json={}))
+    client = OllamaClient(base_url="http://ollama.test", transport=transport)
+    with capture_logs() as captured:
+        await client.__aexit__(None, None, None)
+
+    misuse_events = [e for e in captured if e.get("event") == "ollama_client_aexit_without_aenter"]
+    assert len(misuse_events) == 1, captured
+    assert misuse_events[0]["phase"] == "lifespan"
+    # The close still ran on the happy path — the ``ollama_client_closed``
+    # event landed, with ``duration_ms=None`` as the field-set asymmetry
+    # documented in ``__aexit__``.
+    closed = [e for e in captured if e.get("event") == "ollama_client_closed"]
+    assert len(closed) == 1, captured
+    assert closed[0]["duration_ms"] is None

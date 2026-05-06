@@ -1,6 +1,6 @@
 """Integration tests for RequestIdMiddleware (mounted on the FastAPI app).
 
-Uses /health as a benign sink to drive the middleware behaviour; the
+Uses /health as a benign sink to drive the middleware behavior; the
 endpoint itself is covered by ``test_health.py``. Splitting this out of
 test_health.py mirrors the production module name so a reviewer hunting
 for X-Request-ID coverage greps the obvious filename.

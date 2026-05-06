@@ -27,7 +27,7 @@ This document records the decisions made during the `project-bootstrap` skill ru
 | Health endpoint (`/health`) | KEEP | LIP-E006-F001 | autonomous |
 | `/ready` endpoint (DB-dependent in template) | STRIP | DB gone; LIP-E006-F001 will reintroduce with warm-up gating | autonomous |
 | `app/api/request_id_middleware.py` Request ID | KEEP | Q1 user-answered (delegated). Powers `request_id` field in error envelope; G3 architectural foundation | user-answered |
-| `app/api/request_id_middleware.py` Access Log | STRIP | Q2 user-answered (delegated). Structured-log emission out of v1 scope per Project Boundary | user-answered |
+| `app/api/request_id_middleware.py` Access Log | STRIP | Q2 user-answered (delegated). Structured-log emission out of v1 scope per Project Boundary (later re-added during the round-19 / round-20 polish per the disambiguated-idea Observability carve-out — current state lives in `apps/backend/app/api/request_id_middleware.py` and `docs/runbook.md` "Logs & triage") | user-answered |
 | `app/api/request_id_middleware.py` Security Headers | STRIP | Q3 user-answered (delegated). Local-network only, no internet exposure, no UI | user-answered |
 | `app/api/request_id_middleware.py` CORS | STRIP | Q4 user-answered. Server-to-server httpx, not browsers | user-answered |
 | Pre-commit / pre-push hooks | PARTIAL KEEP | Q5 user-answered (delegated). Backend hooks (ruff + format + pytest unit) kept; biome + vitest stripped (later expanded — current state lives in CLAUDE.md / docs/testing.md / `.pre-commit-config.yaml`). | user-answered |

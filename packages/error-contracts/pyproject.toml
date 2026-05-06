@@ -89,6 +89,38 @@ exclude_lines = [
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 include = ["scripts", "tests"]
+# Mirror pytest's ``pythonpath = ["."]`` so pyright can resolve
+# ``from scripts.generate import ...`` and ``from tests.conftest import
+# ...`` the same way the test runner does. Without this, the strict-mode
+# add-ons below (notably ``reportUnnecessaryTypeIgnoreComment``) fire on
+# false-positive ``reportMissingImports`` chains because pyright walks
+# the include tree but cannot resolve the ``scripts.`` / ``tests.``
+# package roots.
+extraPaths = ["."]
+# Mirror the apps/backend strict-mode add-ons so the codegen workspace
+# carries the same upgrade-rot / @override / uninitialized-instance-var
+# guards the backend depends on. See apps/backend/pyproject.toml lines
+# 251-282 for the rationale block; the same logic applies symmetrically
+# here because this workspace's generator emits backend's
+# hand-untouchable code.
+reportUnnecessaryTypeIgnoreComment = "error"
+reportImplicitOverride = "error"
+reportUninitializedInstanceVariable = "error"
+
+[[tool.pyright.executionEnvironments]]
+# Per-tree relaxations for ``tests/`` — mirrors the apps/backend block
+# at apps/backend/pyproject.toml:285-300. ``reportPrivateUsage`` is
+# silenced here so tests that legitimately reach into single-underscore
+# helpers (e.g. ``_TEST_CLASS_PATTERN``) do not need per-line
+# ``# pyright: ignore[reportPrivateUsage]`` suppressions; the strict-
+# mode flags above remain enforced on the test tree.
+root = "tests"
+reportPrivateUsage = "none"
+reportUnusedFunction = "none"
+reportUnusedClass = "none"
+reportUnknownVariableType = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
 
 [tool.ruff]
 target-version = "py313"
