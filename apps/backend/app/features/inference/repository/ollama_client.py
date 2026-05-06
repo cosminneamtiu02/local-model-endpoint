@@ -327,8 +327,16 @@ class OllamaClient:
         # lifecycle event uniformly. Track ``_lifecycle_entered_at`` so
         # ``__aexit__`` can compute ``duration_ms`` for the close event.
         self._lifecycle_entered_at = time.perf_counter()
+        # ``ollama_client_started`` (not the previous
+        # ``ollama_client_lifecycle_entered``) keeps the verb-tense
+        # uniform with the per-call ``ollama_call_started`` family
+        # AND the lifespan ``app_startup_started`` family — a single
+        # operator filter ``select(.event | endswith("_started"))``
+        # finds every operation-start event uniformly across the
+        # codebase. Sibling pair: ``ollama_client_completed`` /
+        # ``ollama_client_failed`` below.
         logger.info(
-            "ollama_client_lifecycle_entered",
+            "ollama_client_started",
             base_url=self._loggable_base_url,
             phase="lifespan",
             timeout_connect=DEFAULT_TIMEOUT.connect,
@@ -359,10 +367,14 @@ class OllamaClient:
         ``KeyboardInterrupt`` / ``SystemExit`` propagate either way (their
         suppression would break structured concurrency).
 
-        ``ollama_client_closed`` lands on the ``else:`` branch so the success
+        ``ollama_client_completed`` lands on the ``else:`` branch so the success
         and failure events are mutually exclusive — operators reading
-        ``ollama_client_close_failed`` are not also chased by a misleading
-        ``ollama_client_closed`` line on the same shutdown.
+        ``ollama_client_failed`` are not also chased by a misleading
+        ``ollama_client_completed`` line on the same shutdown. The
+        ``ollama_client_aexit_without_aenter`` warning is a SEPARATE
+        misuse-diagnostic event (caller's structured-concurrency bug)
+        and intentionally keeps its own name outside the
+        started/completed/failed family.
         """
         # ``duration_ms`` is the lifetime from ``__aenter__`` to close —
         # paired with ``_lifecycle_entered``'s timeout/limits config, the
@@ -388,14 +400,14 @@ class OllamaClient:
             # ``logger.exception`` auto-resolves the active exception via
             # ``sys.exc_info()``; no need to thread ``exc_info=close_exc``.
             # ``base_url=`` + ``phase="lifespan"`` for field-set parity with
-            # the ``_lifecycle_entered`` / ``_closed`` peers — operators
+            # the ``_started`` / ``_completed`` peers — operators
             # triaging a close failure can attribute by URL without
             # joining on a contextvar-bound ``phase`` alone (which is
             # absent when this client is constructed outside ``lifespan_
             # resources``, e.g. test fixtures using ``async with
             # OllamaClient(...)`` directly).
             logger.exception(
-                "ollama_client_close_failed",
+                "ollama_client_failed",
                 base_url=self._loggable_base_url,
                 phase="lifespan",
                 exc_type=type(close_exc).__name__,
@@ -408,7 +420,7 @@ class OllamaClient:
                 raise
         else:
             logger.info(
-                "ollama_client_closed",
+                "ollama_client_completed",
                 base_url=self._loggable_base_url,
                 phase="lifespan",
                 duration_ms=duration_ms,
@@ -433,7 +445,7 @@ class OllamaClient:
         (LIP-E003-F003) can translate.
 
         The signature is kept narrow on purpose: ``params=`` /
-        ``headers=`` /  multipart kwargs are added back when the first
+        ``headers=`` / multipart kwargs are added back when the first
         sibling adapter method (``tags()`` / ``version()`` / ``embed()``)
         actually needs them, per ADR-011 ("build only what the current
         feature requires"). Today only ``chat`` calls in, and it threads
@@ -469,21 +481,19 @@ class OllamaClient:
         already merged over registry defaults by the caller. Failure
         mapping (httpx exceptions -> typed DomainError) wraps this method.
         """
-        # Field order intentionally mirrors the Ollama /api/chat spec
-        # example body — ``(model, messages, options, stream)`` when
-        # consumer-set sampling overrides exist, ``(model, messages,
-        # stream)`` when ``options`` would be empty (omitted entirely so
-        # the wire stays terse). Both shapes are spec-compatible; Ollama
-        # treats a missing ``options`` field as "no overrides." ``think``
-        # rides inside ``options`` (see ``translate_params``).
-        body: dict[str, Any] = {
-            "model": model_tag,
-            "messages": [translate_message(m) for m in messages],
-        }
+        # ``translate_params`` is safe to run before the ``try`` (no
+        # raise paths today and no consumer-derived inputs that could
+        # surface ``NotImplementedError``). The MESSAGES translation,
+        # however, can raise ``NotImplementedError`` from
+        # ``_flatten_content_parts`` / ``_attach_media_to_message`` on
+        # URL-only Image/Audio or system-role media (see
+        # ``ollama_translation.py``). That MUST happen inside the
+        # ``try:`` so the ``failure_category="unsupported_input"`` arm
+        # below routes the consumer-input bug uniformly with every other
+        # call-time failure — otherwise it would escape ``chat()``
+        # uncaught and unlogged, leaving a silent observability hole on
+        # multimodal-input regressions.
         options = translate_params(params)
-        if options:
-            body["options"] = options
-        body["stream"] = False
 
         # Hoisted before ``try`` so both the ``Exception`` and
         # ``CancelledError`` arms log the same field set. The
@@ -504,6 +514,13 @@ class OllamaClient:
         # per-call: it's constant for the client's lifetime and present on
         # the lifecycle-entered/closed lines.
         option_keys_sorted = sorted(options) if options else []
+        # ``message_count`` is invariant across the lifecycle pair (started /
+        # completed / failed / cancelled all see the same input list), so
+        # hoist once and reference everywhere — symmetric with the
+        # ``option_keys_sorted`` hoist above and the ``error_count =
+        # len(validation_errors)`` hoist in
+        # ``app/api/exception_handler_registry.py``.
+        message_count = len(messages)
 
         # The ``except Exception`` below narrows to Exception (NOT
         # BaseException) so a ``CancelledError`` from a disconnected
@@ -542,12 +559,44 @@ class OllamaClient:
             "ollama_call_started",
             model_name=model_tag,
             endpoint=_CHAT_ENDPOINT,
-            message_count=len(messages),
+            message_count=message_count,
             option_keys_sorted=option_keys_sorted,
         )
         try:
+            # Field order intentionally mirrors the Ollama /api/chat spec
+            # example body — ``(model, messages, options, stream)`` when
+            # consumer-set sampling overrides exist, ``(model, messages,
+            # stream)`` when ``options`` would be empty (omitted entirely
+            # so the wire stays terse). Both shapes are spec-compatible;
+            # Ollama treats a missing ``options`` field as "no overrides."
+            # ``think`` rides inside ``options`` (see ``translate_params``).
+            #
+            # ``[translate_message(m) for m in messages]`` is INSIDE the
+            # ``try:`` because it can raise ``NotImplementedError`` for
+            # URL-only multimodal inputs and system-role media — see the
+            # comment block above the ``options`` line. The ``except
+            # Exception`` arm's ``"unsupported_input"`` bucket catches it.
+            body: dict[str, Any] = {
+                "model": model_tag,
+                "messages": [translate_message(m) for m in messages],
+            }
+            if options:
+                body["options"] = options
+            body["stream"] = False
             response = await self._request("POST", _CHAT_ENDPOINT, json=body)
             response.raise_for_status()
+            # FORWARD (lane 14.5 / streaming sibling): Ollama's
+            # ``/api/chat`` non-stream response is a single JSON object
+            # bounded in practice by the model's ``num_predict`` cap
+            # (under 1 MiB on Gemma 4 E2B), and the LAN-local trusted-
+            # daemon threat model means a multi-GB body is not a real
+            # concern today. When the first streaming sibling
+            # (``/api/generate`` with ``stream=true``, or a future
+            # ``embed()`` method that processes large inputs) lands,
+            # add a ``content-length`` pre-check + chunked-read body cap
+            # here so a wedged Ollama / proxy misconfig cannot exhaust
+            # the 16 GB Mac Mini RAM before ``_decode_ollama_json``'s
+            # malformed-frame guard fires.
             payload = _decode_ollama_json(response)
             result = build_chat_result(payload, model_tag=model_tag)
         except Exception as call_exc:
@@ -568,13 +617,18 @@ class OllamaClient:
             # documented httpx idiom for "any non-2xx-status transport
             # failure"; using the parent here makes the bucket robust
             # against future httpx hierarchy growth without per-subtype
-            # maintenance. ``HTTPStatusError`` is checked first because it
-            # ALSO inherits from ``HTTPError`` but carries a typed status,
-            # which we want as a separate bucket. ``NotImplementedError``
-            # is a known consumer-input shape (URL-only ImageContent, etc.)
-            # that the translation layer raises before any wire I/O — give
-            # it a dedicated bucket so dashboards can distinguish a
-            # consumer-input bug from a wedged process.
+            # maintenance. ``HTTPStatusError`` and ``RequestError`` are
+            # SIBLING subclasses of ``httpx.HTTPError`` (neither inherits
+            # from the other), so check-order between the two is a
+            # stylistic choice — both ``elif`` arms would bucket
+            # independently in either order. ``HTTPStatusError`` carries
+            # a typed ``response.status_code`` we surface separately, so
+            # checking it first reads naturally even though it's not
+            # ordering-required. ``NotImplementedError`` is a known
+            # consumer-input shape (URL-only ImageContent, etc.) that
+            # the translation layer raises from inside the ``try:`` body
+            # assembly above — give it a dedicated bucket so dashboards
+            # can distinguish a consumer-input bug from a wedged process.
             if isinstance(call_exc, httpx.HTTPStatusError):
                 failure_category = "http_status"
             elif isinstance(call_exc, httpx.RequestError):
@@ -633,7 +687,7 @@ class OllamaClient:
                 prompt_tokens=None,
                 completion_tokens=None,
                 option_keys_sorted=option_keys_sorted,
-                message_count=len(messages),
+                message_count=message_count,
             )
             raise
         except asyncio.CancelledError as cancel_exc:
@@ -670,7 +724,7 @@ class OllamaClient:
                 prompt_tokens=None,
                 completion_tokens=None,
                 option_keys_sorted=option_keys_sorted,
-                message_count=len(messages),
+                message_count=message_count,
             )
             raise
         duration_ms = elapsed_ms(start)
@@ -687,7 +741,7 @@ class OllamaClient:
             finish_reason=result.finish_reason,
             prompt_tokens=result.prompt_tokens,
             completion_tokens=result.completion_tokens,
-            message_count=len(messages),
+            message_count=message_count,
             option_keys_sorted=option_keys_sorted,
         )
         return result

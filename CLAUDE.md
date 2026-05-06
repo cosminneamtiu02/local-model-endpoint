@@ -132,6 +132,16 @@ preserved but with redefined semantics for a no-DB feature:
   requires an ADR documenting why the FastAPI Depends() machinery isn't
   sufficient.
 - Never import services or repositories directly in handlers. Wire via Depends() factories.
+- Never use the bare default-arg form ``param: Type = Depends(factory)``
+  for FastAPI dependency injection. Use the typed ``Annotated`` form:
+  ``param: Annotated[Type, Depends(factory)]``. The bare form is
+  incompatible with ``from __future__ import annotations`` and forces
+  ``cast()`` at call sites for pyright-strict; ``Annotated`` is the
+  FastAPI-blessed pattern from FastAPI 0.95+ and the only call site
+  in the codebase today (in
+  ``apps/backend/tests/integration/api/test_lifespan_resources.py``)
+  already follows it. Pre-feature-arrival pin so contributors landing
+  the LIP-E001-F002 inference router don't bikeshed at PR review.
 - Never import from one feature into another feature. Features are independent.
 - Never import from `exceptions._generated` directly. Import from `exceptions`.
 - Never add a feature without adding its slice to `apps/backend/architecture/import-linter-contracts.ini`.

@@ -36,7 +36,7 @@ class _AppVersionResolution(NamedTuple):
     version: str
     # ``Exception`` (not ``BaseException``) because both producer arms
     # — ``except _metadata.PackageNotFoundError`` and ``except
-    # Exception``  in ``_resolve_app_version`` — root at ``Exception``.
+    # Exception`` in ``_resolve_app_version`` — root at ``Exception``.
     # Widening to ``BaseException`` would falsely advertise that
     # ``KeyboardInterrupt`` / ``SystemExit`` could ride this field;
     # they cannot, and the failure-emit consumer below is safe on the
@@ -142,7 +142,14 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     # the Settings values here while uvicorn binds elsewhere — uvicorn's
     # own startup line is the source of truth for the actual bind.
     logger.info(
-        "app_startup",
+        # ``app_startup_started`` (not the bare ``app_startup``) keeps
+        # the lifespan family's verb-tense uniform with the per-call
+        # ``ollama_call_started`` taxonomy: a jq filter
+        # ``select(.event | endswith("_started"))`` finds every
+        # operation-start event uniformly. Sibling pair: the
+        # ``app_startup_completed`` line below, the
+        # ``app_startup_cancelled`` / ``app_startup_failed`` arms.
+        "app_startup_started",
         phase="lifespan",
         env=settings.app_env,
         version=application.version,
@@ -180,9 +187,18 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             # startup-success and shutdown-success uniformly. The
             # previous name (``lifespan_resources_ready``) read as an
             # internal seam rather than a startup terminal.
+            # ``reason="clean"`` keeps the field-set parity with
+            # ``app_shutdown_completed`` (which always carries ``reason``):
+            # operators correlating "did this app come up cleanly AND go
+            # down cleanly" can filter ``select(.event |
+            # endswith("_completed")) | .reason`` and see "clean" on
+            # both halves. The startup-side ``_failed`` / ``_cancelled``
+            # peers do not carry ``reason=`` because the event NAME
+            # already encodes the disposition.
             logger.info(
                 "app_startup_completed",
                 phase="lifespan",
+                reason="clean",
                 version=application.version,
                 env=settings.app_env,
             )
@@ -212,14 +228,25 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                 # the moment teardown finished. The pair lets operators
                 # bound resource-teardown duration (e.g. a stuck httpx
                 # pool drain) without joining log lines by request_id.
+                # Both events share a unified ``duration_ms`` key so jq
+                # filters that walk every elapsed-time field across the
+                # codebase (``request_completed.duration_ms``,
+                # ``ollama_call_completed.duration_ms``) find these too;
+                # the ``scope`` discriminator ("uptime" here, "teardown"
+                # on ``app_shutdown_completed``) preserves the semantic
+                # distinction on the same key.
                 shutdown_started = time.perf_counter()
                 logger.info(
-                    "app_shutdown",
+                    # ``app_shutdown_started`` keeps the verb-tense
+                    # uniform with ``app_startup_started`` and the
+                    # ``ollama_*_started`` family.
+                    "app_shutdown_started",
                     phase="lifespan",
                     reason=shutdown_reason,
                     version=application.version,
                     env=settings.app_env,
-                    uptime_ms=elapsed_ms(start),
+                    duration_ms=elapsed_ms(start),
+                    scope="uptime",
                 )
                 # Drop the torn-down AppState reference so a stray request
                 # arriving after lifespan exits raises ``InternalError`` via
@@ -277,12 +304,13 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     finally:
         # Outer finally fires on every exit path (clean / cancelled /
         # exception) AFTER ``async with lifespan_resources`` has unwound
-        # — so ``teardown_ms`` bounds the post-yield resource-close
-        # duration. Gate on ``shutdown_started`` so a startup-time failure
-        # (resources never reached the inner finally) doesn't emit a
-        # confusing teardown line for a teardown that never ran.
+        # — so ``duration_ms`` (with ``scope="teardown"``) bounds the
+        # post-yield resource-close duration. Gate on ``shutdown_started``
+        # so a startup-time failure (resources never reached the inner
+        # finally) doesn't emit a confusing teardown line for a teardown
+        # that never ran.
         if shutdown_started is not None:
-            # ``version=`` for field-set parity with ``app_shutdown``
+            # ``version=`` for field-set parity with ``app_shutdown_started``
             # so a jq filter ``select(.event | startswith("app_shutdown"))``
             # finds both events and joins on the same field set rather than
             # encountering ``version`` on one half of the pair only.
@@ -301,7 +329,8 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                     reason=shutdown_reason,
                     version=application.version,
                     env=settings.app_env,
-                    teardown_ms=elapsed_ms(shutdown_started),
+                    duration_ms=elapsed_ms(shutdown_started),
+                    scope="teardown",
                 )
 
 
@@ -338,6 +367,24 @@ def create_app() -> FastAPI:
         # discovery tools (Snyk, FOSSA, GitHub's license API) read it as
         # the canonical signal.
         license_info={"name": "MIT", "identifier": "MIT"},
+        # FORWARD (LIP-E001-F002 / lane 11.5): when the inference router
+        # lands and a second tag joins ``health``, declare
+        # ``openapi_tags=[{"name": "health", "description": "Liveness
+        # and readiness probes."}, {"name": "inference", "description":
+        # "..."}]`` here so SDK codegen tools (openapi-typescript,
+        # openapi-generator) emit grouped method names with descriptions
+        # rather than bare tag names. Pre-feature pinning of the single
+        # entry today would land scaffolding ADR-011 forbids; the
+        # ``health`` tag on ``health_router`` already carries the
+        # routing affordance.
+        # FORWARD (LIP-E001-F002 / lane 11.1): consider
+        # ``default_response_class=ProblemJSONResponse`` (subclass of
+        # JSONResponse with ``media_type=PROBLEM_JSON_MEDIA_TYPE``) so
+        # per-route ``responses=`` declarations stop manually
+        # duplicating the explicit content map for problem+json. Today
+        # the auto-published ``application/json`` slot on /health is
+        # acknowledged as harmless redundancy; the duplication only
+        # matters when feature routers add per-route 4xx/5xx entries.
         lifespan=lifespan,
         # ``redirect_slashes=False`` makes a trailing-slash mismatch
         # surface as a clean 404 problem+json (which the typed exception

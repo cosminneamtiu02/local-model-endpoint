@@ -151,8 +151,8 @@ def test_audit_lip_env_typos_catches_lowercase_typo(
     the names don't match after fold and pydantic silently ignores it.
     The audit's ``str.startswith("LIP_")`` is case-sensitive, so a naive
     implementation would also miss the lowercase form, defeating ADR-014.
-    Round-16 made the prefix-match case-fold-symmetric; this regression
-    test pins the fix.
+    The case-fold-symmetric prefix-match upper-cases ``name`` before the
+    ``startswith`` test; this regression test pins that discipline.
     """
     monkeypatch.setenv("lip_bogus_typo_var", "x")
     with structlog.testing.capture_logs() as captured:

@@ -111,7 +111,7 @@ single request can be correlated across handler + adapter + access log.
 | `timestamp` | ISO 8601 UTC |
 | `logger` | dotted module path |
 | `request_id` | UUID set by `RequestIdMiddleware` (or by `_resolve_request_id`'s fallback if the middleware was misconfigured) |
-| `phase` | `lifespan` / `startup` / `request` (set on every line via contextvars) |
+| `phase` | `lifespan` / `pre_lifespan` / `request` (set on every line via contextvars; `pre_lifespan` lines emit before `configure_logging` runs and so ride the unconfigured chain — env-typo audit, app-version resolution) |
 
 Per-request lines additionally carry `method`, `path`,
 `request_id_source` (`client` if the consumer supplied a valid
@@ -124,15 +124,22 @@ and `duration_ms` on the trailing `request_completed` line.
 
 | Event | When it fires | Level |
 |---|---|---|
-| `app_startup` | First line of `lifespan` after `configure_logging` | `info` |
-| `app_startup_completed` | After `OllamaClient` is constructed and bound to `app.state.context` (mirrors `app_shutdown_completed` on the teardown half) | `info` |
-| `app_shutdown` | Inner `finally` of lifespan (carries `reason="clean"|"cancelled"|"exception"`) | `info` |
-| `app_shutdown_completed` | Outer `finally` after `lifespan_resources` exits | `info` |
+| `app_startup_started` | First line of `lifespan` after `configure_logging` | `info` |
+| `app_startup_completed` | After all lifespan resources are constructed and `application.state.context` is bound (mirrors `app_shutdown_completed` on the teardown half) | `info` |
+| `app_shutdown_started` | Inner `finally` of lifespan (carries `reason="clean"|"cancelled"|"exception"` and `duration_ms` with `scope="uptime"`) | `info` |
+| `app_shutdown_completed` | Outer `finally` after `lifespan_resources` exits (carries `duration_ms` with `scope="teardown"`) | `info` |
 | `app_startup_cancelled` / `app_shutdown_cancelled` | `CancelledError` arm (SIGTERM, Ctrl-C) | `info` |
 | `app_startup_failed` / `app_shutdown_failed` | Resource construction or teardown failure | `critical` |
 
 Operator paging keys on `level=critical`. The two `*_failed` events
 above are the ONLY allowed `critical` sites in the codebase.
+
+The `*_started` / `*_completed` / `*_failed` / `*_cancelled` taxonomy
+is uniform across the lifespan family AND the per-call adapter family
+(`ollama_call_started` / `_completed` / `_failed` / `_cancelled`) AND
+the OllamaClient lifecycle (`ollama_client_started` / `_completed` /
+`_failed`). A single jq filter `select(.event | endswith("_started"))`
+finds every operation-start event uniformly.
 
 ### Per-request triage
 
@@ -151,6 +158,21 @@ jq 'select(.event | endswith("_5xx_raised"))' < /var/log/lip.jsonl
 The `*_5xx_raised` infix is uniform across the typed-domain-error and
 catch-all branches (`domain_error_5xx_raised`, `internal_error_5xx_raised`,
 `http_exception_5xx_raised`).
+
+Find startup-vs-teardown duration windows:
+
+```sh
+# Process uptime (yield-window duration) per shutdown event:
+jq 'select(.event == "app_shutdown_started") | {duration_ms, scope}' \
+  < /var/log/lip.jsonl
+# Resource-teardown duration per shutdown event:
+jq 'select(.event == "app_shutdown_completed") | {duration_ms, scope}' \
+  < /var/log/lip.jsonl
+```
+
+`duration_ms` carries the elapsed-time figure on every lifecycle line;
+the `scope` discriminator (`"uptime"` / `"teardown"`) preserves the
+semantic distinction without forcing two different field names.
 
 Find slow inference calls:
 

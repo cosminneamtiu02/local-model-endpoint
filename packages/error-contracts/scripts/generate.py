@@ -92,6 +92,13 @@ HTTP_5XX_FLOOR: Final[int] = 500
 # editor cannot inject raw control bytes that would ride into wire-body
 # ``ProblemDetails.detail`` and dev-mode ConsoleRenderer log lines.
 _C0_CONTROL_UPPER: Final[int] = 0x20
+# DEL (0x7F) is the lone codepoint above the C0 range that ``ascii_safe``
+# (the runtime peer in ``app/core/logging.py``) also flags. Hoisting it to
+# a named constant keeps the codegen control-char rejector and the runtime
+# discipline expressed via the SAME pair of named bounds — a future
+# audit-bump that adds the C1 range (``0x80``-``0x9F``) is then a single
+# constant addition rather than a search-and-replace across two modules.
+_DEL_CHAR: Final[int] = 0x7F
 
 # Sentinel that every codegen-emitted file's first source line MUST start
 # with. The orphan-cleanup pass uses this to discriminate codegen output
@@ -249,9 +256,18 @@ def _validate_detail_template(code: str, template: str, params: _ParamsMap) -> N
     so multi-line templates remain legal.
     """
     allowed_control_chars = frozenset({"\t", "\n"})
+    # Single set-comprehension over ``_C0_CONTROL_UPPER`` AND ``_DEL_CHAR``
+    # — symmetric with the walrus-memoised peer in
+    # ``apps/backend/app/api/request_id_middleware.py`` (``(o := ord(c)) <
+    # _C0_CONTROL_UPPER or o == _DEL_CHAR``). The previous ``set`` union
+    # form computed the DEL branch via a literal ``"\x7f"`` and split the
+    # codepoint check across two expressions, which broke the asserted
+    # symmetry with the middleware's named-bound spelling.
     bad = sorted(
-        {ch for ch in template if ord(ch) < _C0_CONTROL_UPPER and ch not in allowed_control_chars}
-        | ({"\x7f"} if "\x7f" in template else set())
+        ch
+        for ch in template
+        if ((o := ord(ch)) < _C0_CONTROL_UPPER or o == _DEL_CHAR)
+        and ch not in allowed_control_chars
     )
     if bad:
         msg = (
@@ -460,7 +476,7 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
         msg = (
             f"errors.yaml declares version {declared_version!r}; "
             f"this generator only supports version {SUPPORTED_SCHEMA_VERSION}. "
-            "Bump SUPPORTED_SCHEMA_VERSION in lock-step with any schema change."
+            "Bump SUPPORTED_SCHEMA_VERSION in lockstep with any schema change."
         )
         raise ValueError(msg)
     errors = data.get("errors", {})
@@ -912,6 +928,13 @@ def _cli_main() -> None:
     errors_yaml = workspace_root / "errors.yaml"
     output_dir = repo_root / "apps" / "backend" / "app" / "exceptions" / "_generated"
     generated = generate_python(errors_yaml, output_dir)
+    # ``noqa: T201`` rationale: this is the codegen CLI's user-facing
+    # summary line emitted when the script is invoked directly via
+    # ``task errors:generate``. Wiring structlog through the codegen
+    # path would over-engineer a one-shot CLI utility (and the rest of
+    # the script intentionally avoids importing project-runtime
+    # modules so the codegen survives a future pyright-strict bump
+    # without dragging in app.core dependencies).
     print(f"Generated {len(generated)} Python error files in {output_dir}")  # noqa: T201
 
 

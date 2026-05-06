@@ -74,7 +74,7 @@ def test_settings_secret_named_fields_use_secret_str() -> None:
 
     The ``.env.example`` lead-in instructs that any future secret-bearing
     field MUST use ``pydantic.SecretStr`` so the value never reaches
-    ``logger.info("app_startup", ...settings...)``. Without enforcement,
+    ``logger.info("app_startup_started", ...settings...)``. Without enforcement,
     a future PR wiring ``LIP_OLLAMA_AUTH_TOKEN: str`` would land plain-`str`
     secrets into log payloads. Today no fields match the heuristic — the
     test is the canary that fires the moment a secret-named field lands
@@ -207,6 +207,33 @@ def test_settings_env_ignore_empty_is_true(monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.bind_host == "127.0.0.1"
 
 
+def test_settings_env_ignore_empty_flag_is_set() -> None:
+    """``env_ignore_empty=True`` introspection sibling of
+    ``test_settings_env_ignore_empty_is_true`` — symmetric with how
+    ``extra='forbid'`` and ``case_sensitive=False`` and
+    ``env_prefix='LIP_'`` are pinned both at the behavior layer AND the
+    flag layer. A future model_config edit that flips the flag would
+    surface at the introspection layer here instead of only as a
+    downstream symptom on the empty-env-var fallback test.
+    """
+    assert Settings.model_config.get("env_ignore_empty") is True
+
+
+def test_settings_frozen_flag_is_set() -> None:
+    """``frozen=True`` introspection sibling of
+    ``test_settings_is_frozen_at_runtime`` (parametrized over every
+    ``Settings.model_fields`` entry).
+
+    The behavior test catches a future pydantic-settings change to what
+    ``frozen=True`` *means*; this flag-introspection sibling catches a
+    deliberate model_config flip from ``True`` to ``False`` at the
+    introspection layer — symmetric with the four flag-introspection
+    tests above (``extra``, ``case_sensitive``, ``validate_default``,
+    ``env_prefix``).
+    """
+    assert Settings.model_config.get("frozen") is True
+
+
 @pytest.mark.parametrize("level", ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
 def test_settings_log_level_accepts_uppercase(
     monkeypatch: pytest.MonkeyPatch,
@@ -282,10 +309,15 @@ def test_settings_literal_field_rejects_unknown_value(
     to False and leak debug routes.
     """
     monkeypatch.setenv(var, value)
-    with pytest.raises(ValidationError) as exc_info:
-        make_settings()
     field_name = var.removeprefix("LIP_").lower()
-    assert field_name in str(exc_info.value).lower()
+    # Anchor on Pydantic v2's Literal-rejection message ``Input should be
+    # ...`` AND the field name (DOTALL-flagged regex traverses Pydantic's
+    # multi-line error rendering). Substring-only on ``field_name``
+    # would also match the generic ``"validation errors for Settings\n
+    # <field>"`` preamble even if a regression mis-attributes the error
+    # to a sibling field.
+    with pytest.raises(ValidationError, match=rf"(?si){field_name}.*Input should be"):
+        make_settings()
 
 
 # ── Bind-host clamp ──────────────────────────────────────────────────
@@ -425,16 +457,68 @@ def test_settings_ollama_host_rejects_url_userinfo(
 ) -> None:
     """``ollama_host`` URLs with embedded userinfo are rejected at Settings.
 
-    The model_validator clamp at config.py:213-219 strips a vector where
-    httpx exception strings (``ollama_call_failed`` log messages, error
-    response bodies) could surface ``user:pass`` credentials. ``AnyHttpUrl``
-    accepts userinfo by default; without this guard an operator who pastes
-    a credentialed URL into ``LIP_OLLAMA_HOST`` would leak those creds at
-    every connect failure.
+    The userinfo-rejection clamp inside ``Settings._check_safety_invariants``
+    strips a vector where httpx exception strings (``ollama_call_failed``
+    log messages, error response bodies) could surface ``user:pass``
+    credentials. ``AnyHttpUrl`` accepts userinfo by default; without this
+    guard an operator who pastes a credentialed URL into ``LIP_OLLAMA_HOST``
+    would leak those creds at every connect failure.
     """
     monkeypatch.setenv("LIP_OLLAMA_HOST", userinfo_url)
     with pytest.raises(ValidationError, match="userinfo"):
         make_settings()
+
+
+@pytest.mark.parametrize(
+    "path_url",
+    [
+        "http://127.0.0.1:11434/foo",
+        "http://127.0.0.1:11434/foo/bar",
+        "http://127.0.0.1:11434/api/chat",
+        "http://127.0.0.1:11434/v1/",
+    ],
+)
+def test_settings_ollama_host_rejects_url_path_segment(
+    monkeypatch: pytest.MonkeyPatch,
+    path_url: str,
+) -> None:
+    """``ollama_host`` URLs with non-empty path segments are rejected.
+
+    LIP only ever calls the bare ``/api/chat`` endpoint against a base
+    URL; a misconfigured ``LIP_OLLAMA_HOST=http://127.0.0.1:11434/foo``
+    would either RFC-3986-merge into ``/foo/api/chat`` (silently broken)
+    or land the unexpected path in the ``ollama_client_started`` log
+    line. The clamp surfaces the typo at startup with an actionable
+    message instead of a wedged-daemon-shaped runtime failure.
+
+    Symmetric coverage with the userinfo-rejection sibling above
+    (``test_settings_ollama_host_rejects_url_userinfo``).
+    """
+    monkeypatch.setenv("LIP_OLLAMA_HOST", path_url)
+    with pytest.raises(ValidationError, match="path segment"):
+        make_settings()
+
+
+@pytest.mark.parametrize(
+    "bare_host_url",
+    [
+        "http://127.0.0.1:11434",
+        "http://127.0.0.1:11434/",
+    ],
+)
+def test_settings_ollama_host_accepts_bare_host_with_optional_trailing_slash(
+    monkeypatch: pytest.MonkeyPatch,
+    bare_host_url: str,
+) -> None:
+    """Both bare-host and trailing-slash forms validate (positive coverage).
+
+    ``AnyHttpUrl`` normalizes both ``""`` and ``"/"`` paths to the same
+    "no path" intent; the clamp must accept both forms so an operator
+    pasting either spelling into ``.env`` doesn't trip a false reject.
+    """
+    monkeypatch.setenv("LIP_OLLAMA_HOST", bare_host_url)
+    settings = make_settings()
+    assert str(settings.ollama_host).startswith("http://127.0.0.1:11434")
 
 
 def test_is_private_host_classifier_covers_ipv6_and_ula() -> None:

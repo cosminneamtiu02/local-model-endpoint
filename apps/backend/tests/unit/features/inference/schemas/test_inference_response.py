@@ -52,14 +52,21 @@ def test_inference_response_propagates_metadata_validation_errors(
 
 
 def test_inference_response_requires_metadata() -> None:
-    with pytest.raises(ValidationError, match="metadata"):
+    # Anchor on Pydantic v2's missing-required-field message rather than
+    # the bare field name. ``match="metadata"`` would also match a nested
+    # ``metadata.finish_reason`` chain error from sibling regressions
+    # (and the validator-propagation test above already covers that
+    # case). ``(?s)`` enables DOTALL so ``.`` traverses Pydantic's
+    # ``\n``-separated error rendering.
+    with pytest.raises(ValidationError, match=r"(?s)metadata.*Field required"):
         InferenceResponse.model_validate({"content": "x"})
 
 
 def test_inference_response_requires_content(
     valid_response_metadata_kwargs: dict[str, object],
 ) -> None:
-    with pytest.raises(ValidationError, match="content"):
+    # Same regex-tightness rationale as the metadata sibling above.
+    with pytest.raises(ValidationError, match=r"(?s)content.*Field required"):
         InferenceResponse.model_validate(
             {"metadata": _valid_metadata(valid_response_metadata_kwargs).model_dump()},
         )

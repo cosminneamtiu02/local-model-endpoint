@@ -32,9 +32,15 @@ tasks:
       - task: check:lockfile
       - task: check:types
       - task: check:arch
+      # ``check:errors`` (codegen + diff verifier) runs BEFORE coverage
+      # so a stale-codegen state surfaces as an actionable diff failure
+      # before the test suite emits a confusing "test fails on stale
+      # generated code" symptom — mirrors the CI ``error-contracts``
+      # job's step ordering so ``task check`` stays a canonical local
+      # mirror of CI per CLAUDE.md sacred rule #4.
+      - task: check:errors
       - task: check:coverage
       - task: check:coverage:errors
-      - task: check:errors
       - task: check:test-class-regex-sync
       - task: check:plist
       - task: check:audit
@@ -83,7 +89,13 @@ tasks:
     desc: Run pyright on the backend app
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run --frozen pyright app/
+      # Honour ``[tool.pyright].include = ["app", "tests"]`` from
+      # ``pyproject.toml`` — a positional ``app/`` would silently
+      # override the ``include`` list, leaving ``tests/`` outside
+      # strict-mode coverage and turning round-21's widening into dead
+      # config (the very upgrade-rot guard the rule was meant to
+      # install would not run in CI).
+      - uv run --frozen pyright
 
   check:types:errors:
     desc: Run pyright on the error-contracts package (codegen + tests)
@@ -242,15 +254,23 @@ tasks:
       - uv run --frozen pytest tests/ --cov=scripts --cov-report=term-missing --cov-fail-under=80
 
   check:test-class-regex-sync:
-    desc: Verify the no-test-classes regex stays in lockstep across both workspace conftests
+    desc: Verify the no-test-classes regex AND the python_classes sentinel stay in lockstep across both workspace conftests
     # The CLAUDE.md "Never write a test class" sacred rule is enforced
-    # by the ``_TEST_CLASS_PATTERN`` regex declared identically in
-    # ``apps/backend/tests/conftest.py`` and
-    # ``packages/error-contracts/tests/conftest.py``. Cross-workspace
-    # import isn't installable, so the duplication is intentional —
-    # but the only sync mechanism today is a prose comment. This task
-    # diffs the regex declarations and exits non-zero on drift, so a
-    # tightening edit lands in both workspaces atomically.
+    # by TWO duplicated mechanisms:
+    # (1) ``_TEST_CLASS_PATTERN`` regex declared identically in
+    #     ``apps/backend/tests/conftest.py`` and
+    #     ``packages/error-contracts/tests/conftest.py`` (the
+    #     ``pytest_sessionstart`` runtime check).
+    # (2) ``python_classes = ["NoTestClassesAllowed"]`` literal in
+    #     ``apps/backend/pyproject.toml`` and
+    #     ``packages/error-contracts/pyproject.toml`` (the layer-1
+    #     pytest collection-time suppression).
+    # Cross-workspace import isn't installable, so the duplication is
+    # intentional — but a contributor's typo in ONE workspace's
+    # sentinel literal would silently widen pytest's class-discovery
+    # filter in that workspace while the conftest regex stays in
+    # lockstep, leaving a stray ``class TestFoo:`` invisible until it
+    # lands in the unguarded workspace. Diff BOTH mechanisms.
     cmds:
       - |
         set -euo pipefail
@@ -260,6 +280,14 @@ tasks:
           echo "::error::_TEST_CLASS_PATTERN drift between workspaces"
           echo "apps/backend: $a"
           echo "packages/error-contracts: $b"
+          exit 1
+        fi
+        c=$(grep '^python_classes = ' apps/backend/pyproject.toml)
+        d=$(grep '^python_classes = ' packages/error-contracts/pyproject.toml)
+        if [ "$c" != "$d" ]; then
+          echo "::error::python_classes sentinel drift between workspaces"
+          echo "apps/backend: $c"
+          echo "packages/error-contracts: $d"
           exit 1
         fi
 

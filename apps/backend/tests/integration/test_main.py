@@ -78,8 +78,71 @@ def test_request_id_middleware_is_outermost_user_middleware(
     assert app.user_middleware, "expected at least one user middleware"
     # ``user_middleware[-1]`` is the LAST-ADDED entry — Starlette's LIFO
     # ordering makes that the OUTERMOST wrapper at request time.
+    # ``getattr(m.cls, "__name__", repr(m.cls))`` — Starlette types
+    # ``Middleware.cls`` as ``_MiddlewareFactory[P]`` (a Callable alias),
+    # not ``type[...]``, so ``m.cls.__name__`` fails pyright strict.
+    # The runtime value IS the actual middleware class so the access
+    # works; the ``getattr`` fallback satisfies the static type without
+    # losing the assertion-message affordance.
     assert app.user_middleware[-1].cls is RequestIdMiddleware, (
         "RequestIdMiddleware must be last-added (outermost) so request_id "
         f"contextvar binding wraps every nested middleware; got user_middleware="
-        f"{[m.cls.__name__ for m in app.user_middleware]!r}"
+        f"{[getattr(m.cls, '__name__', repr(m.cls)) for m in app.user_middleware]!r}"
+    )
+
+
+def test_lifespan_passes_get_settings_to_lifespan_resources() -> None:
+    """``app.main.lifespan`` must call ``lifespan_resources(get_settings())``.
+
+    ``lifespan_resources`` accepts a ``Settings`` instance directly so
+    test fixtures can vary it under monkeypatch without going through the
+    ``@lru_cache(maxsize=1)`` carve-out in ``app.api.deps.get_settings``.
+    The docstring on ``lifespan_resources`` documents that production
+    callers MUST pass ``get_settings()`` to preserve the cached-Settings
+    invariant — bypassing it would construct two Settings instances per
+    request lifetime.
+
+    Without a mechanical pin, a future contributor could write
+    ``lifespan_resources(Settings.model_validate({}))`` (or similar)
+    inside ``lifespan`` and silently break the cached-Settings
+    discipline; today's runtime would still appear to work, surfacing
+    only as a tiny startup-latency increase no operator alarm catches.
+
+    Mirrors the pattern of ``test_app_redirect_slashes_disabled_at_runtime``
+    and ``test_request_id_middleware_is_outermost_user_middleware``: a
+    source-inspection drift guard for an invariant whose only documentation
+    today is prose.
+    """
+    import inspect
+
+    from app.main import lifespan
+
+    src = inspect.getsource(lifespan)
+    # ``lifespan`` resolves settings via the ``get_settings()`` carve-out
+    # factory at the top of its body and threads the resulting Settings
+    # into ``lifespan_resources(settings)``. Pin both invariants:
+    # (1) ``get_settings()`` is called inside ``lifespan`` (not a local
+    #     ``Settings.model_validate(...)`` or hand-rolled construction), and
+    # (2) ``lifespan_resources(settings)`` is the single feed shape (the
+    #     factory's hand-pass contract).
+    # Together these mechanically pin the cached-Settings invariant
+    # documented on ``lifespan_resources`` — bypassing ``get_settings()``
+    # would produce two Settings instances per request lifetime.
+    assert "get_settings()" in src, (
+        "app.main.lifespan must resolve Settings via the get_settings() "
+        "carve-out factory — see lifespan_resources' docstring for the "
+        "cached-Settings invariant."
+    )
+    assert "lifespan_resources(settings)" in src, (
+        "app.main.lifespan must thread the get_settings()-resolved value "
+        "into lifespan_resources(settings) — hand-passing Settings."
+        "model_validate(...) bypasses the @lru_cache carve-out and "
+        "produces two Settings instances per request lifetime."
+    )
+    # ``Settings.model_validate(`` and ``Settings(`` (constructor calls)
+    # would both bypass the carve-out — flag either explicitly so the
+    # drift-guard is precise about what's forbidden.
+    assert "Settings.model_validate(" not in src, (
+        "app.main.lifespan must NOT construct Settings via "
+        "model_validate(...) — use the get_settings() carve-out factory."
     )

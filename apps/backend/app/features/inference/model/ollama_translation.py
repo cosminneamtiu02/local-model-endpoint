@@ -124,7 +124,7 @@ def _attach_media_to_message(
 
 
 def translate_message(msg: "Message") -> dict[str, Any]:
-    """Service Message -> Ollama /api/chat message dict.
+    r"""Service Message -> Ollama /api/chat message dict.
 
     String-content messages pass through unchanged. List-content
     (multimodal) messages are flattened: text parts joined with the
@@ -209,7 +209,7 @@ def build_chat_result(
     # pyright strict still flags. The cast is safe (we just isinstance-checked
     # ``dict`` and Ollama's wire format guarantees str keys); the dict entry
     # accesses below preserve the per-key type discipline.
-    raw_message: dict[str, Any] = cast("dict[str, Any]", raw_message_value)
+    raw_message = cast("dict[str, Any]", raw_message_value)
     if "content" not in raw_message:
         msg = "Ollama malformed frame: message missing 'content' field."
         raise ValueError(msg)

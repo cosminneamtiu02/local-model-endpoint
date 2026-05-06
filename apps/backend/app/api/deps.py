@@ -115,7 +115,17 @@ def audit_lip_env_typos() -> None:
         # operators searching "did this typo fire" can grep the unknown
         # set directly. CLAUDE.md's prompt-content ban applies to
         # message bodies; env-var names are operator metadata.
-        logger.warning("unknown_lip_env_vars_ignored", env_vars=sanitized, phase="pre_lifespan")
+        # ``count`` ships alongside the list so a malformed ``.env``
+        # exporting hundreds of typo'd ``LIP_*`` names doesn't force the
+        # operator to ``.env_vars | length`` from the structured field —
+        # symmetric with ``error_count`` on the validation handler and
+        # ``message_count`` on ``OllamaClient.chat``.
+        logger.warning(
+            "unknown_lip_env_vars_ignored",
+            env_vars=sanitized,
+            count=len(sanitized),
+            phase="pre_lifespan",
+        )
 
 
 def get_app_state(request: Request) -> AppState:

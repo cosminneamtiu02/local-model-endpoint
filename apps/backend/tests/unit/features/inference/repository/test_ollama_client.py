@@ -161,7 +161,7 @@ async def test_request_propagates_connect_error_via_mock_transport() -> None:
     Unit-level coverage of AC11 (connection failures bubble up uncaught).
     Uses MockTransport so no real socket is opened — keeps the test
     hermetic and respects the unit-suite no-network rule. The integration
-    counterpart in tests/integration/features/inference/test_lifecycle.py
+    counterpart in tests/integration/api/test_lifespan_resources.py
     exercises a real loopback failure as a belt-and-braces check.
     """
 
@@ -329,17 +329,17 @@ async def test_aexit_propagates_close_error_when_body_did_not_raise(
 
     # ``monkeypatch.setattr`` (rather than direct attribute rebind) so the
     # patch is undone at fixture teardown — symmetric with the integration-
-    # tier sibling at ``tests/integration/features/inference/test_lifecycle.py``
+    # tier sibling at ``tests/integration/api/test_lifespan_resources.py``
     # and aligned with the project-wide pyright-suppression dialect.
     monkeypatch.setattr(client, "close", _broken_close)
     with capture_logs() as captured, pytest.raises(RuntimeError, match="simulated aclose failure"):
         async with client:
             pass
 
-    failed = [e for e in captured if e.get("event") == "ollama_client_close_failed"]
+    failed = [e for e in captured if e.get("event") == "ollama_client_failed"]
     assert len(failed) == 1, captured
     assert failed[0]["exc_type"] == "RuntimeError"
-    closed = [e for e in captured if e.get("event") == "ollama_client_closed"]
+    closed = [e for e in captured if e.get("event") == "ollama_client_completed"]
     assert closed == [], captured
 
 
@@ -368,9 +368,9 @@ async def test_aexit_suppresses_close_error_when_body_already_raised(
             msg = "primary body error"
             raise ValueError(msg)
 
-    failed = [e for e in captured if e.get("event") == "ollama_client_close_failed"]
+    failed = [e for e in captured if e.get("event") == "ollama_client_failed"]
     assert len(failed) == 1, captured
-    closed = [e for e in captured if e.get("event") == "ollama_client_closed"]
+    closed = [e for e in captured if e.get("event") == "ollama_client_completed"]
     assert closed == [], captured
 
 
@@ -436,9 +436,9 @@ async def test_aexit_without_aenter_emits_misuse_warning() -> None:
     misuse_events = [e for e in captured if e.get("event") == "ollama_client_aexit_without_aenter"]
     assert len(misuse_events) == 1, captured
     assert misuse_events[0]["phase"] == "lifespan"
-    # The close still ran on the happy path — the ``ollama_client_closed``
+    # The close still ran on the happy path — the ``ollama_client_completed``
     # event landed, with ``duration_ms=None`` as the field-set asymmetry
     # documented in ``__aexit__``.
-    closed = [e for e in captured if e.get("event") == "ollama_client_closed"]
+    closed = [e for e in captured if e.get("event") == "ollama_client_completed"]
     assert len(closed) == 1, captured
     assert closed[0]["duration_ms"] is None
