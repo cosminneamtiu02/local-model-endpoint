@@ -11,16 +11,24 @@ import pytest
 from app.schemas.wire_constants import UUID_REGEX
 
 # Canonical UUID-shaped fixture id for inference-feature unit tests.
-# Hoisted to a module constant so the import-time invariant assertion
-# below pins it against the wire-contract regex, mechanically defeating
-# silent drift between the fixture and ``UUID_PATTERN_STR`` (a future
-# regex tightening that no longer matches this literal will fire here
-# at collection time, not 16 silent green tests later).
+# Drift between this literal and ``UUID_PATTERN_STR`` is pinned by the
+# ``test_valid_request_id_fixture_matches_wire_contract_regex`` test
+# below (a dedicated pytest function rather than a module-level assert
+# so the invariant survives ``python -O`` and shows up in pytest's
+# collection summary).
 _VALID_REQUEST_ID = "00000000-0000-4000-8000-000000000abc"
-assert UUID_REGEX.match(_VALID_REQUEST_ID), (
-    f"valid_request_id fixture ({_VALID_REQUEST_ID}) no longer matches the wire-contract"
-    " UUID regex; tighten or update the fixture in lockstep with the regex."
-)
+
+
+def test_valid_request_id_fixture_matches_wire_contract_regex() -> None:
+    """Pin the ``valid_request_id`` literal against the wire-contract UUID regex.
+
+    A future regex tightening that no longer matches this literal fires here
+    rather than as 16 silent green tests with stale fixtures.
+    """
+    assert UUID_REGEX.match(_VALID_REQUEST_ID), (
+        f"valid_request_id fixture ({_VALID_REQUEST_ID}) no longer matches the wire-contract"
+        " UUID regex; tighten or update the fixture in lockstep with the regex."
+    )
 
 
 @pytest.fixture

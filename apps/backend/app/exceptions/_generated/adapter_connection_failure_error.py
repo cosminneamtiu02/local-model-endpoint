@@ -9,7 +9,7 @@ from app.exceptions.base import DomainError
 
 
 class AdapterConnectionFailureError(DomainError):
-    """Adapter (e.g. Ollama) connection or response failure (LIP-E003-F003)"""
+    """Adapter (e.g. Ollama) connection or response failure (LIP-E003-F003)."""
 
     code: ClassVar[str] = "ADAPTER_CONNECTION_FAILURE"
     http_status: ClassVar[int] = 502

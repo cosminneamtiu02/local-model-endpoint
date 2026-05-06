@@ -59,7 +59,7 @@ def test_inference_request_default_params_dump_excludes_unset() -> None:
 
 
 def test_inference_request_rejects_empty_model_name() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="model"):
         InferenceRequest(messages=[Message(role="user", content="hi")], model="")
 
 

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Self, cast
 
 import httpx
 import structlog
+from pydantic import ValidationError as PydanticValidationError
 
 from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, ascii_safe, elapsed_ms
 from app.features.inference.model.ollama_translation import (
@@ -121,7 +122,7 @@ class OllamaClient:
     lazily allocated on first request, so this is cheap) and closed at
     ``__aexit__`` (or via explicit ``close()``); ``__aenter__`` is the
     lifecycle log marker, not the acquisition site. The AsyncExitStack
-    in ``app.api.router_registry.lifespan_resources`` owns the close
+    in ``app.api.lifespan_resources.lifespan_resources`` owns the close
     side via ``async with`` so the connection lifecycle is bounded by
     the FastAPI app's lifespan window. The private ``_request`` is the
     lower-level seam other adapter methods build on top of from *within*
@@ -148,11 +149,12 @@ class OllamaClient:
         # ``ollama_host``. Default-port elision is httpx's choice (verified:
         # ``URL("http://x:80").netloc`` returns ``b"x"``).
         parsed = httpx.URL(base_url)
-        # ``parsed.path`` (str in httpx 0.28) is included so a future
-        # operator who sets ``LIP_OLLAMA_HOST=http://localhost:11434/api/v1``
-        # (currently legal — ``Settings._check_safety_invariants`` only
-        # screens host classification) sees the full target in the
-        # lifecycle log line rather than a wire-vs-log mismatch.
+        # ``parsed.path`` (str in httpx 0.28) is included as defense-in-
+        # depth; ``Settings._check_safety_invariants`` already rejects
+        # path segments in ``LIP_OLLAMA_HOST`` (only "" and "/" pass), so
+        # this branch is unreachable today — but keeping it preserves
+        # full-target visibility if a future ADR relaxes the path screen
+        # (e.g. for an Ollama gateway that requires ``/api/v1`` prefix).
         self._loggable_base_url = (
             f"{parsed.scheme}://{parsed.netloc.decode('ascii', errors='replace')}{parsed.path}"
         )
@@ -211,7 +213,7 @@ class OllamaClient:
         # entry, see ``ollama_client_lifecycle_entered`` below) is the
         # canonical lifecycle event AND it lands inside the
         # ``phase="lifespan"`` contextvar binding established by
-        # ``router_registry.lifespan_resources``. Logging from ``__init__``
+        # ``lifespan_resources.lifespan_resources``. Logging from ``__init__``
         # would have to emit before that binding when the class is
         # instantiated outside an ``async with`` (as in tests), shipping
         # a wire-config line without ``phase`` context.
@@ -518,7 +520,17 @@ class OllamaClient:
                 failure_category = "transport"
             elif isinstance(call_exc, NotImplementedError):
                 failure_category = "unsupported_input"
-            elif isinstance(call_exc, ValueError):
+            elif isinstance(call_exc, ValueError | PydanticValidationError):
+                # Pydantic v2 ``ValidationError`` is NOT a ``ValueError``
+                # subclass (it derives directly from ``Exception``), so
+                # without the explicit arm a Pydantic-validated frame
+                # rejected by ``OllamaChatResult(...)`` (oversize content,
+                # token-count cap exceeded, etc.) would land in
+                # ``"unknown"`` instead of ``"malformed_frame"`` —
+                # defeating the documented "every malformed-Ollama-frame
+                # case routes through one bucket" intent and breaking
+                # operator dashboards that distinguish a wedged-daemon
+                # signal from a protocol-drift regression.
                 failure_category = "malformed_frame"
             else:
                 failure_category = "unknown"

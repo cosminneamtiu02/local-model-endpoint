@@ -31,19 +31,12 @@ async def client() -> AsyncGenerator[AsyncClient]:
     depending on ``app.state.context``; when LIP-E001-F002 lands the
     helper grows ``LifespanManager`` wrapping in one place.
 
-    The contract above only holds because the production app registers a
-    catch-all ``Exception`` handler. Assert that explicitly so a future
-    regression that drops or narrows the catch-all surfaces as a clear
-    fixture-time AssertionError instead of as silently divergent
-    test-vs-prod behavior.
+    The catch-all-exception-handler invariant is asserted inside
+    ``make_async_client`` so every consumer (this fixture + the direct
+    ``_build_app()`` callers in tests/integration/test_exception_handler_chain.py)
+    gets the contract enforcement uniformly.
     """
     from app.main import create_app
 
-    app = create_app()
-    assert Exception in app.exception_handlers, (
-        "Production app must register a catch-all Exception handler — "
-        "the conftest's raise_app_exceptions=False contract relies on it."
-    )
-
-    async with make_async_client(app) as c:
+    async with make_async_client(create_app()) as c:
         yield c

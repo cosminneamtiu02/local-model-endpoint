@@ -1,8 +1,8 @@
 """Test factory for the Settings model.
 
 Centralizes the ``_env_file=None`` test-isolation kwarg + the
-pyright-suppression so the 12 individual call sites in test_config.py
-don't each carry a ``# pyright: ignore`` comment.
+pyright-suppression so individual call sites in test_config.py don't
+each carry a ``# pyright: ignore`` comment.
 """
 
 from app.core.config import Settings

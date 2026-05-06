@@ -535,6 +535,21 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
     return data
 
 
+def _normalized_docstring_description(description: str) -> str:
+    """Trim trailing whitespace and append a period if the description lacks terminal punctuation.
+
+    Without normalization, descriptions like ``Requested resource does not exist``
+    render as un-punctuated docstring fragments (PEP 257: single-line docstrings
+    SHOULD end with a period). Normalizing at render time keeps errors.yaml
+    free of the discipline ("the spec source describes the error; punctuation
+    is a presentation concern handled by the codegen").
+    """
+    trimmed = description.rstrip()
+    if trimmed and trimmed[-1] not in ".!?":
+        return trimmed + "."
+    return trimmed
+
+
 def _render_params_module(
     *, code: str, params_class_name: str, params: _ParamsMap, description: str | None
 ) -> str:
@@ -543,6 +558,8 @@ def _render_params_module(
     The errors.yaml ``description`` is included in the params class docstring
     when present so generated code carries the human-readable context.
     """
+    if description is not None:
+        description = _normalized_docstring_description(description)
     fields = "\n".join(
         f"    {name}: {PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
     )
@@ -616,6 +633,8 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
     description: str | None,
 ) -> str:
     """Render the source for a generated *_error.py module."""
+    if description is not None:
+        description = _normalized_docstring_description(description)
     title_literal = _python_string_literal(title)
     detail_template_decl = _render_detail_template_decl(detail_template)
     classvars = (
@@ -793,13 +812,18 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
     # leaving the registry as an asymmetric outlier among the otherwise-
     # uniform per-file flow through the aggregator.
     sorted_entries = sorted(init_entries, key=itemgetter(0))
+    # ``_registry`` sorts before any concrete error module under ASCII order
+    # (``_`` is 0x5F, ``a`` is 0x61), so emit its import FIRST and let ruff
+    # treat the block as a single sorted import group. This drops the
+    # historic ``I001`` per-file ignore that was needed back when the
+    # registry import was tacked onto the end of an alpha-sorted block.
     init_file = output_dir / "__init__.py"
     init_content = (
         '"""Generated error classes. Do not edit."""\n\n'
+        "from app.exceptions._generated._registry import ERROR_CLASSES\n"
         + "\n".join(imp for _, imp in sorted_entries)
-        + "\nfrom app.exceptions._generated._registry import ERROR_CLASSES\n"
-        + "\n__all__ = [\n"
-        + '    "ERROR_CLASSES",\n'
+        + "\n\n__all__ = [\n"
+        '    "ERROR_CLASSES",\n'
         + "\n".join(f'    "{name}",' for name, _ in sorted_entries)
         + "\n]\n"
     )
@@ -818,6 +842,10 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
     registry_file = output_dir / "_registry.py"
     error_imports = sorted((name, imp) for name, imp in init_entries if name.endswith("Error"))
     sorted_registry_entries = sorted(registry_entries, key=itemgetter(0))
+    # Emit ``app.exceptions._generated.*`` imports BEFORE ``app.exceptions.base``
+    # so the block is in ASCII-sorted order (``_`` 0x5F < ``b`` 0x62). This
+    # drops the historic ``I001`` per-file ignore that was needed when the
+    # base import was emitted first.
     registry_content = (
         '"""Generated error registry. Do not edit.\n\n'
         "Maps SCREAMING_SNAKE error codes to their concrete DomainError\n"
@@ -831,9 +859,8 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
         "the current sole consumer, pinning the dict shape so the codegen\n"
         "stays canonical until the runtime consumer lands.\n"
         '"""\n\n'
-        "from app.exceptions.base import DomainError\n"
         + "\n".join(imp for _, imp in error_imports)
-        + "\n\n"
+        + "\nfrom app.exceptions.base import DomainError\n\n"
         "ERROR_CLASSES: dict[str, type[DomainError]] = {\n"
         + "\n".join(f'    "{code}": {name},' for code, name in sorted_registry_entries)
         + "\n}\n"

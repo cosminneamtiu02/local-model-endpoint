@@ -1,10 +1,4 @@
-"""Audio variant of a multimodal Message content part.
-
-Mirrors :class:`app.features.inference.model.image_content.ImageContent`:
-carries either a public ``url`` reference or a base64-encoded ``base64``
-blob; exactly one must be set; the adapter layer translates whichever
-form is present into Ollama's wire format.
-"""
+"""Audio variant of a multimodal Message content part."""
 
 from typing import Annotated, Literal, Self
 

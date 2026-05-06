@@ -29,6 +29,7 @@ from app.schemas import ProblemDetails
 from app.schemas.wire_constants import (
     ABOUT_BLANK_TYPE,
     CONTENT_LANGUAGE,
+    INSTANCE_PATH_MAX_CHARS,
     PROBLEM_JSON_MEDIA_TYPE,
     UUID_REGEX,
 )
@@ -175,23 +176,26 @@ class RequestIdMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: PLR0915 — single-pass ASGI hot path: header validation, contextvar binding, body-size guard, send-wrapper, finally-block access log; splitting would require shared mutable state.
+        # Clear contextvars at every scope boundary so any prior request's
+        # ad-hoc binds (error_code from exception handlers, fallback
+        # request_id) do not leak into this scope's log lines. Hoisted
+        # ABOVE the non-http short-circuit so a future LIP-E007 WebSocket
+        # handler (or any non-HTTP scope) inherits clean contextvars
+        # automatically — extending the bind set is then a per-scope add,
+        # not "remember to add a clear path too." Sub-microsecond cost on
+        # the non-http path; not measurable.
+        structlog.contextvars.clear_contextvars()
         if scope["type"] != "http":
             # FORWARD-risk note: a future LIP-E007 WebSocket feature (or
             # any non-HTTP ASGI scope) added without a parallel
             # WS-middleware would inherit cross-message ``error_code``
-            # contextvar leakage — this middleware short-circuits non-
-            # http scopes and the ``clear_contextvars()`` in the http
-            # path is the only mechanism keeping per-handler binds
-            # bounded. When WS lands, either extend this middleware to
-            # clear at every WS-connect boundary or add a sibling
-            # middleware that mirrors the clear-contextvars semantics.
+            # contextvar leakage — but the unconditional
+            # ``clear_contextvars()`` above neutralizes that vector for
+            # any new scope. When WS lands, extend this middleware (or
+            # add a sibling) with the WS-specific bind set; the clear is
+            # already universal.
             await self.app(scope, receive, send)
             return
-
-        # Clear contextvars at the request boundary so any prior request's
-        # ad-hoc binds (error_code from exception handlers, fallback request_id)
-        # do not leak into this request's log lines.
-        structlog.contextvars.clear_contextvars()
 
         # Accept client-provided request ID only if it's a valid UUID;
         # otherwise generate a new one. Prevents log injection. Walk the
@@ -223,7 +227,15 @@ class RequestIdMiddleware:
         # the malformed ID targeted; flagging only by request-id preview is
         # not enough to attribute a flood of bad IDs to a culprit consumer).
         method = str(scope.get("method", ""))
-        path = str(scope.get("path", ""))
+        # ``ascii_safe`` neutralizes ANSI / control-byte injection vectors —
+        # Starlette decodes the URL-encoded request path into ``scope["path"]``
+        # before this middleware sees it, so a request like
+        # ``GET /%1b%5B31m...`` lands in scope with raw ESC bytes that would
+        # render verbatim under dev-mode ConsoleRenderer (forging log lines,
+        # spoofing status codes). Symmetric with the ``client_id`` ASCII-clean
+        # at line 214 and with ``deps.py:_format_request_path`` (CLAUDE.md
+        # log-injection backstop).
+        path = ascii_safe(str(scope.get("path", "")), max_chars=INSTANCE_PATH_MAX_CHARS)
 
         # Resolve client IP/port from the ASGI scope once. Bound to
         # contextvars below so EVERY per-request log line — including
@@ -255,10 +267,18 @@ class RequestIdMiddleware:
         # ``request_id_source="fallback"`` bind in
         # ``exception_handler_registry._resolve_request_id``. ``phase="request"``
         # mirrors the lifespan binding (``phase="lifespan"`` in
-        # router_registry.lifespan_resources) so a jq filter
+        # lifespan_resources.lifespan_resources) so a jq filter
         # ``select(.phase == "request")`` greps every per-request log line.
         # Cleanup is guaranteed by the ``clear_contextvars()`` call at the
         # start of the next request entry.
+        # ``had_rejected_client_id`` is unconditionally bound (default
+        # False) so the trailing ``request_completed`` line always carries
+        # it via ``merge_contextvars`` regardless of whether the warning
+        # below fires. Without the unconditional bind, the contract
+        # "request_completed always carries had_rejected_client_id"
+        # depended on call-order discipline at the warning emit site —
+        # a future refactor that moved the warning before the bind would
+        # silently drop the field on the rejected-id path.
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
             method=method,
@@ -267,6 +287,7 @@ class RequestIdMiddleware:
             request_id_source=request_id_source,
             client_ip=client_ip,
             client_port=client_port,
+            had_rejected_client_id=rejected_client_id,
         )
 
         if rejected_client_id:
@@ -275,13 +296,13 @@ class RequestIdMiddleware:
             # collapsed the value to "<non-printable>". ``request_id_source``
             # flows in via ``merge_contextvars`` from the bind above (no
             # need to pass it again at the call site). ``had_rejected_client_id``
-            # is also bound on contextvars so the trailing ``request_completed``
-            # line carries it — operators can grep ``select(.event ==
-            # "request_completed" and .had_rejected_client_id == true)`` for
-            # "consumer with bad header that we re-stamped" without
-            # self-joining the warning + completed log streams.
+            # is bound (above) on contextvars so the trailing
+            # ``request_completed`` line carries it — operators can grep
+            # ``select(.event == "request_completed" and
+            # .had_rejected_client_id == true)`` for "consumer with bad
+            # header that we re-stamped" without self-joining the warning +
+            # completed log streams.
             had_control_chars = client_id == "<non-printable>"
-            structlog.contextvars.bind_contextvars(had_rejected_client_id=True)
             logger.warning(
                 "request_id_rejected_client_value",
                 supplied_value_preview=preview,
@@ -381,8 +402,17 @@ class RequestIdMiddleware:
                 # original. The access log is best-effort telemetry; losing
                 # one line is preferable to losing a 5xx traceback.
                 with contextlib.suppress(Exception):
+                    # ``method`` and ``path`` are also threaded explicitly
+                    # (in addition to flowing in via ``merge_contextvars``
+                    # from the bind block above) as defense-in-depth
+                    # symmetric with ``internal_error_5xx_raised`` — a
+                    # future refactor that narrows the contextvar
+                    # lifetime would otherwise silently drop the access
+                    # log's two most operator-actionable fields.
                     logger.info(
                         "request_completed",
+                        method=method,
+                        path=path,
                         status_code=effective_status,
                         duration_ms=duration_ms,
                         request_id_source=request_id_source,

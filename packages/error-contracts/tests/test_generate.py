@@ -8,6 +8,11 @@ from pathlib import Path
 
 import pytest
 
+# Direct-test import for the control-char defense — PyYAML rejects most
+# C0 controls at parse time, so going through load_and_validate would not
+# exercise the in-codegen layer. Private-symbol access is justified.
+from scripts.generate import _validate_detail_template  # pyright: ignore[reportPrivateUsage]
+
 
 def _load_class_to_snake() -> Callable[[str], str]:
     """Import generate.py by file path so the private ``_class_to_snake``
@@ -649,6 +654,166 @@ errors:
     ast.parse(src)
     # The unicode character round-trips through json.dumps(ensure_ascii=False).
     assert "é" in src
+
+
+def test_codegen_rejects_template_with_unused_declared_param(tmp_path: Path) -> None:
+    """params declaring a name the detail_template never references is rejected.
+
+    The lockstep partner of test_codegen_rejects_template_referencing_undeclared_param.
+    A YAML edit that adds a param but forgets the corresponding template
+    reference (or renames the placeholder and leaves the param behind) is a
+    silent data-loss bug — the typed param ships in the response body but
+    the rendered ``detail`` never names it. The codegen rejects this at
+    build time so the contributor is forced to keep both halves in lockstep.
+    """
+    yaml_text = """
+version: 1
+errors:
+  ORPHAN_PARAM:
+    http_status: 400
+    description: Orphan param
+    title: Orphan
+    detail_template: "saw {present}"
+    params:
+      present: string
+      unused: integer
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(
+        ValueError, match=r"declares params \['unused'\] but detail_template never references"
+    ):
+        load_and_validate(path)
+
+
+@pytest.mark.parametrize(
+    "control_char",
+    ["\x00", "\x01", "\x07", "\x0b", "\x0c", "\x1f", "\x7f"],
+)
+def test_codegen_rejects_control_chars_in_detail_template(control_char: str) -> None:
+    """Control bytes in a detail_template are rejected at codegen validation.
+
+    Control bytes (``\\x00``..``\\x1f`` excluding the ``\\t``/``\\n``
+    whitespace carve-outs, and ``\\x7f`` DEL) would ride from the YAML
+    template into the rendered ``detail`` field on the wire body AND into
+    dev-mode ConsoleRenderer log lines (the runtime ``ascii_safe``
+    discipline applied to user-input does NOT cover template-rendered
+    detail). The validator must reject this. (PyYAML's safe_load itself
+    rejects most C0 controls at parse time, so this test calls
+    ``_validate_detail_template`` directly to exercise the in-codegen
+    defense-in-depth layer.)
+    """
+    template = f"before{control_char}after"
+    with pytest.raises(ValueError, match="control character"):
+        _validate_detail_template("CONTROL_CHARS", template, {})
+
+
+@pytest.mark.parametrize(
+    "whitespace_char",
+    ["\t", "\n"],
+)
+def test_codegen_accepts_whitespace_chars_in_detail_template(whitespace_char: str) -> None:
+    """Tab/newline are accepted in detail templates (counter-test for the control-char rejector)."""
+    template = f"before{whitespace_char}after"
+    _validate_detail_template("WHITESPACE_OK", template, {})  # must not raise
+
+
+def test_codegen_rejects_5xx_with_non_allowlisted_string_param(tmp_path: Path) -> None:
+    """5xx errors with non-allowlisted free-form string params are rejected.
+
+    The catch-all 500 handler takes care to never leak user-supplied
+    strings into the response body. A typed 5xx with a free-form string
+    param would silently bypass that discipline by spreading the param at
+    root level on the wire body — leaking whatever the caller passed.
+    The codegen must reject the YAML at build time so a future error
+    cannot regress this PII discipline. (PII guard in
+    ``scripts/generate.py:_validate_no_5xx_string_params``.)
+    """
+    yaml_text = """
+version: 1
+errors:
+  LEAKY_INTERNAL_ERROR:
+    http_status: 500
+    description: A 5xx with a free-form string
+    title: Leaky 5xx
+    detail_template: "Failed: {file_path}"
+    params:
+      file_path: string
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match="must not include user-supplied free-form strings"):
+        load_and_validate(path)
+
+
+def test_codegen_accepts_5xx_with_integer_param(tmp_path: Path) -> None:
+    """A 5xx error with only integer params passes the PII guard (counter-test)."""
+    yaml_text = """
+version: 1
+errors:
+  COUNTED_INTERNAL_ERROR:
+    http_status: 500
+    description: A 5xx with only integer params
+    title: Counted 5xx
+    detail_template: "Failed after {attempts} attempts"
+    params:
+      attempts: integer
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    load_and_validate(path)  # must not raise
+
+
+def test_codegen_does_not_unlink_files_without_generator_sentinel(
+    tmp_path: Path, output_dir: Path
+) -> None:
+    """Hand-written sibling files in output_dir survive regeneration.
+
+    The orphan-cleanup safeguard at ``scripts/generate.py`` keys on the
+    ``Generated`` sentinel prefix in the docstring of every codegen
+    output. A hand-authored module sitting next to generated files (e.g.
+    a future ``app/exceptions/_generated/_typed_alias.py`` from a
+    contributor adding a manual helper) must NOT be unlinked even if its
+    name is not in the keep-set. This is the only protection between the
+    codegen and irreversible ``unlink()`` of user-authored code.
+    """
+    yaml_text = """
+version: 1
+errors:
+  KEPT:
+    http_status: 400
+    description: Will stay
+    title: Kept
+    detail_template: "kept"
+    params: {}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import generate_python
+
+    # Pre-create a hand-authored sibling whose first line is NOT the
+    # codegen sentinel. The orphan-cleanup pass must skip it.
+    hand_authored = output_dir / "hand_authored.py"
+    hand_authored.write_text('"""Hand-authored helper, not generated."""\nVALUE = 42\n')
+
+    generate_python(path, output_dir)
+
+    assert hand_authored.exists(), (
+        "Codegen orphan-cleanup MUST skip files without the generator sentinel — "
+        "otherwise a wrong output_dir invocation could wipe unrelated user code."
+    )
+    # Sanity: the kept code IS generated.
+    assert (output_dir / "kept_error.py").exists()
 
 
 def test_str_format_raises_keyerror_when_template_placeholder_absent_from_params() -> None:

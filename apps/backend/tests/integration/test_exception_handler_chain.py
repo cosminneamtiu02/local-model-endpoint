@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
+from pydantic import BaseModel, Field
 
 from app.api.exception_handler_registry import register_exception_handlers
 from app.api.request_id_middleware import RequestIdMiddleware
@@ -22,6 +23,7 @@ from app.exceptions import (
     QueueFullError,
     RegistryNotFoundError,
 )
+from app.schemas.problem_extras import VALIDATION_ERRORS_MAX_LENGTH
 from app.schemas.wire_constants import REQUEST_ID_HEADER
 from tests._helpers import assert_problem_json_envelope, make_async_client
 
@@ -66,6 +68,16 @@ def _build_app() -> FastAPI:
     async def raise_multi_validate(first_param: int, second_param: int) -> dict[str, Any]:
         return {"ok": first_param + second_param}
 
+    class _Item(BaseModel):
+        n: int = Field(ge=0)
+
+    class _Bulk(BaseModel):
+        items: list[_Item]
+
+    @app.post("/raise/bulk-validate")
+    async def raise_bulk_validate(body: _Bulk) -> dict[str, Any]:
+        return {"ok": len(body.items)}
+
     app.add_middleware(RequestIdMiddleware)
     return app
 
@@ -81,23 +93,18 @@ async def asgi_client() -> AsyncGenerator[AsyncClient]:
 
 
 def _assert_problem_json(response: Response, *, status: int, code: str) -> dict[str, Any]:
-    """Thin wrapper over :func:`tests._helpers.assert_problem_json_envelope`.
+    """Thin alias over :func:`tests._helpers.assert_problem_json_envelope`.
 
-    Adds a fifth integration-tier invariant beyond the shared helper:
-      5. Body's ``status`` field equals the wire ``response.status_code``
-         (RFC 7807 §3.1 MUST). The handler is the source of truth for both,
-         so a divergence here pins a real handler bug.
-
-    Returns the parsed body so the call site can make code-specific assertions.
+    Sets ``check_request_id_correlation=True`` so every integration-tier
+    assertion exercises the middleware↔handler correlation contract by
+    default. Returns the parsed body for code-specific follow-ups.
     """
-    body = assert_problem_json_envelope(
+    return assert_problem_json_envelope(
         response,
         status=status,
         code=code,
         check_request_id_correlation=True,
     )
-    assert body["status"] == status
-    return body
 
 
 # ── DomainError → typed RFC 7807 response ─────────────────────────────────
@@ -173,6 +180,28 @@ async def test_multi_field_validation_error_detail_points_to_array(
     assert body["detail"] == (
         f"Validation failed for {n} fields. See validation_errors[] for details."
     )
+
+
+async def test_validation_errors_above_cap_returns_422_not_500(
+    asgi_client: AsyncClient,
+) -> None:
+    """A request producing >VALIDATION_ERRORS_MAX_LENGTH errors stays 422, not 500.
+
+    Without the handler-side slice, Pydantic's ``ProblemExtras(max_length=64)``
+    would raise on construction, the ValidationError would escape the
+    422-handler, and the catch-all 500 handler would ship INTERNAL_ERROR —
+    silently demoting a legitimate 422 (non-retryable) into a 500
+    (retryable per RFC 9110). This test pins the wire-status invariant.
+    """
+    too_many = VALIDATION_ERRORS_MAX_LENGTH + 16  # ~80 distinct errors
+    body_payload = {"items": [{"n": -1} for _ in range(too_many)]}
+    response = await asgi_client.post("/raise/bulk-validate", json=body_payload)
+    body = _assert_problem_json(response, status=422, code="VALIDATION_FAILED")
+    assert len(body["validation_errors"]) == VALIDATION_ERRORS_MAX_LENGTH
+    # Detail surfaces the truncation explicitly.
+    assert "first" in body["detail"]
+    assert str(VALIDATION_ERRORS_MAX_LENGTH) in body["detail"]
+    assert str(too_many) in body["detail"]
 
 
 # ── Unhandled exception → 500 with no PII / stack leak ────────────────────

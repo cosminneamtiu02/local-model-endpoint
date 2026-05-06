@@ -87,7 +87,7 @@ def test_problem_details_rejects_missing_status() -> None:
     """status is required (RFC 7807 §3.1)."""
     kwargs: dict[str, object] = dict(_base_kwargs())
     del kwargs["status"]
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="status"):
         ProblemDetails.model_validate(kwargs)
 
 
@@ -95,7 +95,7 @@ def test_problem_details_rejects_status_out_of_range() -> None:
     """status must be 400-599 — non-error responses are not problems."""
     kwargs: dict[str, object] = dict(_base_kwargs())
     kwargs["status"] = 200
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="status"):
         ProblemDetails.model_validate(kwargs)
 
 

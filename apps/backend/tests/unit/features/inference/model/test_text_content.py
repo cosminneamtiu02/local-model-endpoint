@@ -24,31 +24,31 @@ def test_text_content_rejects_unknown_field() -> None:
 
 
 def test_text_content_rejects_wrong_type_discriminator() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="type"):
         TextContent.model_validate({"type": "image", "text": "x"})
 
 
 def test_text_content_requires_text_field() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="text"):
         TextContent.model_validate({"type": "text"})
 
 
 def test_text_content_rejects_empty_text() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="at least 1 character"):
         TextContent(text="")
 
 
 def test_text_content_rejects_whitespace_only_text() -> None:
     # str_strip_whitespace + min_length=1 rejects whitespace-only inputs that
     # would otherwise bypass min_length=1 by being literally non-empty strings.
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="at least 1 character"):
         TextContent(text="   ")
 
 
 def test_text_content_rejects_oversize_text() -> None:
     # max_length caps the per-part DoS surface; one char over is rejected.
     oversize = TEXT_PART_MAX_CHARS + 1
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="at most"):
         TextContent(text="x" * oversize)
 
 

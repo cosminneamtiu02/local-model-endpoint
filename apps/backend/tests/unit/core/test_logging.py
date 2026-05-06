@@ -151,6 +151,25 @@ def test_redaction_processor_strips_sensitive_keys(sensitive_key: str) -> None:
     assert result["event"] == "smoke"
 
 
+def test_configure_logging_does_not_cache_logger_on_first_use() -> None:
+    """Pin the CLAUDE.md ban on ``cache_logger_on_first_use=True``.
+
+    Caching the bound logger freezes the processor chain for that logger
+    and breaks ``structlog.reset_defaults()`` in the test reconfiguration
+    path. The CLAUDE.md sacred rule says "Never set
+    cache_logger_on_first_use=True"; this test asserts the runtime config
+    matches by checking that ``configure(...)`` either omits the kwarg
+    (structlog defaults to ``False``) or sets it to ``False`` explicitly.
+    """
+    configure_logging(log_level="info", json_output=False)
+    cache_setting = structlog.get_config().get("cache_logger_on_first_use")
+    assert cache_setting is not True, (
+        "CLAUDE.md sacred rule: cache_logger_on_first_use must NEVER be True. "
+        "Caching freezes the bound logger and breaks structlog.reset_defaults() "
+        "in test reconfiguration."
+    )
+
+
 def test_redaction_processor_is_in_shared_processors() -> None:
     """The redaction processor MUST be in the configured chain or the
     isolation test above is meaningless. Drops to a membership check on the
@@ -160,6 +179,55 @@ def test_redaction_processor_is_in_shared_processors() -> None:
     configure_logging(log_level="info", json_output=False)
     processors = structlog.get_config()["processors"]
     assert _redact_sensitive_keys in processors, processors
+
+
+@pytest.mark.parametrize(
+    "operator_key",
+    [
+        "path",
+        "instance",
+        "request_id",
+        "method",
+        "client_ip",
+        "client_port",
+        "code",
+        "status_code",
+        "error_code",
+        "failure_category",
+        "detail",
+        "exc_type",
+        "exc_message",
+        "phase",
+        "version",
+        "env",
+        "finish_reason",
+        "model_name",
+        "message_count",
+        "option_keys",
+        "duration_ms",
+        "prompt_tokens",
+        "completion_tokens",
+        "env_vars",
+        "unknown_lip_env_vars",
+    ],
+)
+def test_redaction_processor_does_not_strip_canonical_operator_keys(operator_key: str) -> None:
+    """Pin the "intentionally NOT redacted" enumeration in ``_REDACTION_BLOCKLIST``'s docstring.
+
+    The redactor's docstring promises these keys ride through unmolested
+    (load-bearing operator telemetry: routing/correlation, error triage,
+    lifecycle, ADR-014 env-var diagnostics). A future PR adding any of
+    these names to ``_REDACTION_BLOCKLIST`` would silently scrub the
+    operator-canonical surface — this test pins the contract.
+    """
+    from app.core.logging import _redact_sensitive_keys
+
+    event_dict = {operator_key: "expected-value", "event": "smoke"}
+    result = _redact_sensitive_keys(None, "info", event_dict)
+    assert result[operator_key] == "expected-value", (
+        f"{operator_key!r} is operator-canonical telemetry and must NOT be redacted; "
+        "see the _REDACTION_BLOCKLIST docstring for the load-bearing enumeration."
+    )
 
 
 def test_redaction_processor_redacts_contextvar_bound_message_content(

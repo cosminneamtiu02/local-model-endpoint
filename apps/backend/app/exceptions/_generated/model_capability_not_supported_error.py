@@ -9,7 +9,7 @@ from app.exceptions.base import DomainError
 
 
 class ModelCapabilityNotSupportedError(DomainError):
-    """Request requires a capability the model does not advertise (LIP-E001-F002)"""
+    """Request requires a capability the model does not advertise (LIP-E001-F002)."""
 
     code: ClassVar[str] = "MODEL_CAPABILITY_NOT_SUPPORTED"
     http_status: ClassVar[int] = 422

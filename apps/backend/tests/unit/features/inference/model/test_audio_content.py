@@ -22,7 +22,7 @@ def test_audio_content_accepts_url_only() -> None:
 
 def test_audio_content_rejects_non_http_scheme_url() -> None:
     """Symmetric with ImageContent — non-http(s) schemes are rejected."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="URL scheme"):
         AudioContent.model_validate({"url": "file:///etc/passwd"})
 
 
@@ -49,12 +49,12 @@ def test_audio_content_rejects_neither_url_nor_base64() -> None:
 
 
 def test_audio_content_rejects_empty_url() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="url"):
         AudioContent.model_validate({"url": ""})
 
 
 def test_audio_content_rejects_empty_base64() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="at least 1 character"):
         AudioContent(base64="")
 
 
@@ -68,12 +68,12 @@ def test_audio_content_rejects_unknown_field() -> None:
 def test_audio_content_rejects_oversize_base64() -> None:
     """Caps the inline-blob DoS surface; one char over the cap is rejected."""
     oversize = BASE64_MEDIA_MAX_CHARS + 1
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="at most"):
         AudioContent(base64="A" * oversize)
 
 
 def test_audio_content_rejects_oversize_url() -> None:
     """URL-length cap rejects a URL longer than ``URL_MAX_CHARS``."""
     pad_len = (URL_MAX_CHARS + 1) - len("http://x/")
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="url"):
         AudioContent.model_validate({"url": "http://x/" + ("a" * pad_len)})

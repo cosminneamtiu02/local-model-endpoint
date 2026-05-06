@@ -6,7 +6,7 @@ from app.exceptions.base import DomainError
 
 
 class MethodNotAllowedError(DomainError):
-    """Request used an HTTP method the route does not accept"""
+    """Request used an HTTP method the route does not accept."""
 
     code: ClassVar[str] = "METHOD_NOT_ALLOWED"
     http_status: ClassVar[int] = 405

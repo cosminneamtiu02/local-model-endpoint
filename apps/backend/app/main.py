@@ -89,7 +89,7 @@ def _emit_app_version_resolve_failure() -> None:
         # ``phase="startup"`` matches the ``audit_lip_env_typos`` discipline
         # so a single jq filter ``select(.phase == "startup")`` finds every
         # pre-lifespan diagnostic uniformly — symmetric with ``phase="lifespan"``
-        # (router_registry.lifespan_resources) and ``phase="request"``
+        # (lifespan_resources.lifespan_resources) and ``phase="request"``
         # (RequestIdMiddleware). Distinct event names per failure mode so
         # operator runbooks can route ``select(.event == "app_version_resolve_missing")``
         # ("did the editable install break?") separately from
@@ -105,8 +105,8 @@ def _emit_app_version_resolve_failure() -> None:
     # anyway, so encoding the type+preview here is a faithful record.
     # Route through ``ascii_safe`` so a control-char-bearing exception
     # ``__str__`` cannot inject terminal escape sequences into stdout —
-    # symmetric with every other ``exc_message=`` site (ollama_client.py,
-    # exception_handler_registry.py, request_id_middleware.py, deps.py).
+    # ``EXC_MESSAGE_PREVIEW_MAX_CHARS`` keeps every ``exc_message=`` site
+    # in lockstep on the truncation cap.
     logger.warning(
         "app_version_resolve_unexpected_error",
         exc_type=type(exc).__name__,
@@ -170,7 +170,17 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         async with lifespan_resources(settings) as state:
             application.state.context = state
             entered_yield = True
-            logger.info("lifespan_resources_ready", phase="lifespan", env=settings.app_env)
+            logger.info(
+                "lifespan_resources_ready",
+                phase="lifespan",
+                # ``version=`` for field-set parity with ``app_startup`` /
+                # ``app_shutdown`` / ``app_shutdown_completed`` so a single
+                # jq filter on ``.version`` walks the entire seven-event
+                # lifecycle uniformly. Drift here was the round-20 lane-17
+                # finding.
+                version=application.version,
+                env=settings.app_env,
+            )
             try:
                 yield
             except CancelledError:
@@ -226,7 +236,12 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # also-not-critical case (e.g. uvicorn aborted before resources
         # constructed). The bare ``raise`` preserves cancellation propagation.
         event_name = "app_shutdown_cancelled" if entered_yield else "app_startup_cancelled"
-        logger.info(event_name, phase="lifespan", env=settings.app_env)
+        logger.info(
+            event_name,
+            phase="lifespan",
+            version=application.version,
+            env=settings.app_env,
+        )
         raise
     except Exception:
         # A resource-construction failure (settings drift, OllamaClient
@@ -249,6 +264,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         logger.critical(
             event_name,
             phase="lifespan",
+            version=application.version,
             env=settings.app_env,
             exc_info=True,
         )
@@ -261,7 +277,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # (resources never reached the inner finally) doesn't emit a
         # confusing teardown line for a teardown that never ran.
         if shutdown_started is not None:
-            # ``version=`` for field-set parity with ``app_shutdown`` (line 187)
+            # ``version=`` for field-set parity with ``app_shutdown``
             # so a jq filter ``select(.event | startswith("app_shutdown"))``
             # finds both events and joins on the same field set rather than
             # encountering ``version`` on one half of the pair only.

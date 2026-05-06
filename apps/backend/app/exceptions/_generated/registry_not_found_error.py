@@ -7,7 +7,7 @@ from app.exceptions.base import DomainError
 
 
 class RegistryNotFoundError(DomainError):
-    """Logical model name not present in the model registry (LIP-E002-F001)"""
+    """Logical model name not present in the model registry (LIP-E002-F001)."""
 
     code: ClassVar[str] = "REGISTRY_NOT_FOUND"
     http_status: ClassVar[int] = 404

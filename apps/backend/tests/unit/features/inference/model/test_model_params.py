@@ -53,7 +53,7 @@ def test_model_params_temperature_accepts_values_in_range(temperature: float) ->
     ],
 )
 def test_model_params_temperature_rejects_values_out_of_range(temperature: float) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="temperature"):
         ModelParams(temperature=temperature)
 
 
@@ -78,7 +78,7 @@ def test_model_params_top_p_accepts_values_in_range(top_p: float) -> None:
     ],
 )
 def test_model_params_top_p_rejects_values_out_of_range(top_p: float) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="top_p"):
         ModelParams(top_p=top_p)
 
 
@@ -102,7 +102,7 @@ def test_model_params_top_k_accepts_values_in_range(top_k: int) -> None:
     ],
 )
 def test_model_params_top_k_rejects_values_out_of_range(top_k: int) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="top_k"):
         ModelParams(top_k=top_k)
 
 
@@ -126,7 +126,7 @@ def test_model_params_max_tokens_accepts_values_in_range(max_tokens: int) -> Non
     ],
 )
 def test_model_params_max_tokens_rejects_values_out_of_range(max_tokens: int) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="max_tokens"):
         ModelParams(max_tokens=max_tokens)
 
 
@@ -155,7 +155,7 @@ def test_model_params_seed_accepts_values_in_range(seed: int) -> None:
     ],
 )
 def test_model_params_seed_rejects_out_of_range_values(seed: int) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="seed"):
         ModelParams(seed=seed)
 
 

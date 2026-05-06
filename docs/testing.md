@@ -36,7 +36,7 @@ router lands and there is end-to-end behavior worth covering against the real ba
   + LIP extensions present, `application/problem+json` advertised on the `/health` default
   response). A full Schemathesis fuzz against every endpoint will be wired once the LIP
   feature router (LIP-E001-F002) lands and there are inference operations to fuzz.
-- **Location:** `tests/contract/test_openapi_shape.py` (canary), `tests/contract/test_problem_details_contract.py` (RFC 7807).
+- **Location:** `tests/contract/test_openapi_shape.py` (canary), `tests/contract/test_problem_details_shape.py` (RFC 7807).
 
 ## Lifecycle and lifespan integration
 
@@ -65,7 +65,7 @@ order, payload, error mapping) without any real Ollama process running.
 
 - Unit: `tests/unit/<mirrors source tree>/test_<module>.py`
 - Integration: `tests/integration/<mirrors source tree>/test_<module>.py`
-- Contract: `tests/contract/test_openapi_shape.py` (OpenAPI canary), `tests/contract/test_problem_details_contract.py` (RFC 7807 wire shape).
+- Contract: `tests/contract/test_openapi_shape.py` (OpenAPI canary), `tests/contract/test_problem_details_shape.py` (RFC 7807 wire shape).
 
 ## Pre-commit / Pre-push / CI
 

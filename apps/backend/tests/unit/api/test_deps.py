@@ -122,8 +122,20 @@ def test_audit_lip_env_typos_warns_on_unknown_lip_env_var(
 def test_audit_lip_env_typos_does_not_warn_when_all_env_vars_known(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Happy path: only declared env vars set → no audit warning fires."""
-    monkeypatch.setenv("LIP_LOG_LEVEL", "warning")
+    """Happy path: every declared Settings field set → no audit warning fires.
+
+    Loops over ``Settings.model_fields`` rather than picking one name so
+    a future field added to Settings is auto-covered. The audit's
+    declared-set-construction (which expands ``validation_alias`` /
+    ``AliasChoices`` per field) is exercised against every field, not
+    just one — defeating the regression where a future ADR adding alias
+    expansion broke for a single field while one-field tests stayed
+    green.
+    """
+    from app.core.config import Settings
+
+    for name in Settings.model_fields:
+        monkeypatch.setenv(f"LIP_{name.upper()}", "x")
     with structlog.testing.capture_logs() as captured:
         audit_lip_env_typos()
     assert not [entry for entry in captured if entry.get("event") == "unknown_lip_env_vars_ignored"]

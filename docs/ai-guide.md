@@ -12,11 +12,12 @@ configuration via pydantic-settings ([app/core/config.py](../apps/backend/app/co
 structured logging via structlog ([app/core/logging.py](../apps/backend/app/core/logging.py)),
 and FastAPI dependency injection for settings ([app/api/deps.py](../apps/backend/app/api/deps.py)).
 
-**Middleware** is reduced to request-id propagation only
-([app/api/request_id_middleware.py](../apps/backend/app/api/request_id_middleware.py)). Access log emission,
-security headers, and CORS were stripped during project-bootstrap because the service is
-local-network-only and v1's Project Boundary defers structured-log emission to a future
-milestone.
+**Middleware** is reduced to request-id propagation plus a per-request access log
+([app/api/request_id_middleware.py](../apps/backend/app/api/request_id_middleware.py)).
+Security headers and CORS were stripped during project-bootstrap because the service is
+local-network-only. The access log emits a single `request_completed` JSON line per
+request (method, path, status, duration_ms, request_id, client addr); see
+[docs/runbook.md](runbook.md) for the operator triage shape.
 
 **Error handling** is fully implemented via the code-generated system. Error codes live
 in [packages/error-contracts/errors.yaml](../packages/error-contracts/errors.yaml) — a
@@ -31,14 +32,14 @@ unified RFC 7807 `application/problem+json` ProblemDetails envelope (LIP-E004-F0
 for liveness. Readiness will be added by LIP-E006-F001 when the warm-up signal from
 LIP-E005-F001 is wired.
 
-**Architecture enforcement** is mechanical: import-linter has fifteen contracts —
+**Architecture enforcement** is mechanical: import-linter has fourteen contracts —
 1 generated-error gate (`no-direct-generated-error-imports`) +
 4 leaf rules (`core-is-leaf`, `exceptions-is-leaf`, `schemas-is-leaf`,
-`inference-model-is-leaf`) +
+`inference-model-is-leaf` — the last absorbs the model→repository forbidden
+edge that previously lived in a separate contract) +
 `features-are-independent` (cross-feature isolation) +
-4 inference-internal layering rules (`inference-model-no-schemas`,
-`inference-repository-no-schemas`, `inference-model-no-repository`,
-`inference-schemas-no-repository`) +
+3 inference-internal layering rules (`inference-model-no-schemas`,
+`inference-repository-no-schemas`, `inference-schemas-no-repository`) +
 2 inference cross-layer rules (`inference-schemas-cross-layer`,
 `inference-repository-cross-layer`) that forbid the inference feature
 reaching up into `app.api`/`app.exceptions` from those layers +
