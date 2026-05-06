@@ -125,7 +125,7 @@ and `duration_ms` on the trailing `request_completed` line.
 | Event | When it fires | Level |
 |---|---|---|
 | `app_startup` | First line of `lifespan` after `configure_logging` | `info` |
-| `lifespan_resources_ready` | After `OllamaClient` is constructed and bound to `app.state.context` | `info` |
+| `app_startup_completed` | After `OllamaClient` is constructed and bound to `app.state.context` (mirrors `app_shutdown_completed` on the teardown half) | `info` |
 | `app_shutdown` | Inner `finally` of lifespan (carries `reason="clean"|"cancelled"|"exception"`) | `info` |
 | `app_shutdown_completed` | Outer `finally` after `lifespan_resources` exits | `info` |
 | `app_startup_cancelled` / `app_shutdown_cancelled` | `CancelledError` arm (SIGTERM, Ctrl-C) | `info` |

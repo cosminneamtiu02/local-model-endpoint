@@ -86,18 +86,20 @@ def _emit_app_version_resolve_failure() -> None:
     if exc is None:
         return
     if isinstance(exc, _metadata.PackageNotFoundError):
-        # ``phase="startup"`` matches the ``audit_lip_env_typos`` discipline
-        # so a single jq filter ``select(.phase == "startup")`` finds every
-        # pre-lifespan diagnostic uniformly — symmetric with ``phase="lifespan"``
-        # (lifespan_resources.lifespan_resources) and ``phase="request"``
-        # (RequestIdMiddleware). Distinct event names per failure mode so
-        # operator runbooks can route ``select(.event == "app_version_resolve_missing")``
+        # ``phase="pre_lifespan"`` matches the ``audit_lip_env_typos``
+        # discipline so a single jq filter
+        # ``select(.phase == "pre_lifespan")`` finds every pre-
+        # ``configure_logging`` diagnostic uniformly — symmetric with
+        # ``phase="lifespan"`` (lifespan_resources.lifespan_resources)
+        # and ``phase="request"`` (RequestIdMiddleware). Distinct event
+        # names per failure mode so operator runbooks can route
+        # ``select(.event == "app_version_resolve_missing")``
         # ("did the editable install break?") separately from
         # ``select(.event == "app_version_resolve_unexpected_error")``
         # (importlib.metadata internal regression) without joining on a
-        # ``reason=`` kwarg — symmetric with the ``app_startup_cancelled`` vs
-        # ``app_shutdown_cancelled`` discrimination pattern.
-        logger.warning("app_version_resolve_missing", phase="startup")
+        # ``reason=`` kwarg — symmetric with the ``app_startup_cancelled``
+        # vs ``app_shutdown_cancelled`` discrimination pattern.
+        logger.warning("app_version_resolve_missing", phase="pre_lifespan")
         return
     # ``logger.warning(..., exc_type=..., exc_message=...)`` ships the
     # exception identity without ``exc_info=True`` — the traceback is
@@ -111,7 +113,7 @@ def _emit_app_version_resolve_failure() -> None:
         "app_version_resolve_unexpected_error",
         exc_type=type(exc).__name__,
         exc_message=ascii_safe(str(exc), max_chars=EXC_MESSAGE_PREVIEW_MAX_CHARS),
-        phase="startup",
+        phase="pre_lifespan",
     )
 
 
@@ -170,14 +172,17 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         async with lifespan_resources(settings) as state:
             application.state.context = state
             entered_yield = True
+            # ``app_startup_completed`` mirrors ``app_shutdown_completed``
+            # so the ``*_completed`` family is the canonical "the
+            # corresponding *_started phase finished cleanly" signal —
+            # operator dashboards keying on
+            # ``select(.event | endswith("_completed"))`` find both
+            # startup-success and shutdown-success uniformly. The
+            # previous name (``lifespan_resources_ready``) read as an
+            # internal seam rather than a startup terminal.
             logger.info(
-                "lifespan_resources_ready",
+                "app_startup_completed",
                 phase="lifespan",
-                # ``version=`` for field-set parity with ``app_startup`` /
-                # ``app_shutdown`` / ``app_shutdown_completed`` so a single
-                # jq filter on ``.version`` walks the entire seven-event
-                # lifecycle uniformly. Drift here was the round-20 lane-17
-                # finding.
                 version=application.version,
                 env=settings.app_env,
             )
