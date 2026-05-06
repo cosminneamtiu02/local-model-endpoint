@@ -42,6 +42,7 @@ tasks:
       - task: check:coverage
       - task: check:coverage:errors
       - task: check:test-class-regex-sync
+      - task: check:detect-secrets-version-sync
       - task: check:plist
       - task: check:audit
       - task: check:secrets
@@ -252,6 +253,34 @@ tasks:
     dir: "{{.ERROR_CONTRACTS_DIR}}"
     cmds:
       - uv run --frozen pytest tests/ --cov=scripts --cov-report=term-missing --cov-fail-under=80
+
+  check:detect-secrets-version-sync:
+    desc: Verify the detect-secrets pin matches between pre-commit and the CI invocation
+    # ``.pre-commit-config.yaml`` runs the local pre-commit hook against
+    # ``rev: vX.Y.Z`` and ``Taskfile.yml``'s ``check:secrets`` invokes
+    # ``uv tool run --from detect-secrets==X.Y.Z`` directly. Both must
+    # share the same version literal — a Dependabot PR that bumps the
+    # pre-commit hook without bumping the Taskfile pin (or vice versa)
+    # silently differs which detection rules fire locally vs in CI. The
+    # CLAUDE.md detect-secrets-symmetry rule (pre-commit ↔ CI) depends
+    # on these two staying aligned. Mirrors the
+    # ``check:test-class-regex-sync`` pattern.
+    cmds:
+      - |
+        set -euo pipefail
+        precommit_pin=$(grep -E '^\s+rev:\s+v[0-9]' .pre-commit-config.yaml | grep -A 0 'detect-secrets' || true)
+        # Re-anchor the search if the rev: line precedes the repo: line in the YAML order
+        # (the ``-B 1`` form is portable across BSD/GNU grep).
+        precommit_rev=$(awk '/repo:.*detect-secrets/{found=1; next} found && /rev:/ {print $2; exit}' .pre-commit-config.yaml)
+        taskfile_rev=$(grep -oE 'detect-secrets==[0-9.]+' Taskfile.yml | head -1 | cut -d= -f3)
+        # Strip the leading ``v`` from the pre-commit pin (tag style) so
+        # the literal compare works against the PEP 440 form in the
+        # Taskfile.
+        precommit_norm=${precommit_rev#v}
+        if [ "$precommit_norm" != "$taskfile_rev" ]; then
+          echo "::error::detect-secrets version drift: .pre-commit-config.yaml=${precommit_rev} (normalized ${precommit_norm}), Taskfile.yml=${taskfile_rev}"
+          exit 1
+        fi
 
   check:test-class-regex-sync:
     desc: Verify the no-test-classes regex AND the python_classes sentinel stay in lockstep across both workspace conftests

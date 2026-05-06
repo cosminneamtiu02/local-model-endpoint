@@ -173,7 +173,7 @@ The incidents below are pre-bootstrap narrative from the full-stack template LIP
 
 ### Incident 3: PR #16 — rebase conflict cascade on sibling pyproject.toml bumps
 
-**Symptom.** After PRs #12, #13, #14, #15 each merged bumps to adjacent lines in [apps/backend/pyproject.toml](../apps/backend/pyproject.toml) (`testcontainers`, `sqlalchemy`, `alembic`, `schemathesis`) (historical example; current deps differ — LIP no longer has any of those packages), PR #16 (`asyncpg`) could not be auto-rebased. `PUT /update-branch` returned `422 merge conflict between base and head`.
+**Symptom.** After PRs #12, #13, #14, #15 each merged bumps to adjacent lines in [apps/backend/pyproject.toml](../apps/backend/pyproject.toml) (`testcontainers`, `sqlalchemy`, `alembic`, `schemathesis`), PR #16 (`asyncpg`) could not be auto-rebased. `PUT /update-branch` returned `422 merge conflict between base and head`.
 
 **Cause.** Each of the four merged PRs modified a distinct line in the same file, but the lines were close enough together that git's 3-way merge could not cleanly reapply PR #16's change on top of the cumulative post-merge state. The conflict was contextual, not semantic — the `asyncpg` bump itself was a trivial one-line edit.
 
