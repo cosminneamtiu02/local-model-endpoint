@@ -288,6 +288,23 @@ jobs:
 
       - name: Commit and push lockfile updates
         if: steps.loop_guard.outputs.skip != 'true'
+        # Lane 16.1 / 10.1: defense-in-depth against shell-context
+        # injection. ``${{ github.event.pull_request.head.sha }}`` is
+        # constrained to ``[0-9a-f]+`` so the SHA branch is low-risk,
+        # but ``head.ref`` permits per ``git-check-ref-format(1)``
+        # characters that ARE shell-active (``(``, ``)``, ``{``, ``}``,
+        # leading dashes after ``/``). Today the workflow ``if:``
+        # restricts the actor to ``dependabot[bot]`` which constrains
+        # branch refs to the closed
+        # ``dependabot/<ecosystem>/<package>-<version>`` alphabet, but
+        # GitHub's bright-line guidance is "never inline ``${{ }}``
+        # untrusted input into shell" — pass through ``env:`` so the
+        # values arrive as POSIX-quoted variables. Symmetric with the
+        # ``BASE_SHA`` / ``HEAD_SHA`` env-block at the
+        # "Detect which manifests changed" step earlier in this file.
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -326,8 +343,9 @@ jobs:
           # (``@dependabot rebase``), the lease check fails and the push
           # is rejected — preventing a stale lockfile from clobbering a
           # rebased manifest.
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          # ``HEAD_SHA`` / ``HEAD_REF`` arrive via the step ``env:``
+          # block above (defense-in-depth against shell-context
+          # injection — see the rationale block on the step header).
           push_status=0
           push_output=$(git push --force-with-lease="$HEAD_REF:$HEAD_SHA" 2>&1) || push_status=$?
           if [ "$push_status" != 0 ]; then

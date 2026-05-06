@@ -357,6 +357,24 @@ def create_app() -> FastAPI:
         # discovery tools (Snyk, FOSSA, GitHub's license API) read it as
         # the canonical signal.
         license_info={"name": "MIT", "identifier": "MIT"},
+        # FORWARD (LIP-E001-F002 / lane 11.5): when the inference router
+        # lands and a second tag joins ``health``, declare
+        # ``openapi_tags=[{"name": "health", "description": "Liveness
+        # and readiness probes."}, {"name": "inference", "description":
+        # "..."}]`` here so SDK codegen tools (openapi-typescript,
+        # openapi-generator) emit grouped method names with descriptions
+        # rather than bare tag names. Pre-feature pinning of the single
+        # entry today would land scaffolding ADR-011 forbids; the
+        # ``health`` tag on ``health_router`` already carries the
+        # routing affordance.
+        # FORWARD (LIP-E001-F002 / lane 11.1): consider
+        # ``default_response_class=ProblemJSONResponse`` (subclass of
+        # JSONResponse with ``media_type=PROBLEM_JSON_MEDIA_TYPE``) so
+        # per-route ``responses=`` declarations stop manually
+        # duplicating the explicit content map for problem+json. Today
+        # the auto-published ``application/json`` slot on /health is
+        # acknowledged as harmless redundancy; the duplication only
+        # matters when feature routers add per-route 4xx/5xx entries.
         lifespan=lifespan,
         # ``redirect_slashes=False`` makes a trailing-slash mismatch
         # surface as a clean 404 problem+json (which the typed exception

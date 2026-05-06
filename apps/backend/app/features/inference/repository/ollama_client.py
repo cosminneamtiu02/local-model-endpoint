@@ -573,6 +573,18 @@ class OllamaClient:
             body["stream"] = False
             response = await self._request("POST", _CHAT_ENDPOINT, json=body)
             response.raise_for_status()
+            # FORWARD (lane 14.5 / streaming sibling): Ollama's
+            # ``/api/chat`` non-stream response is a single JSON object
+            # bounded in practice by the model's ``num_predict`` cap
+            # (under 1 MiB on Gemma 4 E2B), and the LAN-local trusted-
+            # daemon threat model means a multi-GB body is not a real
+            # concern today. When the first streaming sibling
+            # (``/api/generate`` with ``stream=true``, or a future
+            # ``embed()`` method that processes large inputs) lands,
+            # add a ``content-length`` pre-check + chunked-read body cap
+            # here so a wedged Ollama / proxy misconfig cannot exhaust
+            # the 16 GB Mac Mini RAM before ``_decode_ollama_json``'s
+            # malformed-frame guard fires.
             payload = _decode_ollama_json(response)
             result = build_chat_result(payload, model_tag=model_tag)
         except Exception as call_exc:
