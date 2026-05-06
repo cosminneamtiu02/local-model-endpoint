@@ -99,7 +99,12 @@ def _emit_app_version_resolve_failure() -> None:
         # (importlib.metadata internal regression) without joining on a
         # ``reason=`` kwarg — symmetric with the ``app_startup_cancelled``
         # vs ``app_shutdown_cancelled`` discrimination pattern.
-        logger.warning("app_version_resolve_missing", phase="pre_lifespan")
+        logger.warning(
+            "app_version_resolve_missing",
+            package_name="lip-backend",
+            fallback_version="unknown",
+            phase="pre_lifespan",
+        )
         return
     # ``logger.warning(..., exc_type=..., exc_message=...)`` ships the
     # exception identity without ``exc_info=True`` — the traceback is
@@ -141,6 +146,10 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     # ``uvicorn app.main:app --host X --port Y`` invocation would advertise
     # the Settings values here while uvicorn binds elsewhere — uvicorn's
     # own startup line is the source of truth for the actual bind.
+    # Hoist BEFORE the started emit so ``app_startup_completed.duration_ms``
+    # encloses the started-event's structlog rendering cost too — matches
+    # the OllamaClient.chat / ollama_call_* discipline.
+    start = time.perf_counter()
     logger.info(
         # ``app_startup_started`` (not the bare ``app_startup``) keeps
         # the lifespan family's verb-tense uniform with the per-call
@@ -149,8 +158,14 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # operation-start event uniformly. Sibling pair: the
         # ``app_startup_completed`` line below, the
         # ``app_startup_cancelled`` / ``app_startup_failed`` arms.
+        # ``scope="construction"`` discriminates the startup window from
+        # ``scope="uptime"`` (yield window) and ``scope="teardown"``
+        # (post-yield AsyncExitStack unwind) on the shutdown family —
+        # operators querying ``select(.scope == "construction")`` find
+        # every lifespan-startup event uniformly across the codebase.
         "app_startup_started",
         phase="lifespan",
+        scope="construction",
         env=settings.app_env,
         version=application.version,
         bind_host=settings.bind_host,
@@ -165,7 +180,6 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         allow_external_ollama=settings.allow_external_ollama,
         allow_public_bind=settings.allow_public_bind,
     )
-    start = time.perf_counter()
     shutdown_started: float | None = None
     shutdown_reason = "clean"
     # Track whether we entered the resource-yield window so the outer
@@ -198,9 +212,11 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             logger.info(
                 "app_startup_completed",
                 phase="lifespan",
+                scope="construction",
                 reason="clean",
                 version=application.version,
                 env=settings.app_env,
+                duration_ms=elapsed_ms(start),
             )
             try:
                 yield
@@ -397,6 +413,11 @@ def create_app() -> FastAPI:
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",
         openapi_url=None if is_prod else "/openapi.json",
+        # Swagger's OAuth2 redirect helper route mounts at
+        # ``/docs/oauth2-redirect`` by default in FastAPI 0.136 even when
+        # ``docs_url=None``. Symmetric pin so production has zero
+        # docs-tier surface.
+        swagger_ui_oauth2_redirect_url=None if is_prod else "/docs/oauth2-redirect",
     )
 
     configure_middleware(application)

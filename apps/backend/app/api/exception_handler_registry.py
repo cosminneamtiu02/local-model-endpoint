@@ -59,7 +59,6 @@ content-negotiated; the ``title`` and ``detail`` strings (per RFC 7807 §3.1
 "SHOULD be localizable") become the i18n hook points.
 """
 
-import itertools
 import uuid
 from collections.abc import Mapping
 from http import HTTPStatus
@@ -191,10 +190,15 @@ def _resolve_request_id(request: Request) -> _RequestIdResolution:
     )
     # ``path``, ``method``, ``request_id``, and ``phase`` ride in via
     # ``merge_contextvars`` from the bind above; ``request_id_source=
-    # "fallback"`` is the discriminator. No additional kwargs needed —
-    # passing ``fallback_request_id=fallback`` would duplicate the
-    # contextvar-bound ``request_id`` field under a second key.
-    logger.warning("request_id_missing_in_state")
+    # "fallback"`` is the discriminator. ``error`` (not ``warning``)
+    # because the underlying cause is misconfigured middleware — every
+    # subsequent request will hit the same path and the wire response
+    # will ship a synthesized fallback UUID that no consumer-side log can
+    # correlate against. Sibling diagnostic ``app_state_unavailable`` in
+    # ``deps.py`` is also at ``error`` for the same "infrastructure
+    # layer didn't run" severity; operator paging on level=error catches
+    # both diagnostics uniformly.
+    logger.error("request_id_missing_in_state")
     return _RequestIdResolution(fallback, missed_middleware=True)
 
 
@@ -243,12 +247,14 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
     spread: dict[str, Any] = (
         exc.params.model_dump(mode="json") if exc.params and not suppress_typed_params else {}
     )
-    # ProblemDetails uses ``extra='allow'`` at runtime for typed extension
-    # fields. Pydantic-model ``extras`` is dumped (mode='python') so the
-    # ``**`` unpack carries the validated typed-extension values without
-    # round-tripping through JSON.
+    # Both spreads use ``mode="json"`` symmetrically so a future ProblemExtras
+    # field carrying a non-JSON-primitive (datetime / UUID / Decimal) renders
+    # uniformly across typed params and extras. The ``ProblemDetails(extra=
+    # "allow")`` model preserves whatever Python value is unpacked into it,
+    # so an asymmetric ``mode="python"`` here would land native objects under
+    # the typed-spread root keys but JSON-primitives under the extras keys.
     extras_widened: dict[str, Any] = (
-        extras.model_dump(mode="python", exclude_none=True) if extras else {}
+        extras.model_dump(mode="json", exclude_none=True) if extras else {}
     )
     # Defense-in-depth: an extras key colliding with a typed spread key would
     # silently win on the ``**`` merge; log + raise loud so the bug surfaces
@@ -480,7 +486,7 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
             # higher-risk vector for control chars than ``field`` was).
             reason=ascii_safe(str(e["msg"]), max_chars=REASON_MAX_CHARS),
         )
-        for e in itertools.islice(raw_errors, VALIDATION_ERRORS_MAX_LENGTH)
+        for e in raw_errors[:VALIDATION_ERRORS_MAX_LENGTH]
     ]
 
     # ``first_field`` / ``first_reason`` are already typed ``str`` from
@@ -584,7 +590,7 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
                     str(e.get("type", "unknown")),
                     max_chars=_DISCRIMINATOR_PREVIEW_MAX_CHARS,
                 )
-                for e in itertools.islice(raw_errors, _DISCRIMINATOR_LOG_LIMIT)
+                for e in raw_errors[:_DISCRIMINATOR_LOG_LIMIT]
             ],
             content_type=ascii_safe(raw_content_type),
             content_length=ascii_safe(raw_content_length),
@@ -927,6 +933,14 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # line even if a future refactor narrows the contextvar lifetime.
     logger.exception(
         "internal_error_5xx_raised",
+        # ``code`` + ``status_code`` for field-set parity with
+        # ``domain_error_5xx_raised`` and ``http_exception_5xx_raised``
+        # so a jq filter ``select(.event | endswith("_5xx_raised")) |
+        # .code`` finds string values uniformly across all three 5xx
+        # branches — instead of ``null`` here vs. typed values on the
+        # typed branches.
+        code=InternalError.code,
+        status_code=int(HTTPStatus.INTERNAL_SERVER_ERROR),
         exc_type=type(exc).__name__,
         method=request.method,
         # ``ascii_safe`` neutralizes log-injection vectors in the decoded

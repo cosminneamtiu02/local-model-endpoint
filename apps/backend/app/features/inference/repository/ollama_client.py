@@ -13,6 +13,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, ascii_safe, elapsed_ms
 from app.features.inference.model.ollama_translation import (
+    CHAT_ENDPOINT,
     build_chat_result,
     translate_message,
     translate_params,
@@ -64,13 +65,6 @@ DEFAULT_LIMITS: Final[httpx.Limits] = httpx.Limits(
 # `_request` boundary so a typo (`"PSOT"`) is a static error, not a 405
 # at runtime. Add a verb here only when a new adapter method needs it.
 type HttpMethod = Literal["GET", "POST"]
-
-# Wire path for the Ollama chat endpoint. Centralized so a future Ollama
-# version bump (or reverse-proxy rewrite to ``/v1/api/chat``) is a one-
-# line edit and the wire-vs-log fields in ``chat()`` cannot drift apart.
-# Operator dashboards keying on ``select(.endpoint == "/api/chat")`` pin
-# off this constant transitively.
-_CHAT_ENDPOINT: Final[str] = "/api/chat"
 
 
 def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
@@ -163,7 +157,27 @@ class OllamaClient:
         # ``Settings._check_safety_invariants`` already rejects userinfo in
         # ``ollama_host``. Default-port elision is httpx's choice (verified:
         # ``URL("http://x:80").netloc`` returns ``b"x"``).
-        parsed = httpx.URL(base_url)
+        try:
+            parsed = httpx.URL(base_url)
+        except httpx.InvalidURL as exc:
+            # Convert httpx's untyped ``InvalidURL`` into a typed ``ValueError``
+            # so the failure-mapping layer (LIP-E003-F003) can route it
+            # uniformly with the other "consumer-supplied bad input" surfaces.
+            # ``Settings._check_safety_invariants`` validates the production
+            # path; this catches non-Settings construction (test fixtures,
+            # future sibling callers) where junk strings could otherwise
+            # surface as the bare httpx exception.
+            msg = f"OllamaClient base_url={base_url!r} is not a valid URL: {exc}"
+            raise ValueError(msg) from exc
+        # Defense-in-depth scheme guard: ``Settings.ollama_host: AnyHttpUrl``
+        # already enforces http/https in production, but the public
+        # constructor accepts any base_url string. Reject non-HTTP schemes
+        # here so ``file://``, ``ftp://``, etc. cannot reach
+        # ``httpx.AsyncClient``. Symmetric with the ``follow_redirects=False``
+        # / ``trust_env=False`` defense-in-depth toggles below.
+        if parsed.scheme not in ("http", "https"):
+            msg = f"OllamaClient base_url scheme must be http/https, got {parsed.scheme!r}"
+            raise ValueError(msg)
         # ``parsed.path`` (str in httpx 0.28) is included as defense-in-
         # depth; ``Settings._check_safety_invariants`` already rejects
         # path segments in ``LIP_OLLAMA_HOST`` (only "" and "/" pass), so
@@ -206,7 +220,12 @@ class OllamaClient:
         # treats ``transport=None`` as "use the default transport," so the
         # branch-on-None pattern was extra typing surface for no behavior
         # difference. Direct kwargs keeps the precise httpx types instead of
-        # collapsing to ``dict[str, Any]``.
+        # collapsing to ``dict[str, Any]``. The ``transport`` kwarg is a
+        # TEST-ONLY seam for ``httpx.MockTransport`` injection — production
+        # callers always pass ``None`` so the default
+        # ``httpx.AsyncHTTPTransport(retries=0)`` is selected. Retry policy
+        # is intentionally 0 here (LAN-Ollama: idempotency unclear for
+        # ``/api/chat``; orchestrator-tier retry is owned by LIP-E003-F003).
         self._client = httpx.AsyncClient(
             base_url=safe_base_url,
             timeout=timeout,
@@ -248,6 +267,13 @@ class OllamaClient:
             # ``LIP_OLLAMA_HOST=https://...`` case. Kwarg parity with the
             # ``follow_redirects``/``trust_env`` defense-in-depth toggles.
             verify=True,
+            # Explicit ``http2=False`` (httpx 0.28.1 default) so a future
+            # httpx default flip — or an accidental ``httpx[h2]``
+            # transitive — cannot silently introduce h2 multiplexing
+            # against an Ollama daemon that speaks HTTP/1.1. Kwarg parity
+            # with the ``verify=True`` / ``follow_redirects=False`` /
+            # ``trust_env=False`` defense-in-depth toggles above.
+            http2=False,
             transport=transport,
         )
         # No construction-time log: ``__aenter__`` (the actual lifecycle
@@ -296,7 +322,17 @@ class OllamaClient:
                 phase="lifespan",
             )
             lip_version = "unknown"
-        return f"lip-backend/{lip_version} httpx/{httpx.__version__}"
+        # ``ascii_safe`` defense-in-depth: a future build pipeline that
+        # interpolates a non-PEP-440-clean local-version segment (e.g.
+        # ``0.1.0+control\x1b[31mchars``) would otherwise inject the bytes
+        # straight into the User-Agent header. httpcore would reject CRLF
+        # via h11 anyway, but lower-end control bytes have less coverage
+        # — this trims to a reasonable cap and replaces non-ASCII so a
+        # malformed pyproject version cannot crash AsyncClient construction.
+        # Symmetric with the ``ascii_safe`` discipline at every other
+        # consumer-derived header / log site in the file.
+        clean_version = ascii_safe(lip_version, max_chars=64)
+        return f"lip-backend/{clean_version} httpx/{httpx.__version__}"
 
     async def close(self) -> None:
         """Close the underlying httpx.AsyncClient. Idempotent.
@@ -453,7 +489,7 @@ class OllamaClient:
 
         Path validation is intentionally minimal today (absolute-path-only)
         because ``path`` is a closed-alphabet literal at every current call
-        site (the module-level ``_CHAT_ENDPOINT``). The first sibling
+        site (the module-level ``CHAT_ENDPOINT``). The first sibling
         adapter method that interpolates *consumer-controlled* data into
         ``path`` (e.g. ``f"/api/show/{model_tag}"``) MUST land a
         path-segment validation helper rejecting ``..`` / control chars /
@@ -512,8 +548,9 @@ class OllamaClient:
         # reviewer cross-referencing log vs request capture is not surprised
         # by the order mismatch. base_url is intentionally not logged
         # per-call: it's constant for the client's lifetime and present on
-        # the lifecycle-entered/closed lines.
-        option_keys_sorted = sorted(options) if options else []
+        # the lifecycle-entered/closed lines. ``sorted({})`` is itself ``[]``
+        # so no ``if options else []`` short-circuit is needed.
+        option_keys_sorted = sorted(options)
         # ``message_count`` is invariant across the lifecycle pair (started /
         # completed / failed / cancelled all see the same input list), so
         # hoist once and reference everywhere — symmetric with the
@@ -558,7 +595,7 @@ class OllamaClient:
         logger.info(
             "ollama_call_started",
             model_name=model_tag,
-            endpoint=_CHAT_ENDPOINT,
+            endpoint=CHAT_ENDPOINT,
             message_count=message_count,
             option_keys_sorted=option_keys_sorted,
         )
@@ -583,7 +620,7 @@ class OllamaClient:
             if options:
                 body["options"] = options
             body["stream"] = False
-            response = await self._request("POST", _CHAT_ENDPOINT, json=body)
+            response = await self._request("POST", CHAT_ENDPOINT, json=body)
             response.raise_for_status()
             # FORWARD (lane 14.5 / streaming sibling): Ollama's
             # ``/api/chat`` non-stream response is a single JSON object
@@ -641,7 +678,7 @@ class OllamaClient:
                 # from operator data) would fall through to ``"unknown"``
                 # and defeat the dashboarding intent of the bucket above.
                 # Today only ``chat`` is wired and the only path is the
-                # literal ``_CHAT_ENDPOINT``, so this arm is preventive.
+                # literal ``CHAT_ENDPOINT``, so this arm is preventive.
                 failure_category = "transport"
             elif isinstance(call_exc, NotImplementedError):
                 failure_category = "unsupported_input"
@@ -678,7 +715,7 @@ class OllamaClient:
             logger.exception(
                 "ollama_call_failed",
                 model_name=model_tag,
-                endpoint=_CHAT_ENDPOINT,
+                endpoint=CHAT_ENDPOINT,
                 exc_type=type(call_exc).__name__,
                 exc_message=ascii_safe(str(call_exc), max_chars=EXC_MESSAGE_PREVIEW_MAX_CHARS),
                 failure_category=failure_category,
@@ -717,7 +754,7 @@ class OllamaClient:
             logger.info(
                 "ollama_call_cancelled",
                 model_name=model_tag,
-                endpoint=_CHAT_ENDPOINT,
+                endpoint=CHAT_ENDPOINT,
                 exc_type=type(cancel_exc).__name__,
                 duration_ms=duration_ms,
                 ollama_status_code=ollama_status_code,
@@ -736,7 +773,7 @@ class OllamaClient:
         logger.info(
             "ollama_call_completed",
             model_name=model_tag,
-            endpoint=_CHAT_ENDPOINT,
+            endpoint=CHAT_ENDPOINT,
             duration_ms=duration_ms,
             finish_reason=result.finish_reason,
             prompt_tokens=result.prompt_tokens,
