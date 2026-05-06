@@ -96,14 +96,18 @@ def audit_lip_env_typos() -> None:
     actual = {upper for name in os.environ if (upper := name.upper()).startswith(env_prefix_upper)}
     unknown = sorted(actual - declared)
     if unknown:
-        # ``phase="startup"`` keeps this warning grep-compatible with the
-        # rest of the lifecycle taxonomy (lifespan logs carry
-        # ``phase="lifespan"``, request logs carry ``phase="request"``).
-        # The full env-var names are deliberately surfaced as a triage
-        # affordance — operators searching "did this typo fire" can grep
-        # the unknown set directly. CLAUDE.md's prompt-content ban applies
-        # to message bodies; env-var names are operator metadata.
-        logger.warning("unknown_lip_env_vars_ignored", env_vars=unknown, phase="startup")
+        # ``phase="pre_lifespan"`` discriminates pre-``configure_logging``
+        # diagnostics from the lifespan-window events (which carry
+        # ``phase="lifespan"``). The two values are intentionally
+        # disjoint: ``select(.phase == "pre_lifespan")`` finds startup
+        # warnings that fired BEFORE the structlog config landed;
+        # ``select(.phase == "lifespan")`` finds events from the lifespan
+        # body. Request logs use ``phase="request"``. The full env-var
+        # names are deliberately surfaced as a triage affordance —
+        # operators searching "did this typo fire" can grep the unknown
+        # set directly. CLAUDE.md's prompt-content ban applies to
+        # message bodies; env-var names are operator metadata.
+        logger.warning("unknown_lip_env_vars_ignored", env_vars=unknown, phase="pre_lifespan")
 
 
 def get_app_state(request: Request) -> AppState:

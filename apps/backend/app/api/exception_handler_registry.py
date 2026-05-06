@@ -81,6 +81,7 @@ from app.exceptions import (
     ValidationFailedError,
 )
 from app.schemas import ProblemDetails, ProblemExtras, ValidationErrorDetail
+from app.schemas.problem_extras import VALIDATION_ERRORS_MAX_LENGTH
 from app.schemas.validation_error_detail import FIELD_MAX_CHARS, REASON_MAX_CHARS
 from app.schemas.wire_constants import (
     ABOUT_BLANK_TYPE,
@@ -179,7 +180,10 @@ def _resolve_request_id(request: Request) -> _RequestIdResolution:
     structlog.contextvars.bind_contextvars(
         request_id=fallback,
         method=request.method,
-        path=request.url.path,
+        # ``ascii_safe`` neutralizes log-injection vectors in the
+        # decoded path (symmetric with the middleware's bind site —
+        # see ``request_id_middleware.py``).
+        path=ascii_safe(request.url.path, max_chars=INSTANCE_PATH_MAX_CHARS),
         phase="request",
         request_id_source="fallback",
     )
@@ -438,6 +442,16 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # ``application/problem+json`` already defeats browser HTML/JS rendering,
     # but this defends against future ops dashboards that may render
     # ``validation_errors[].field`` into HTML.
+    # Slice raw_errors at VALIDATION_ERRORS_MAX_LENGTH BEFORE constructing
+    # ValidationErrorDetail entries: the schema-side ``max_length`` cap on
+    # ProblemExtras.validation_errors raises ValidationError on >cap, which
+    # would escape this handler and surface as INTERNAL_ERROR (a 422 silently
+    # demoted to 500 — wrong status, wrong retry semantics). Slicing here
+    # makes the wire body a soft truncation: consumers receive the first
+    # ``VALIDATION_ERRORS_MAX_LENGTH`` errors, the ``error_count`` log field
+    # surfaces the pre-slice total, and the ``detail`` override below names
+    # the truncation when it kicks in.
+    raw_error_count = len(raw_errors)
     validation_errors: list[ValidationErrorDetail] = [
         ValidationErrorDetail(
             field=ascii_safe(
@@ -450,7 +464,7 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
             # higher-risk vector for control chars than ``field`` was).
             reason=ascii_safe(str(e["msg"]), max_chars=REASON_MAX_CHARS),
         )
-        for e in raw_errors
+        for e in itertools.islice(raw_errors, VALIDATION_ERRORS_MAX_LENGTH)
     ]
 
     # ``first_field`` / ``first_reason`` are already typed ``str`` from
@@ -463,8 +477,8 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # Hoist ``len(validation_errors)`` once instead of re-evaluating across
     # the log line, the detail-override branches, and the typed-params
     # suppress flag — symmetric with the surrounding code's
-    # hoist-once-then-dispatch idiom (e.g. ``option_keys`` in
-    # ``ollama_client.py:366``).
+    # hoist-once-then-dispatch idiom (e.g. the ``option_keys`` hoist in
+    # ``OllamaClient.chat``).
     error_count = len(validation_errors)
 
     # Symmetric peer of ``domain_error_raised`` (typed 4xx) and
@@ -485,11 +499,18 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # preview. ``first_reason`` is already truncated to ``REASON_MAX_CHARS``
     # by the schema-side cap above; the ``_DISCRIMINATOR_PREVIEW_MAX_CHARS``
     # cap below is the secondary log-line truncation for compactness.
+    # ``error_count`` is the post-slice count (what ships in the wire body's
+    # ``validation_errors[]``); ``raw_error_count`` is the pre-slice total
+    # from Pydantic. They differ only when Pydantic produced more than
+    # ``VALIDATION_ERRORS_MAX_LENGTH`` errors and the soft-truncation kicked
+    # in — operators triaging that case need both values to distinguish "64
+    # actual errors" from "64 of N truncated".
     logger.warning(
         "validation_error_raised",
         code=ValidationFailedError.code,
         status_code=int(HTTPStatus.UNPROCESSABLE_ENTITY),
         error_count=error_count,
+        raw_error_count=raw_error_count,
         first_field=first_field,
         first_reason=first_reason[:_DISCRIMINATOR_PREVIEW_MAX_CHARS],
     )
@@ -531,9 +552,21 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
 
     detail_override: str | None = None
     if error_count > 1:
-        detail_override = (
-            f"Validation failed for {error_count} fields. See validation_errors[] for details."
-        )
+        # Surface the soft-truncation explicitly when Pydantic emitted more
+        # errors than the wire-body cap. Without naming the truncation in
+        # ``detail``, a consumer reading "Validation failed for 64 fields"
+        # cannot tell whether 64 was the actual count or a ceiling. The
+        # ``raw_error_count > error_count`` branch only fires on the
+        # truncation path; the canonical case keeps the original prose.
+        if raw_error_count > error_count:
+            detail_override = (
+                f"Validation failed for {raw_error_count} fields "
+                f"(first {error_count} included). See validation_errors[] for details."
+            )
+        else:
+            detail_override = (
+                f"Validation failed for {error_count} fields. See validation_errors[] for details."
+            )
     elif not error_count:
         # Make the abnormal zero-errors path self-documenting on the wire
         # rather than synthesizing a misleading single-field detail.
@@ -695,7 +728,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # ``ExceptionMiddleware._handle``, so ``sys.exc_info()`` IS populated
         # here. ``logger.exception`` auto-attaches the framework-side traceback
         # via ``dict_tracebacks`` so operators get the raise-site for free —
-        # symmetric with ``domain_error_5xx_raised`` (line 343).
+        # symmetric with ``domain_error_5xx_raised``.
         # ``code`` field-set parity with ``domain_error_5xx_raised`` so
         # ``select(.code == ...)`` queries find both event names.
         logger.exception(
@@ -832,7 +865,10 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
         "internal_error_5xx_raised",
         exc_type=type(exc).__name__,
         method=request.method,
-        path=request.url.path,
+        # ``ascii_safe`` neutralizes log-injection vectors in the decoded
+        # path (symmetric with the middleware bind and the fallback
+        # ``_resolve_request_id`` bind above).
+        path=ascii_safe(request.url.path, max_chars=INSTANCE_PATH_MAX_CHARS),
     )
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)

@@ -55,7 +55,7 @@ def test_settings_is_frozen_at_runtime(field_name: str) -> None:
     for failure-mode reproduction and ``-k`` filter ergonomics).
     """
     settings = make_settings()
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="frozen"):
         # ``setattr`` (not ``settings.field_name = ...``) so pyright
         # doesn't statically reject the assignment under
         # ``frozen=True``; the runtime ValidationError is what we want
@@ -65,8 +65,68 @@ def test_settings_is_frozen_at_runtime(field_name: str) -> None:
 
 def test_settings_extra_forbid_rejects_unknown_kwarg() -> None:
     """extra='forbid' rejects unknown init kwargs (the kwarg-equivalent surface)."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="extra"):
         make_settings(bogus_field="x")
+
+
+def test_settings_secret_named_fields_use_secret_str() -> None:
+    """Pin the ``.env.example`` SecretStr forward-comment as a mechanical guard.
+
+    The ``.env.example`` lead-in instructs that any future secret-bearing
+    field MUST use ``pydantic.SecretStr`` so the value never reaches
+    ``logger.info("app_startup", ...settings...)``. Without enforcement,
+    a future PR wiring ``LIP_OLLAMA_AUTH_TOKEN: str`` would land plain-`str`
+    secrets into log payloads. Today no fields match the heuristic — the
+    test is the canary that fires the moment a secret-named field lands
+    without ``SecretStr``.
+    """
+    from pydantic import SecretStr
+
+    from app.core.config import Settings
+
+    secret_indicator_substrings = ("token", "secret", "password", "key", "credential")
+    for name, field_info in Settings.model_fields.items():
+        lname = name.lower()
+        if any(needle in lname for needle in secret_indicator_substrings):
+            annotation = field_info.annotation
+            assert annotation is SecretStr or (
+                hasattr(annotation, "__args__") and SecretStr in getattr(annotation, "__args__", ())
+            ), (
+                f"Settings field {name!r} matches the secret-name heuristic "
+                f"({secret_indicator_substrings!r}) but its annotation is "
+                f"{annotation!r} — wrap it with ``SecretStr`` so the value "
+                "cannot be logged accidentally (see .env.example forward note)."
+            )
+
+
+def test_env_example_documents_every_settings_field() -> None:
+    """``.env.example`` MUST document every ``Settings`` field as a ``LIP_*=`` line.
+
+    The lead-in comment promises ``grep -E '^LIP_'`` on the file finds
+    every Settings field — without this drift guard, a future field
+    added to ``Settings`` silently misses the operator-discoverability
+    contract. Reads the file directly so the test fails fast on a
+    docs-vs-code drift instead of as missing onboarding instructions.
+    Locates the file relative to ``apps/backend/`` (the file's parents)
+    so it's cwd-invariant under both ``task test`` and direct ``pytest``
+    invocation.
+    """
+    import re
+    from pathlib import Path
+
+    from app.core.config import Settings
+
+    env_example = Path(__file__).resolve().parents[3] / ".env.example"
+    assert env_example.is_file(), f"missing .env.example at {env_example}"
+    content = env_example.read_text(encoding="utf-8")
+    documented = set(re.findall(r"^(LIP_[A-Z_]+)=", content, re.MULTILINE))
+    expected = {f"LIP_{name.upper()}" for name in Settings.model_fields}
+    missing = expected - documented
+    assert not missing, (
+        f"Settings fields missing from .env.example: {sorted(missing)}. "
+        "Every field on Settings must appear as a ``LIP_*=...`` line so the "
+        "``grep -E '^LIP_'`` operator-discoverability contract holds."
+    )
 
 
 def test_settings_extra_forbid_silently_ignores_unknown_env_var(
@@ -199,7 +259,7 @@ def test_settings_bind_host_field_constraints(
     "all-interfaces" error message. Pinning these bounds catches a future
     constraint drop.
     """
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="bind_host"):
         make_settings(bind_host=invalid_host)
 
 
@@ -222,8 +282,10 @@ def test_settings_literal_field_rejects_unknown_value(
     to False and leak debug routes.
     """
     monkeypatch.setenv(var, value)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc_info:
         make_settings()
+    field_name = var.removeprefix("LIP_").lower()
+    assert field_name in str(exc_info.value).lower()
 
 
 # ── Bind-host clamp ──────────────────────────────────────────────────
@@ -273,7 +335,7 @@ def test_settings_bind_port_rejects_out_of_range_values(
 ) -> None:
     """LIP_BIND_PORT outside [1024, 65535] must raise at validation time."""
     monkeypatch.setenv("LIP_BIND_PORT", str(port))
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="bind_port"):
         make_settings()
 
 

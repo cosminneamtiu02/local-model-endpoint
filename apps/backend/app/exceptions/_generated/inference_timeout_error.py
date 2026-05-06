@@ -7,7 +7,7 @@ from app.exceptions.base import DomainError
 
 
 class InferenceTimeoutError(DomainError):
-    """Inference exceeded the per-request timeout (LIP-E004-F003)"""
+    """Inference exceeded the per-request timeout (LIP-E004-F003)."""
 
     code: ClassVar[str] = "INFERENCE_TIMEOUT"
     http_status: ClassVar[int] = 504

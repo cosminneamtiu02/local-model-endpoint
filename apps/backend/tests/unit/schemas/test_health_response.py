@@ -20,20 +20,20 @@ def test_health_response_dump_returns_minimal_shape() -> None:
 
 def test_health_response_rejects_unknown_field() -> None:
     """``extra='forbid'`` keeps the wire surface minimal (LIP liveness contract)."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="extra"):
         HealthResponse.model_validate({"status": "ok", "uptime_seconds": 42})
 
 
 def test_health_response_rejects_non_ok_status() -> None:
     """status is the literal ``"ok"`` — no other value is permitted."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="status"):
         HealthResponse.model_validate({"status": "degraded"})
 
 
 def test_health_response_is_frozen_at_runtime() -> None:
     """``frozen=True`` — the wire shape is immutable post-construction."""
     resp = HealthResponse()
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="frozen"):
         # frozen=True invariant test — assignment must raise at runtime,
         # not get typed-out by pyright.
         resp.status = "ok"

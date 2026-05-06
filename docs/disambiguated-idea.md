@@ -151,6 +151,8 @@ These targets are derived from measured 52 tok/s sustained decode and 611–715 
 
 **Logging in v1.** Architectural placement only — the request envelope's `metadata` field is a pass-through for future `project_id`, `request_id`, `trace_id`. Actual structured-log emission is *explicitly not required* in v1.
 
+*Carve-out:* in-process structured logging via `structlog` plus a single per-request `request_completed` JSON line (method, path, status, duration_ms, request_id, client addr) and the lifespan event family (`app_startup` / `app_startup_completed` / `app_shutdown` / `app_shutdown_completed` / `*_cancelled` / `*_failed`) ARE in scope and shipped — the bound is on *project-attribution* structured logging (per-`project_id` log routing, distributed request-tracing across services, log indexing). The carve-out reflects what landed during the LIP-E004 / round-19 / round-20 polish; the original "explicitly not required" statement was scoped to the cross-service / project-attribution ambition, not to the operator-visibility floor a long-running service needs.
+
 **Live state in v1.** HTTP-introspectable via a `/health` endpoint and state-inspection endpoints exposing queue depth, model-loaded status, and last-request timestamp. Live state is observable only while the FastAPI service is running, which is a natural consequence of G6's on-demand lifecycle.
 
 ### Maintainability

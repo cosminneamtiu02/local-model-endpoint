@@ -92,25 +92,25 @@ def test_message_routes_dict_content_through_content_part_discriminator() -> Non
 def test_message_rejects_empty_string_content() -> None:
     # min_length=1 on the str arm rejects "" — caught at the union arm, not
     # at the model_validator layer.
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="content"):
         Message(role="user", content="")
 
 
 def test_message_rejects_whitespace_only_string_content() -> None:
     # str_strip_whitespace strips before length check.
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="content"):
         Message(role="user", content="   ")
 
 
 def test_message_rejects_empty_content_list() -> None:
     # min_length=1 on the list arm rejects [].
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="content"):
         Message(role="user", content=[])
 
 
 def test_message_rejects_oversize_content_list() -> None:
     # max_length=32 caps content-part cardinality (DoS axis).
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="content"):
         Message(
             role="user",
             content=[TextContent(text="x") for _ in range(_MESSAGE_CONTENT_LIST_MAX_PARTS + 1)],
@@ -120,7 +120,7 @@ def test_message_rejects_oversize_content_list() -> None:
 def test_message_rejects_oversize_string_content() -> None:
     """Boundary computed from the shared cap (oversize = max + 1) so a future cap bump auto-tracks."""
     oversize = TEXT_PART_MAX_CHARS + 1
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="content"):
         Message(role="user", content="x" * oversize)
 
 

@@ -143,12 +143,37 @@ keys (``level``, ``logger``, ``timestamp``, ``event``, ``exception``).
 ``add_log_level``, ``add_logger_name``, and ``TimeStamper`` run AFTER
 ``_redact_sensitive_keys`` in the processor chain (see
 ``configure_logging`` below) and would clobber the ``<redacted>``
-sentinel on those keys silently. Today no entries collide. Routing /
-correlation keys (``path``, ``instance``, ``request_id``, ``method``,
-``env_vars``) are also intentionally NOT redacted — they are pre-
-sanitized at the bind site via ``ascii_safe`` and are load-bearing
-operator telemetry; the ``audit_lip_env_typos`` warning specifically
-needs ``env_vars`` names visible (CLAUDE.md ADR-014 carve-out).
+sentinel on those keys silently. Today no entries collide.
+
+Intentionally NOT redacted (load-bearing operator telemetry — pre-
+sanitized at the bind site via ``ascii_safe`` where consumer-controlled,
+or framework-emitted otherwise):
+
+  * Routing / correlation: ``path``, ``instance``, ``request_id``,
+    ``method``, ``client_ip``, ``client_port``.
+  * Operator-canonical error triage: ``code``, ``status_code``,
+    ``error_code``, ``failure_category``, ``detail`` (truncated to
+    ``REASON_MAX_CHARS`` at the emit site), ``exc_type``,
+    ``exc_message`` (ASCII-cleaned + truncated at the emit site).
+  * Lifecycle telemetry: ``phase``, ``version``, ``env``,
+    ``finish_reason``, ``model_name``, ``message_count``,
+    ``option_keys``, ``duration_ms``, ``prompt_tokens``,
+    ``completion_tokens``.
+  * Diagnostic NAMES (CLAUDE.md ADR-014 carve-out): ``env_vars``,
+    ``unknown_lip_env_vars`` — the ``audit_lip_env_typos`` warning
+    surfaces typo'd LIP_* env-var NAMES (values are never read).
+
+A future PR adding any of those keys to ``_REDACTION_BLOCKLIST`` would
+silently scrub the operator-canonical surface; the matched-key
+positive-side test in ``test_logging.py`` pins this contract.
+
+The structlog-injected ``exception`` key (added by ``ExceptionRenderer``
+when ``logger.exception`` fires) is also outside the redactor's reach —
+the redactor inspects only top-level event-dict keys, not the nested
+``exception.value`` / ``exception.frames`` fields ExceptionRenderer
+adds. The discipline at the emit site (``exc_message=ascii_safe(str(exc),
+max_chars=...)``) is the primary defense; ``show_locals=False`` on both
+renderers keeps frame locals out of the payload.
 """
 
 

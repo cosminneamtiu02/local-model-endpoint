@@ -12,7 +12,6 @@ the current sole consumer, pinning the dict shape so the codegen
 stays canonical until the runtime consumer lands.
 """
 
-from app.exceptions.base import DomainError
 from app.exceptions._generated.adapter_connection_failure_error import AdapterConnectionFailureError
 from app.exceptions._generated.conflict_error import ConflictError
 from app.exceptions._generated.inference_timeout_error import InferenceTimeoutError
@@ -26,6 +25,7 @@ from app.exceptions._generated.queue_full_error import QueueFullError
 from app.exceptions._generated.rate_limited_error import RateLimitedError
 from app.exceptions._generated.registry_not_found_error import RegistryNotFoundError
 from app.exceptions._generated.validation_failed_error import ValidationFailedError
+from app.exceptions.base import DomainError
 
 ERROR_CLASSES: dict[str, type[DomainError]] = {
     "ADAPTER_CONNECTION_FAILURE": AdapterConnectionFailureError,

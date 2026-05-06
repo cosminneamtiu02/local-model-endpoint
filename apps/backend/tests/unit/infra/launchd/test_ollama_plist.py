@@ -69,9 +69,8 @@ def plist_path(repo_root: Path) -> Path:
 
 @pytest.fixture
 def parsed_plist(plist_path: Path) -> dict[str, object]:
-    """Parsed plist dict — function-scoped so a future test that mutates the
-    dict cannot leak state into siblings. The parse cost (sub-1ms
-    plistlib.load on the small template) doesn't justify module scope."""
+    """Parsed plist dict — function-scoped because plistlib returns a mutable
+    dict; sub-1ms parse cost on the small template doesn't justify optimizing."""
     with plist_path.open("rb") as fh:
         loaded = plistlib.load(fh)
     assert isinstance(loaded, dict)

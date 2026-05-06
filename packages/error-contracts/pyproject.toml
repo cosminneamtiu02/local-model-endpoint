@@ -69,13 +69,12 @@ branch = true
 omit = ["**/__init__.py"]
 
 [tool.coverage.report]
-# Establish a coverage gate symmetric with the backend's. Measured
-# baseline at 2026-05-05 is 86% — set the floor 6pt below to leave
-# room for transient regressions without flapping the gate during
-# feature-dev. Round-19 follow-up: walk the uncovered branches in
-# ``generate.py`` (mostly defensive-error arms inside the YAML
-# parser) and either add tests or pragma:no-cover them, then bump
-# the gate to 90% in lockstep with the backend.
+# Establish a coverage gate symmetric with the backend's. Floor is set
+# below the measured baseline (~88%) to leave room for transient
+# regressions without flapping during feature-dev. Follow-up: walk
+# the uncovered branches in ``generate.py`` (mostly defensive-error
+# arms inside the YAML parser) and either add tests or pragma:no-cover
+# them, then bump the gate to 90% in lockstep with the backend.
 fail_under = 80
 show_missing = true
 exclude_lines = [

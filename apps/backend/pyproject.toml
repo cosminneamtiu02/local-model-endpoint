@@ -119,7 +119,6 @@ ignore = [
 ]
 "app/exceptions/_generated/**/*.py" = [
     "E501",    # generated code may have long lines
-    "I001",    # generated imports may not be sorted
     "RUF022",  # generated __all__ may not be sorted
 ]
 
@@ -277,7 +276,7 @@ include = ["app", "tests"]
 #   change or hand-written subclass that forgets to assign ``self.params``
 #   in ``__init__`` would surface as a runtime ``AttributeError`` on first
 #   ``detail()`` call instead of a static error. The full ``app/`` + ``tests/``
-#   tree currently passes the rule (verified at round 19); enabling it
+#   tree currently passes the rule; enabling it
 #   converts that compliance into a CI gate.
 reportUnnecessaryTypeIgnoreComment = "error"
 reportImplicitOverride = "error"

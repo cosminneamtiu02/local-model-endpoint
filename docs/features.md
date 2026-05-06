@@ -53,7 +53,7 @@ env vars (`OLLAMA_KEEP_ALIVE=300s`, `OLLAMA_NUM_PARALLEL=1`,
 `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`).
 Operator commands: `task ollama:install`, `task ollama:uninstall`, `task ollama:status`,
 and `task check:plist` (validates with `plutil -lint`; also wired into `task check`).
-Tests: [tests/unit/launchd/test_ollama_plist.py](../apps/backend/tests/unit/launchd/test_ollama_plist.py)
+Tests: [tests/unit/infra/launchd/test_ollama_plist.py](../apps/backend/tests/unit/infra/launchd/test_ollama_plist.py)
 parses the plist with `plistlib` and asserts the env vars, binary path, and log paths.
 See [docs/ollama-launchd.md](ollama-launchd.md) for env-var rationale and
 customization for non-Homebrew installs.
@@ -99,7 +99,9 @@ across four files (one class each) to satisfy the sacred one-class-per-file rule
 `ProblemDetails` implements RFC 7807 problem+json; `ProblemExtras` is the typed
 extension-key container; `ValidationErrorDetail` is the per-field shape inside
 validation problem+json; `HealthResponse` is the liveness payload. A fifth file
-`wire_constants` centralizes the UUID regex and `REQUEST_ID_LENGTH` reused across
+`wire_constants` centralizes the UUID regex, request-id length, instance-path cap,
+RFC 7807 about:blank type URI, X-Request-ID header spelling, and the
+`application/problem+json` media-type / Content-Language values reused across
 the request_id middleware, `ProblemDetails`, `app.api.deps`, and the inference
 response envelope — see the module docstring for the centralization rationale.
 
@@ -108,23 +110,24 @@ response envelope — see the module docstring for the centralization rationale.
 ## Backend — Architecture Enforcement
 
 ### Import-Linter Contracts ([apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini))
-Fifteen contracts protect the layer boundaries:
+Fourteen contracts protect the layer boundaries:
 
 - **1 generated-error gate** — `no-direct-generated-error-imports`: only
   `app.exceptions/__init__` may import from `app.exceptions._generated`;
   everything else uses the public re-exports per CLAUDE.md.
 - **4 leaf rules** — `core-is-leaf`, `exceptions-is-leaf`, `schemas-is-leaf`,
   and `inference-model-is-leaf`: each layer is forbidden from importing
-  any of the others, so layering stays acyclic.
+  any of the others, so layering stays acyclic. `inference-model-is-leaf`
+  absorbs the model→repository forbidden edge that previously lived in a
+  separate `inference-model-no-repository` contract.
 - **1 cross-feature isolation** — `features-are-independent`: features cannot
   import each other (vacuously kept while only one feature exists; the
   next feature added must be appended to the contract's `modules =` list).
-- **4 inference-internal layering** — `inference-model-no-schemas`,
-  `inference-repository-no-schemas`, `inference-model-no-repository`, and
-  `inference-schemas-no-repository`. Within the inference slice, lower
-  layers cannot reach into wire schemas. The full router → service →
-  repository → model layering is added per-layer as the feature router and
-  service land.
+- **3 inference-internal layering** — `inference-model-no-schemas`,
+  `inference-repository-no-schemas`, and `inference-schemas-no-repository`.
+  Within the inference slice, lower layers cannot reach into wire schemas.
+  The full router → service → repository → model layering is added
+  per-layer as the feature router and service land.
 - **2 inference cross-layer** — `inference-schemas-cross-layer` and
   `inference-repository-cross-layer`: the inference feature's `schemas/`
   cannot reach into `app.api`/`app.exceptions`, and `repository/` cannot
@@ -150,10 +153,10 @@ Run in well under 10 seconds. Cover:
   `test_exception_handler_registry.py` (DomainError → ProblemDetails serialization).
 - **`tests/unit/exceptions/`** — `test_base.py` (DomainError ergonomics),
   `test_domain_errors.py` (per-code construction), `test_registry.py`
-  (`ERROR_CLASSES` lookup invariants), plus `test_errors_yaml_invariants.py`,
-  `test_params_frozen_invariant.py`, `test_problem_extras_drift_guard.py`,
+  (`ERROR_CLASSES` lookup invariants), plus `test_errors_yaml_drift_guard.py`,
+  `test_params_frozen_drift_guard.py`, `test_problem_extras_drift_guard.py`,
   `test_screaming_snake_pattern_drift_guard.py`, and
-  `test_handwritten_files_invariant.py` for codegen, ProblemExtras drift,
+  `test_handwritten_files_drift_guard.py` for codegen, ProblemExtras drift,
   SCREAMING_SNAKE pattern lockstep, and the "only base.py is hand-written"
   invariant under `app/exceptions/`.
 - **`tests/unit/schemas/`** — `test_health_response.py`, `test_problem_details.py`,
@@ -168,7 +171,7 @@ Run in well under 10 seconds. Cover:
   - `schemas/` — `test_inference_request.py`, `test_inference_response.py`,
     `test_response_metadata.py`, `test_inference_schema_shapes.py`
   - `repository/` — `test_ollama_client.py` (typed httpx wrapper)
-- **`tests/unit/launchd/`** — `test_ollama_plist.py` parses
+- **`tests/unit/infra/launchd/`** — `test_ollama_plist.py` parses
   `infra/launchd/com.lip.ollama.plist.tmpl` with `plistlib` and asserts the
   five Ollama env vars + binary path + log paths.
 
@@ -179,19 +182,19 @@ Testcontainers. Covers:
 - `api/test_health.py` — `/health` liveness shape.
 - `api/test_request_id_middleware.py` — request-ID propagation, header echo,
   contextvar binding, body-size DoS guard.
-- `test_problem_details.py` — RFC 7807 problem+json envelope shapes through the
-  registered handlers (DomainError, RequestValidationError, StarletteHTTPException,
+- `test_exception_handler_chain.py` — RFC 7807 problem+json envelope shapes through
+  the registered handlers (DomainError, RequestValidationError, StarletteHTTPException,
   generic Exception).
 - `features/inference/test_lifecycle.py` — startup/shutdown lifespan against
   Ollama via `httpx.MockTransport` (no network).
 - `features/inference/test_chat.py` — `OllamaClient.chat()` against
   `httpx.MockTransport` covering happy path, error mapping, body-shape invariants.
-- `test_app_factory.py` — `create_app` switches OpenAPI exposure on `LIP_APP_ENV`.
+- `test_main.py` — `create_app` switches OpenAPI exposure on `LIP_APP_ENV`.
 
 ### Contract Tests ([apps/backend/tests/contract/](../apps/backend/tests/contract/))
 `test_openapi_shape.py` validates the generated OpenAPI spec shape (one canary
 test that runs before any fuzz attempts to load it).
-`test_problem_details_contract.py` covers the LIP-E004-F004 RFC 7807 wire shape
+`test_problem_details_shape.py` covers the LIP-E004-F004 RFC 7807 wire shape
 (ProblemDetails as a published component, RFC 7807 fields + LIP extensions
 present, `application/problem+json` advertised on the `/health` default
 response). A full Schemathesis fuzz against every endpoint will be wired once

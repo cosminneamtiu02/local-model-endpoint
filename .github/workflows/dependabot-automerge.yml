@@ -46,14 +46,16 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
-  # Manual re-trigger affordance: after flipping
-  # ``DEPENDABOT_AUTOMERGE_ENABLED`` from "false" back to "true", the
-  # operator can re-evaluate the guard on already-open Dependabot PRs
-  # without waiting for the next Dependabot push. The job-level
-  # ``if:`` guard (``user.login == 'dependabot[bot]'``) keeps a manual
-  # ``workflow_dispatch`` from escalating to merging a non-Dependabot
-  # PR — the job will skip cleanly.
-  workflow_dispatch:
+  # No ``workflow_dispatch:`` trigger: the job-level ``if:`` guard
+  # checks ``github.event.pull_request.user.login``, which is
+  # unpopulated on a manual dispatch event — the job would silently
+  # skip. To re-arm after flipping ``DEPENDABOT_AUTOMERGE_ENABLED`` from
+  # "false" back to "true", push an empty commit to the open Dependabot
+  # PR branch (``git commit --allow-empty -m re-arm`` then
+  # ``git push``); that fires ``synchronize`` and reaches the guarded
+  # code path. The previous ``workflow_dispatch`` declaration was dead
+  # documentation — removing it prevents an operator from believing the
+  # affordance exists during an incident.
 
 # A new push (synchronize) supersedes the pending merge-intent attempt
 # from the previous event. cancel-in-progress drops the older queued run

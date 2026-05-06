@@ -6,7 +6,7 @@ from app.exceptions.base import DomainError
 
 
 class NotFoundError(DomainError):
-    """Requested resource does not exist"""
+    """Requested resource does not exist."""
 
     code: ClassVar[str] = "NOT_FOUND"
     http_status: ClassVar[int] = 404

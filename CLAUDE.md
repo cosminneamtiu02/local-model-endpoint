@@ -53,7 +53,7 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
 app/core/           -- config, logging
 app/api/            -- middleware, exception handler, health, shared deps
 app/exceptions/     -- DomainError hierarchy (base + _generated/)
-app/schemas/        -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants (RFC 7807 problem+json + liveness shape; wire_constants centralizes UUID/REQUEST_ID_LENGTH — see the module docstring for rationale)
+app/schemas/        -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants (RFC 7807 problem+json + liveness shape; wire_constants centralizes the UUID regex, request-id length, instance-path cap, RFC 7807 about:blank type URI, X-Request-ID header spelling, and the application/problem+json media-type / Content-Language values — see the module docstring for rationale)
 app/features/<feature>/ -- model, repository, service, router, schemas/  (target shape)
 ```
 

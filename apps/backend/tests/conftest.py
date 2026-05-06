@@ -65,6 +65,10 @@ def pytest_sessionstart(session: pytest.Session) -> None:  # noqa: ARG001 — na
 @pytest.fixture(autouse=True)
 def _reset_settings_cache() -> Iterator[None]:
     """Reset get_settings's lru_cache around every test."""
+    # Lazy import: hoisting ``from app.api.deps import get_settings`` to module
+    # scope would freeze ``app.core.config.Settings`` before the autouse
+    # ``_clean_settings_env`` fixture below runs, so the first test's Settings
+    # instance would see the developer's shell ``LIP_*`` env vars.
     from app.api.deps import get_settings
 
     get_settings.cache_clear()
@@ -107,6 +111,10 @@ def _clean_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
     ``os.environ`` once and drop every name whose ``.upper()`` starts
     with the prefix — subsumes the upper-only delete in one pass.
     """
+    # Lazy imports: hoisting ``app.core.config.Settings`` to module scope
+    # would freeze the model_fields snapshot before this fixture's env-scrub
+    # had a chance to run for the first test, so a developer with stray
+    # ``LIP_*`` env vars would silently leak them into Settings construction.
     import os
 
     from app.core.config import Settings

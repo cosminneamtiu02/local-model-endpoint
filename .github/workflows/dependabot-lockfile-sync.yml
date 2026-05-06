@@ -97,12 +97,12 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
-  # Manual re-trigger affordance for re-arming the kill-switch after a
-  # ``DEPENDABOT_LOCKFILE_SYNC_ENABLED`` flip back to "true". The job-
-  # level ``if:`` guard (``user.login == 'dependabot[bot]'``) keeps the
-  # manual invocation from escalating to non-Dependabot PRs — it will
-  # skip cleanly.
-  workflow_dispatch:
+  # No ``workflow_dispatch:`` trigger: same dead-affordance issue as
+  # ``dependabot-automerge.yml`` — the ``user.login`` guard is empty on
+  # a dispatch event so the job silently skips. To re-arm after a kill-
+  # switch flip, push an empty commit to the affected Dependabot PR
+  # branch; that fires ``synchronize`` and reaches the guarded code
+  # path.
 
 # GITHUB_TOKEN scopes are intentionally minimal: this workflow's only
 # write surface is ``git push`` authenticated by the user-supplied PAT

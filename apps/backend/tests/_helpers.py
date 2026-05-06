@@ -2,9 +2,9 @@
 
 Imported by tests in both ``tests/unit/exceptions/`` and ``tests/integration/`` so
 the canonical RFC 7807 wire-shape invariants (status, content-type, code,
-content-language, optionally request_id correlation) are pinned in exactly one
-place. Adding a new invariant (or relaxing an existing one) is a single edit
-instead of a 17-callsite sweep.
+content-language, body.status, optionally request_id correlation) are pinned
+in exactly one place. Adding a new invariant (or relaxing an existing one) is
+a single edit instead of a multi-call-site sweep.
 """
 
 from __future__ import annotations
@@ -56,6 +56,21 @@ async def make_async_client(app: ASGIApp) -> AsyncGenerator[AsyncClient]:
     inference router lands (LIP-E001-F002), this helper grows the lifespan
     wrapping in one place.
     """
+    # ``raise_app_exceptions=False`` only matches production behavior if a
+    # catch-all ``Exception`` handler is registered — otherwise an unhandled
+    # exception silently disappears instead of surfacing as the operator's
+    # 500 ProblemDetails. Assert at helper entry so every consumer (the
+    # ``client`` fixture in tests/integration/conftest.py and the direct
+    # ``_build_app()`` callers in tests/integration/test_exception_handler_chain.py)
+    # gets the contract enforcement uniformly. ``getattr`` so non-FastAPI
+    # ASGI apps without ``exception_handlers`` aren't broken (pure ASGI
+    # apps used in middleware tests legitimately omit the registry).
+    handlers = getattr(app, "exception_handlers", None)
+    if handlers is not None:
+        assert Exception in handlers, (
+            "App must register a catch-all Exception handler — "
+            "make_async_client's raise_app_exceptions=False contract relies on it."
+        )
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
@@ -78,9 +93,12 @@ def assert_problem_json_envelope(
       3. Content-Language is ``en`` (LIP v1's i18n contract).
       4. Body carries the LIP-extension ``code`` matching the typed error.
       5. Body carries a ``request_id`` (correlation handle).
+      6. Body's ``status`` field equals the wire ``response.status_code``
+         (RFC 7807 §3.1 MUST). The handler is the source of truth for both,
+         so a divergence pins a real handler bug.
 
     Optional invariant (``check_request_id_correlation=True``):
-      6. Body's ``request_id`` matches the ``REQUEST_ID_HEADER`` response
+      7. Body's ``request_id`` matches the ``REQUEST_ID_HEADER`` response
          header value (correlation contract — middleware ↔ handler;
          see :data:`app.schemas.wire_constants.REQUEST_ID_HEADER`).
 
@@ -93,6 +111,7 @@ def assert_problem_json_envelope(
     body = response.json()
     assert body["code"] == code
     assert "request_id" in body
+    assert body["status"] == status
     if check_request_id_correlation:
         assert body["request_id"] == response.headers[REQUEST_ID_HEADER]
     return body

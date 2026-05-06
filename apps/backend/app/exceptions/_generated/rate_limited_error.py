@@ -7,7 +7,7 @@ from app.exceptions.base import DomainError
 
 
 class RateLimitedError(DomainError):
-    """Client exceeded rate limit"""
+    """Client exceeded rate limit."""
 
     code: ClassVar[str] = "RATE_LIMITED"
     http_status: ClassVar[int] = 429

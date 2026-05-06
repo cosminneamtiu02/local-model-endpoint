@@ -11,13 +11,17 @@ VALIDATION_ERRORS_MAX_LENGTH: Final[int] = 64
 
 Per-entry caps (``FIELD_MAX_CHARS=512``, ``REASON_MAX_CHARS=2048``) bound the
 size of ONE entry, but without a list-length cap a pathological consumer
-posting a request that fails N validators (e.g. a 10000-element array of
+posting a request that fails N validators (e.g. a 10_000-element array of
 malformed items) could amplify the response into a multi-MB body. 64 is a
 generous practical ceiling — a Pydantic schema with more than 64 distinct
 failures in one request indicates either a fundamentally malformed payload
 (no per-field detail past the first 64 is operator-actionable) or an upstream
-abuse vector. The handler truncates at construction so the wire body stays
-bounded; consumers receive the first 64 errors.
+abuse vector. The validation handler slices ``raw_errors`` at this cap
+BEFORE constructing ``ValidationErrorDetail`` entries, so consumers receive
+the first 64 errors and the ``detail`` field names the truncation
+("Validation failed for N fields (first 64 included)") when N exceeded the
+cap. The schema-side ``max_length`` here is the belt-and-suspenders ceiling
+that surfaces a regression if the handler-side slice ever drifts.
 """
 
 
@@ -37,9 +41,11 @@ class ProblemExtras(BaseModel):
     on the resulting ProblemDetails then serializes those dicts as the
     final wire body. Consumers should treat the array as canonical and
     ignore root-level ``field`` / ``reason`` (which reflect only the first
-    error in a multi-field response). The list is capped at
-    ``VALIDATION_ERRORS_MAX_LENGTH`` entries — see that constant's docstring
-    for the response-amplification rationale.
+    error in a multi-field response). The list is soft-truncated by the
+    handler at ``VALIDATION_ERRORS_MAX_LENGTH`` entries (the ``detail``
+    field names the truncation when it kicks in); the schema ``max_length``
+    is a belt-and-suspenders ceiling — see that constant's docstring for
+    the response-amplification rationale.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
