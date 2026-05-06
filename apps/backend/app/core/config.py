@@ -9,7 +9,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def is_private_host(host: str) -> bool:
-    """Return True if ``host`` is loopback / RFC1918 / link-local / ULA / mDNS."""
+    """Return True if ``host`` is loopback / RFC1918 / link-local / ULA / mDNS.
+
+    Truthiness contract:
+    - Returns True for: ``localhost``, ``*.local`` mDNS, IPv4/IPv6 loopback
+      (``127.0.0.0/8``, ``::1``), RFC1918 / RFC4193 private ranges, and
+      link-local (``169.254.0.0/16`` / ``fe80::/10`` after zone-ID strip).
+    - Returns False for: empty string, all-interfaces (``0.0.0.0`` / ``::``),
+      any non-IP DNS name except ``localhost`` / ``*.local`` (operators with
+      custom internal DNS suffixes like ``.lan`` / ``.tailnet`` MUST set the
+      relevant ``LIP_ALLOW_*=true`` escape hatch — the predicate intentionally
+      conservatives on names it cannot classify), and IPv6 documentation /
+      discard / NAT64 prefixes that ``ipaddress.is_private`` would falsely
+      classify as private (``2001:db8::/32``, ``100::/64``, ``64:ff9b::/96``)
+      via the ``ipaddress`` library quirks.
+    """
     if not host:
         return False
     if host == "localhost" or host.endswith(".local"):

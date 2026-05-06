@@ -153,6 +153,16 @@ def get_app_state(request: Request) -> AppState:
         # be missing (lifespan never ran). The literal kwarg is the
         # safety net that keeps a jq filter ``select(.phase == "request")``
         # finding this line on the misconfigured-app path.
+        # Bind error_code BEFORE the diagnostic emit so this log line ships
+        # with ``error_code=INTERNAL_ERROR`` for join-by-error-code parity
+        # with every other typed-error site (``_handle_domain_error``,
+        # ``_handle_validation_error``, ``_handle_http_exception``,
+        # ``_handle_unhandled_exception``). Without the bind, the
+        # diagnostic line is silently dropped from a
+        # ``select(.error_code == "INTERNAL_ERROR")`` operator query
+        # because the contextvar binding only happens AFTER the raise
+        # propagates into ``_handle_unhandled_exception``.
+        structlog.contextvars.bind_contextvars(error_code=InternalError.code)
         logger.error(
             "app_state_unavailable",
             phase="request",

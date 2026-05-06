@@ -29,7 +29,7 @@ In scope: the `asyncio.Semaphore(1)` wrapper; the bounded waiter-count enforceme
 None. Both Epic-level questions raised at requirements-elicitation time were resolved during feature thickening:
 
 - **Structured error response schema** — resolved by F004: RFC 7807 `application/problem+json` with five standard fields (`type`, `title`, `status`, `detail`, `instance`) plus two project extensions (`code`, `request_id`) plus typed params spread at the root level. The `type` field is a non-resolvable URN of the form `urn:lip:error:<code-kebab>` per RFC 7807 §3.1.
-- **Configurability of waiter count and timeout** — resolved by F002 + F003: both are `pydantic-settings` fields with `Field(default=4, gt=0)` / `Field(default=180, gt=0)` validation. Env vars `MAX_INFERENCE_WAITERS` and `INFERENCE_TIMEOUT_SECONDS`. Configurable matches CLAUDE.md's "Never use os.environ — use pydantic-settings" pattern; defaults match the disambiguated-idea Quality Attributes (≤4 concurrent consumers; cognitive-task workloads bound to <2k tokens — 180 s is a "definitely broken" threshold against measured 52 tok/s decode on the M4 Mini, not a "slow but normal" threshold).
+- **Configurability of waiter count and timeout** — resolved by F002 + F003: both are `pydantic-settings` fields with `Field(default=4, gt=0)` / `Field(default=180, gt=0)` validation. Env vars `LIP_MAX_INFERENCE_WAITERS` and `LIP_INFERENCE_TIMEOUT_SECONDS`. Configurable matches CLAUDE.md's "Never use os.environ — use pydantic-settings" pattern; defaults match the disambiguated-idea Quality Attributes (≤4 concurrent consumers; cognitive-task workloads bound to <2k tokens — 180 s is a "definitely broken" threshold against measured 52 tok/s decode on the M4 Mini, not a "slow but normal" threshold).
 
 ## Features
 

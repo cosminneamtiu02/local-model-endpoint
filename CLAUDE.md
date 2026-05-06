@@ -30,13 +30,19 @@ specification. See [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature t
 1. One class per file. Always. No exceptions. If you believe two classes belong
    together, stop and ask.
    - Documented carve-out: a private (`_`-prefixed) `NamedTuple` /
-     `dataclass` used solely as the typed return value of one producer
-     function in the same module may co-locate with that producer. The
-     carve-out exists because a stand-alone file for a private return-
-     type tuple adds no discoverability value while doubling the indirection
-     when reading the producer. Current sites: `_AppVersionResolution`
-     in `app/main.py`, `_RequestIdResolution` in `app/api/exception_handler_registry.py`,
-     `_FlattenedParts` in `app/features/inference/model/ollama_translation.py`.
+     `dataclass` / `TypedDict` used solely as the typed return value or
+     fixture-shape of one producer function in the same module may
+     co-locate with that producer. The carve-out exists because a
+     stand-alone file for a private return-type / kwargs-shape tuple
+     adds no discoverability value while doubling the indirection when
+     reading the producer. Current sites: `_AppVersionResolution`
+     in `app/main.py`, `_RequestIdResolution` in
+     `app/api/exception_handler_registry.py`, `_FlattenedParts` in
+     `app/features/inference/model/ollama_translation.py`, `_BaseKwargs`
+     in `apps/backend/tests/unit/schemas/test_problem_details.py` (the
+     test-fixture-only TypedDict carve-out — pinned here so the
+     enumeration stays exhaustive and a fifth tests-only entry is a
+     deliberate doc-update, not a silent drift).
      A class published as part of any module's public surface is NEVER
      covered by the carve-out — the rule binds for everything else.
 2. TDD. Always. Never write implementation before a failing test exists.

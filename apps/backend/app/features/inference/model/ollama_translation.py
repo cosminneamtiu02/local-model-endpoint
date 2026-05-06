@@ -36,10 +36,15 @@ if TYPE_CHECKING:
     from app.features.inference.model.message import Message
     from app.features.inference.model.model_params import ModelParams
 
-# Single rename: Ollama calls the max-tokens cap `num_predict`.
-# Wrapped in MappingProxyType so the rebind-immutable Final guarantee
-# extends to the contained dict — symmetric with the frozen=True value-
-# objects in this same feature.
+# Wire path for the Ollama chat endpoint. Centralized so a future Ollama
+# version bump (or reverse-proxy rewrite to ``/v1/api/chat``) is a one-line
+# edit and the wire-vs-log fields here cannot drift apart from
+# ``OllamaClient.chat``. Operator dashboards keying on
+# ``select(.endpoint == "/api/chat")`` pin off this constant transitively.
+CHAT_ENDPOINT: Final[str] = "/api/chat"
+
+# MappingProxyType so the contained dict is also immutable (rebind-immutable
+# Final extended to the value — symmetric with frozen=True elsewhere).
 _PARAM_RENAMES: Final[Mapping[str, str]] = MappingProxyType({"max_tokens": "num_predict"})
 
 # Ollama `done_reason` values propagated as-is. Anything outside this
@@ -111,10 +116,11 @@ def _attach_media_to_message(
     Ollama /api/chat documents both arrays only on user/assistant turns;
     system-role media raises so the failure is loud rather than silently
     dropped. The two media kinds share an identical attach contract — a
-    tuple loop expresses the rule once so a future media-kind addition is
-    a single-line change.
+    dict-keyed loop expresses the rule once so a future media-kind addition
+    is a single-line change. ``key, media`` ordering mirrors the rest of
+    the file's key→value reads (e.g. ``_PARAM_RENAMES.items()``).
     """
-    for media, key in ((images, "images"), (audios, "audios")):
+    for key, media in {"images": images, "audios": audios}.items():
         if not media:
             continue
         if role == "system":
@@ -241,7 +247,7 @@ def build_chat_result(
                 "ollama_tool_calls_ignored",
                 count=len(tool_calls),
                 model_name=model_tag,
-                endpoint="/api/chat",
+                endpoint=CHAT_ENDPOINT,
             )
     elif candidate is not None:
         # A future Ollama protocol drift (e.g. ``tool_calls: {...}`` with
@@ -255,7 +261,7 @@ def build_chat_result(
             "ollama_tool_calls_unexpected_shape",
             shape=type(candidate).__name__,
             model_name=model_tag,
-            endpoint="/api/chat",
+            endpoint=CHAT_ENDPOINT,
         )
     return OllamaChatResult(
         content=content,
