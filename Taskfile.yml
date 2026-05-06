@@ -176,15 +176,22 @@ tasks:
     # ``--strict`` is intentionally omitted: with it, pip-audit treats the
     # editable-skip as a fatal warning and exits 1 even with zero CVEs.
     # Real CVEs still cause a non-zero exit without ``--strict``.
+    # Mirrored at ``check:audit:errors`` — keep flags in sync; pip-audit's
+    # CVE scan must apply uniformly to both workspaces.
+    # ``unset VIRTUAL_ENV`` silences the benign uv VIRTUAL_ENV mismatch
+    # warning that fires when developers run with a homebrew Python on
+    # PATH but uv resolves the project's own .venv: the warning is
+    # operator-noise that masks any real warning if one ever fires.
     cmds:
-      - uv run --frozen pip-audit --skip-editable
+      - unset VIRTUAL_ENV; uv run --frozen pip-audit --skip-editable
 
   check:audit:errors:
     desc: Run pip-audit on error-contracts deps
     dir: "{{.ERROR_CONTRACTS_DIR}}"
-    # Same flag rationale as the backend variant above.
+    # Same flag rationale as the backend variant above; ``unset
+    # VIRTUAL_ENV`` mirrors the backend target for the same reason.
     cmds:
-      - uv run --frozen pip-audit --skip-editable
+      - unset VIRTUAL_ENV; uv run --frozen pip-audit --skip-editable
 
   check:secrets:
     desc: Scan the working tree for leaked secrets against .secrets.baseline

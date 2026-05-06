@@ -16,7 +16,10 @@ license = "MIT"
 authors = [{ name = "Cosmin Neamtiu" }]
 # Lockstep with ``packages/error-contracts/pyproject.toml`` — bump
 # together when Python 3.14 lands and is validated against both the
-# backend test suite and the codegen tests.
+# backend test suite and the codegen tests. ``uv lock`` normalizes this
+# range to ``==3.13.*`` in ``uv.lock``; the two expressions are PEP 440
+# equivalents, so a reviewer noticing the manifest-vs-lockfile string
+# mismatch is reading drift that doesn't exist.
 requires-python = ">=3.13,<3.14"
 # Versions are pinned exactly: CI runs ``uv sync --frozen`` so the lockfile
 # pins the actual environment; the manifest values are the floor that
@@ -45,6 +48,13 @@ dependencies = [
     "pydantic==2.13.3",
     "pydantic-settings==2.14.0",
     "structlog==25.5.0",
+    # httpx 0.28.1 (2024-12-06) is the current PyPI tip as of round-21
+    # verification (2026-05-06); maintainer cadence dropped after the
+    # 0.28 series. The 1.0.devN releases on PyPI are pre-release tags
+    # only and are not Dependabot candidates. Re-check this when
+    # Dependabot first proposes an httpx bump or annually if it does
+    # not — staleness on a critical-path adapter dep deserves periodic
+    # human verification.
     "httpx==0.28.1",
 ]
 

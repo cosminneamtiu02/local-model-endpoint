@@ -5,7 +5,9 @@ description = "YAML error-code definitions and Python codegen for the LIP error 
 license = "MIT"
 authors = [{ name = "Cosmin Neamtiu" }]
 # Lockstep with ``apps/backend/pyproject.toml`` — bump together when
-# Python 3.14 lands and is validated against the codegen tests.
+# Python 3.14 lands and is validated against the codegen tests. ``uv
+# lock`` normalizes this range to ``==3.13.*`` in ``uv.lock``; the two
+# expressions are PEP 440 equivalents.
 requires-python = ">=3.13,<3.14"
 # This workspace has no runtime surface (description above states "not
 # installable as a runtime library — no wheel build target"). Every
