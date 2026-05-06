@@ -294,14 +294,28 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
             error_count=len(ve.errors()),
             original_code=exc.code,
         )
+        # Sanitize the fall-back inputs unconditionally — the ORIGINAL
+        # ValidationError above could have been caused by a malformed
+        # ``request_id`` (off-pattern UUID) or ``instance`` (path failing
+        # the ``^/`` anchor or the 2048-char cap). Re-using those raw
+        # values here would re-raise the same ValidationError and the
+        # "consumer always gets problem+json" promise would break.
+        # ``UUID_REGEX.fullmatch`` defends the known-shape contract; a
+        # mismatch synthesizes a fresh UUID4 (bounded random; no
+        # consumer-side correlation possible, but neither is the
+        # alternative of a bare 500 with no request_id at all). The
+        # ``"/"`` literal is the only path string guaranteed to satisfy
+        # ProblemDetails' ``instance`` field invariants
+        # (``^/`` + 2048 cap), regardless of the inbound request URL.
+        safe_request_id = request_id if UUID_REGEX.fullmatch(request_id) else str(uuid.uuid4())
         return ProblemDetails(
             type=InternalError.type_uri,
             title=InternalError.title,
             status=InternalError.http_status,
             detail="An unexpected error occurred while building the error response.",
-            instance=_bounded_instance(request),
+            instance="/",
             code=InternalError.code,
-            request_id=request_id,
+            request_id=safe_request_id,
         )
 
 
@@ -472,9 +486,14 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     # ``first_field`` / ``first_reason`` are already typed ``str`` from
     # ``ValidationErrorDetail`` (or the literal sentinel) — no ``str()``
     # wrapping needed and the redundant call would mislead a reader into
-    # thinking a non-string slipped through.
-    first_field = validation_errors[0].field if validation_errors else _UNKNOWN_FIELD_SENTINEL
-    first_reason = validation_errors[0].reason if validation_errors else _UNKNOWN_FIELD_SENTINEL
+    # thinking a non-string slipped through. Hoist ``first_entry`` once
+    # so the truthiness probe + ``[0]`` index are not duplicated across
+    # both attribute reads — symmetric with the ``error_count =
+    # len(validation_errors)`` hoist below and the
+    # ``option_keys_sorted`` hoist in ``OllamaClient.chat``.
+    first_entry = validation_errors[0] if validation_errors else None
+    first_field = first_entry.field if first_entry else _UNKNOWN_FIELD_SENTINEL
+    first_reason = first_entry.reason if first_entry else _UNKNOWN_FIELD_SENTINEL
     domain_err = ValidationFailedError(field=first_field, reason=first_reason)
     # Hoist ``len(validation_errors)`` once instead of re-evaluating across
     # the log line, the detail-override branches, and the typed-params
@@ -510,7 +529,12 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
     logger.warning(
         "validation_error_raised",
         code=ValidationFailedError.code,
-        status_code=int(HTTPStatus.UNPROCESSABLE_ENTITY),
+        # ``HTTPStatus.UNPROCESSABLE_ENTITY`` is an ``IntEnum`` (subclass
+        # of ``int``); JSONRenderer / orjson serialize it as ``422``
+        # natively. The bare value matches the sibling handlers'
+        # ``status_code=domain_exc.http_status`` / ``status_code=
+        # status_code`` shapes — no ``int(...)`` cast needed.
+        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         error_count=error_count,
         raw_error_count=raw_error_count,
         first_field=first_field,
@@ -593,6 +617,13 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         request,
         request_id,
         detail_override=detail_override,
+        # ``validation_errors or None`` — empty list ([]) is falsy in
+        # Python, so this returns ``None`` on the empty path; the bridge
+        # to ``ProblemExtras.model_dump(exclude_none=True)`` then drops
+        # the key from the wire body (an empty list alongside the "no
+        # per-field details were produced" detail message would ship a
+        # contradictory wire shape). Ruff's SIM222 prefers the ``or``
+        # form here.
         extras=ProblemExtras(validation_errors=validation_errors or None),
         suppress_typed_params=error_count != 1,
     )
@@ -758,11 +789,19 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         )
 
     if status_code == HTTPStatus.NOT_FOUND:
+        # No ``detail_override``: route through the typed
+        # ``NotFoundError().detail()`` so the wire body's ``detail`` matches
+        # what a typed ``raise NotFoundError()`` ships ("The requested
+        # resource does not exist."). Without this discipline, framework-
+        # 404 would ship ``detail="Not Found"`` (Starlette's stock string)
+        # while typed-404 ships the typed prose — consumers pattern-
+        # matching on ``(type, code, detail)`` would see two surfaces for
+        # the same code. The Starlette-supplied detail is still preserved
+        # on the log emit above (``detail=detail_text``).
         problem = _build_problem_payload(
             NotFoundError(),
             request,
             request_id,
-            detail_override=detail_text,
         )
         response = _problem_response(problem)
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
@@ -771,16 +810,17 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     if status_code == HTTPStatus.METHOD_NOT_ALLOWED:
         # Route through MethodNotAllowedError so the wire shape matches a
         # typed ``raise MethodNotAllowedError()`` from a route — single
-        # source of truth for the 405 envelope, mirroring the 404 branch.
+        # source of truth for the 405 envelope (``type``, ``title``,
+        # ``code``, ``status``, AND ``detail``), mirroring the 404 branch.
         # Without this, framework-405 ships ``type="about:blank"`` while
         # typed-405 ships ``type="urn:lip:error:method-not-allowed"`` —
         # consumers pattern-matching on ``type`` would see two URNs for
-        # the same ``code=METHOD_NOT_ALLOWED``.
+        # the same ``code=METHOD_NOT_ALLOWED``. The Starlette-supplied
+        # detail is preserved on the log emit above.
         problem = _build_problem_payload(
             MethodNotAllowedError(),
             request,
             request_id,
-            detail_override=detail_text,
         )
         # Starlette's ``Route.handle`` raises ``HTTPException(405,
         # headers={"Allow": ...})`` and the ``Allow`` header is MANDATORY
@@ -904,6 +944,25 @@ def register_exception_handlers(application: FastAPI) -> None:
     handlers all hit before the catch-all ``Exception`` handler regardless
     of registration order, but listing them in specificity order keeps the
     intent legible.
+
+    The catch-all is registered against ``Exception`` (NOT
+    ``BaseException``). ``BaseException``-derived errors that are not
+    ``Exception``-derived — ``KeyboardInterrupt``, ``SystemExit``,
+    ``GeneratorExit``, and ``asyncio.CancelledError`` (per Python
+    3.11+) — escape this handler and surface as Starlette's
+    ``ServerErrorMiddleware`` bare 500. The
+    ``RequestIdMiddleware._resolve_access_log_status`` discipline
+    surfaces those as ``status_code=499`` (CancelledError — nginx
+    Client Closed Request sentinel) or ``=500`` (the others), so the
+    access-log surface preserves the operator-actionable signal even
+    though the wire body is not problem+json on that path. Inverting
+    to ``BaseException`` would produce problem+json on
+    ``KeyboardInterrupt``/``SystemExit``, but that is the wrong
+    optimisation: those signals mean the process is dying, and a
+    process about to exit emitting a wire envelope is purely
+    cosmetic — and a cancellation handler that emits a body would
+    swallow the cancellation propagation that releases LIP-E001-F002's
+    in-flight semaphore slot.
     """
     application.add_exception_handler(DomainError, _handle_domain_error)
     application.add_exception_handler(RequestValidationError, _handle_validation_error)

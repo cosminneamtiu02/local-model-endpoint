@@ -48,8 +48,8 @@ dependencies = [
     "pydantic==2.13.3",
     "pydantic-settings==2.14.0",
     "structlog==25.5.0",
-    # httpx 0.28.1 (2024-12-06) is the current PyPI tip as of round-21
-    # verification (2026-05-06); maintainer cadence dropped after the
+    # httpx 0.28.1 (2024-12-06) is the current PyPI tip as of 2026-05-06;
+    # maintainer cadence dropped after the
     # 0.28 series. The 1.0.devN releases on PyPI are pre-release tags
     # only and are not Dependabot candidates. Re-check this when
     # Dependabot first proposes an httpx bump or annually if it does

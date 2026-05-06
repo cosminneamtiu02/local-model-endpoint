@@ -91,26 +91,31 @@ def test_message_routes_dict_content_through_content_part_discriminator() -> Non
 
 def test_message_rejects_empty_string_content() -> None:
     # min_length=1 on the str arm rejects "" — caught at the union arm, not
-    # at the model_validator layer.
-    with pytest.raises(ValidationError, match="content"):
+    # at the model_validator layer. Anchor on Pydantic v2's
+    # ``string_too_short`` message so the test fails IF the regression
+    # is a different category (e.g. discriminator routing) that happens
+    # to mention ``content``.
+    with pytest.raises(ValidationError, match="at least 1 character"):
         Message(role="user", content="")
 
 
 def test_message_rejects_whitespace_only_string_content() -> None:
     # str_strip_whitespace strips before length check.
-    with pytest.raises(ValidationError, match="content"):
+    with pytest.raises(ValidationError, match="at least 1 character"):
         Message(role="user", content="   ")
 
 
 def test_message_rejects_empty_content_list() -> None:
-    # min_length=1 on the list arm rejects [].
-    with pytest.raises(ValidationError, match="content"):
+    # min_length=1 on the list arm rejects []. Pydantic v2 emits
+    # ``too_short`` with "at least 1 item" for lists.
+    with pytest.raises(ValidationError, match="at least 1 item"):
         Message(role="user", content=[])
 
 
 def test_message_rejects_oversize_content_list() -> None:
-    # max_length=32 caps content-part cardinality (DoS axis).
-    with pytest.raises(ValidationError, match="content"):
+    # max_length=32 caps content-part cardinality (DoS axis). Pydantic v2
+    # emits ``too_long`` with "at most N items" for lists.
+    with pytest.raises(ValidationError, match=r"at most \d+ item"):
         Message(
             role="user",
             content=[TextContent(text="x") for _ in range(_MESSAGE_CONTENT_LIST_MAX_PARTS + 1)],
@@ -120,7 +125,8 @@ def test_message_rejects_oversize_content_list() -> None:
 def test_message_rejects_oversize_string_content() -> None:
     """Boundary computed from the shared cap (oversize = max + 1) so a future cap bump auto-tracks."""
     oversize = TEXT_PART_MAX_CHARS + 1
-    with pytest.raises(ValidationError, match="content"):
+    # ``at most N characters`` is Pydantic v2's ``string_too_long`` message.
+    with pytest.raises(ValidationError, match=r"at most \d+ character"):
         Message(role="user", content="x" * oversize)
 
 

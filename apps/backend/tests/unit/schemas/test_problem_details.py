@@ -142,8 +142,8 @@ def test_problem_details_model_dump_json_produces_valid_json() -> None:
     ],
 )
 def test_problem_details_rejects_malformed_code(bad_code: str) -> None:
-    """``code`` MUST match the SCREAMING_SNAKE regex from
-    ``apps/backend/app/schemas/problem_details.py:112``.
+    """``code`` MUST match the SCREAMING_SNAKE regex on
+    ``ProblemDetails.code`` in ``apps/backend/app/schemas/problem_details.py``.
 
     The drift-guard test ``test_screaming_snake_pattern_drift_guard.py``
     pins the regex string itself across codegen + schema; this test

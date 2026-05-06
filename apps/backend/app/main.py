@@ -36,7 +36,7 @@ class _AppVersionResolution(NamedTuple):
     version: str
     # ``Exception`` (not ``BaseException``) because both producer arms
     # — ``except _metadata.PackageNotFoundError`` and ``except
-    # Exception``  in ``_resolve_app_version`` — root at ``Exception``.
+    # Exception`` in ``_resolve_app_version`` — root at ``Exception``.
     # Widening to ``BaseException`` would falsely advertise that
     # ``KeyboardInterrupt`` / ``SystemExit`` could ride this field;
     # they cannot, and the failure-emit consumer below is safe on the
@@ -180,9 +180,18 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             # startup-success and shutdown-success uniformly. The
             # previous name (``lifespan_resources_ready``) read as an
             # internal seam rather than a startup terminal.
+            # ``reason="clean"`` keeps the field-set parity with
+            # ``app_shutdown_completed`` (which always carries ``reason``):
+            # operators correlating "did this app come up cleanly AND go
+            # down cleanly" can filter ``select(.event |
+            # endswith("_completed")) | .reason`` and see "clean" on
+            # both halves. The startup-side ``_failed`` / ``_cancelled``
+            # peers do not carry ``reason=`` because the event NAME
+            # already encodes the disposition.
             logger.info(
                 "app_startup_completed",
                 phase="lifespan",
+                reason="clean",
                 version=application.version,
                 env=settings.app_env,
             )
@@ -212,6 +221,16 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
                 # the moment teardown finished. The pair lets operators
                 # bound resource-teardown duration (e.g. a stuck httpx
                 # pool drain) without joining log lines by request_id.
+                # Field-set asymmetry within the pair is deliberate:
+                # ``app_shutdown`` carries ``uptime_ms`` (process-clock
+                # delta from ``start``), ``app_shutdown_completed``
+                # carries ``teardown_ms`` (delta from
+                # ``shutdown_started``). Each event reports the
+                # window whose *start* it was the natural pair to —
+                # joining the two lets an operator compute either
+                # window without sharing one ``duration_ms`` field that
+                # would silently mean "uptime" on one event and
+                # "teardown" on the other.
                 shutdown_started = time.perf_counter()
                 logger.info(
                     "app_shutdown",

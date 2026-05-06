@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -111,12 +112,12 @@ def _clean_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
     ``os.environ`` once and drop every name whose ``.upper()`` starts
     with the prefix — subsumes the upper-only delete in one pass.
     """
-    # Lazy imports: hoisting ``app.core.config.Settings`` to module scope
-    # would freeze the model_fields snapshot before this fixture's env-scrub
+    # ``Settings`` is lazy-imported: hoisting it to module scope would
+    # freeze the model_fields snapshot before this fixture's env-scrub
     # had a chance to run for the first test, so a developer with stray
-    # ``LIP_*`` env vars would silently leak them into Settings construction.
-    import os
-
+    # ``LIP_*`` env vars would silently leak them into Settings
+    # construction. ``os`` is the stdlib module — no env-snapshotting
+    # concern, so it is imported at module scope alongside ``re``.
     from app.core.config import Settings
 
     env_prefix = Settings.model_config.get("env_prefix") or ""

@@ -191,13 +191,13 @@ def _redact_sensitive_keys(
     scanned — see ``_REDACTION_BLOCKLIST`` docstring for the rationale.
     """
     # ``event_dict.keys() & _REDACTION_BLOCKLIST`` materializes a fresh
-    # ``frozenset`` (not a live ``dict_keys`` view), so mutating
-    # ``event_dict`` during iteration is safe under CPython. Do NOT
-    # replace with ``for key in event_dict if key in _REDACTION_BLOCKLIST``
-    # (apparent perf optimization) — that form iterates the live keys
-    # view, and a future contributor adding key DELETION instead of value
-    # replacement would hit ``RuntimeError: dictionary changed size
-    # during iteration``.
+    # ``set`` (``dict_keys.__and__(frozenset)`` returns ``set``, not a
+    # live ``dict_keys`` view), so mutating ``event_dict`` during
+    # iteration is safe under CPython. Do NOT replace with
+    # ``for key in event_dict if key in _REDACTION_BLOCKLIST`` (apparent
+    # perf optimization) — that form iterates the live keys view, and a
+    # future contributor adding key DELETION instead of value replacement
+    # would hit ``RuntimeError: dictionary changed size during iteration``.
     for key in event_dict.keys() & _REDACTION_BLOCKLIST:
         event_dict[key] = "<redacted>"
     return event_dict
@@ -306,6 +306,17 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
         # would have been short-circuited by the filtering wrapper; for a
         # single-developer LAN service the cost is negligible vs the
         # uniformity benefit.
+        # ``stdlib.BoundLogger`` (not ``make_filtering_bound_logger``)
+        # because ``stdlib.BoundLogger`` defers level filtering to the
+        # stdlib root logger — the single ``root_logger.setLevel(...)``
+        # call below then controls every native and foreign logger
+        # uniformly. ``make_filtering_bound_logger(INFO)`` would short-
+        # circuit at bind time and ignore ``setLevel``, surprising an
+        # operator who exports ``LIP_LOG_LEVEL=debug`` for triage. The
+        # ``foreign_pre_chain`` (which routes stdlib records through the
+        # processor stack) works regardless of which wrapper class is
+        # configured — the rationale here is the level-filter dispatch
+        # site, not the foreign-record bridge.
         wrapper_class=structlog.stdlib.BoundLogger,
         # ``cache_logger_on_first_use`` is INTENTIONALLY OMITTED. Setting
         # it to True freezes the bound logger on first ``get_logger()``

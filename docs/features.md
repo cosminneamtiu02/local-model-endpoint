@@ -100,17 +100,18 @@ across four files (one class each) to satisfy the sacred one-class-per-file rule
 extension-key container; `ValidationErrorDetail` is the per-field shape inside
 validation problem+json; `HealthResponse` is the liveness payload. A fifth file
 `wire_constants` centralizes the UUID regex, request-id length, instance-path cap,
-RFC 7807 about:blank type URI, X-Request-ID header spelling, and the
-`application/problem+json` media-type / Content-Language values reused across
-the request_id middleware, `ProblemDetails`, `app.api.deps`, and the inference
-response envelope — see the module docstring for the centralization rationale.
+RFC 7807 about:blank type URI, X-Request-ID and Content-Language header
+spellings, and the `application/problem+json` media-type / Content-Language
+values reused across the request_id middleware, `ProblemDetails`,
+`app.api.deps`, and the inference response envelope — see the module docstring
+for the centralization rationale.
 
 ---
 
 ## Backend — Architecture Enforcement
 
 ### Import-Linter Contracts ([apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini))
-Fourteen contracts protect the layer boundaries:
+Fifteen contracts protect the layer boundaries:
 
 - **1 generated-error gate** — `no-direct-generated-error-imports`: only
   `app.exceptions/__init__` may import from `app.exceptions._generated`;
@@ -133,12 +134,15 @@ Fourteen contracts protect the layer boundaries:
   cannot reach into `app.api`/`app.exceptions`, and `repository/` cannot
   reach into `app.api` or sibling `schemas/`. Defense-in-depth around the
   feature → cross-cutting-layer boundary.
-- **3 api-cross-cutting** — `api-exception-handlers-feature-agnostic`,
-  `api-request-id-middleware-feature-agnostic`, and
+- **4 api-cross-cutting** — `api-exception-handlers-feature-agnostic`,
+  `api-request-id-middleware-feature-agnostic`,
+  `api-health-router-feature-agnostic`, and
   `api-uses-inference-feature-root`: the global error path, request-id
-  middleware, and the api ↔ inference boundary are all feature-agnostic
-  (or feature-root-only) by contract, so a drift where a handler sniffs
-  feature-specific shape is mechanically caught.
+  middleware, the health router (defense-in-depth that `/health` stays
+  process-only and never grows a daemon-ping arm), and the api ↔
+  inference boundary are all feature-agnostic (or feature-root-only) by
+  contract, so a drift where a handler sniffs feature-specific shape
+  is mechanically caught.
 
 ---
 
@@ -164,11 +168,18 @@ Run in well under 10 seconds. Cover:
   schema-package class).
 - **`tests/unit/`** (top-level) — `test_filterwarnings_anyio_suppression.py`
   (self-test that the anyio.streams.memory ResourceWarning narrowing in
-  `pyproject.toml`'s `filterwarnings` is still effective) and
+  `pyproject.toml`'s `filterwarnings` is still effective),
   `test_no_test_classes_guard.py` (sentinel asserting the
   `pytest_sessionstart` hook + python_classes regex catch a stray
-  `class Test...` collection — sacred-rule "Never write a test class").
-- **`tests/unit/features/inference/`** — mirrors `app/features/inference/`:
+  `class Test...` collection — sacred-rule "Never write a test class"),
+  and `test_pytest_asyncio_config.py` (drift-guard pinning the
+  `asyncio_default_fixture_loop_scope` /
+  `asyncio_default_test_loop_scope` / `asyncio_mode` lockstep in
+  `pyproject.toml`).
+- **`tests/unit/features/inference/`** — mirrors `app/features/inference/`,
+  plus `test_request_id_fixture_drift_guard.py` at the top level
+  (pins the shared `VALID_REQUEST_ID` fixture used across the feature's
+  unit + integration tests):
   - `model/` — `test_message.py`, `test_model_params.py`, `test_content_part.py`,
     `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
     `test_ollama_chat_result.py`, `test_ollama_translation.py`,
@@ -188,7 +199,7 @@ Run in well under 10 seconds. Cover:
 httpx.AsyncClient via ASGITransport against the FastAPI app in-process. No DB, no
 Testcontainers. Covers:
 
-- `api/test_health.py` — `/health` liveness shape.
+- `api/test_health_router.py` — `/health` liveness shape.
 - `api/test_request_id_middleware.py` — request-ID propagation, header echo,
   contextvar binding, body-size DoS guard.
 - `test_exception_handler_chain.py` — RFC 7807 problem+json envelope shapes through

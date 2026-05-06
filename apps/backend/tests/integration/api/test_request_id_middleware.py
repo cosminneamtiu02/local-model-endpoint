@@ -9,7 +9,11 @@ for X-Request-ID coverage greps the obvious filename.
 from httpx import AsyncClient
 
 from app.api.request_id_middleware import _MAX_REQUEST_BODY_BYTES
-from app.schemas.wire_constants import REQUEST_ID_HEADER, UUID_REGEX
+from app.schemas.wire_constants import (
+    PROBLEM_JSON_MEDIA_TYPE,
+    REQUEST_ID_HEADER,
+    UUID_REGEX,
+)
 
 
 async def test_response_includes_x_request_id(client: AsyncClient) -> None:
@@ -53,7 +57,7 @@ async def test_oversize_content_length_rejected_with_413_problem_json(client: As
         content=b"",  # body is irrelevant — the Content-Length lie is what trips the guard
     )
     assert response.status_code == 413
-    assert response.headers["content-type"] == "application/problem+json; charset=utf-8"
+    assert response.headers["content-type"] == PROBLEM_JSON_MEDIA_TYPE
     body = response.json()
     assert body["status"] == 413
     assert body["code"] == "REQUEST_TOO_LARGE"

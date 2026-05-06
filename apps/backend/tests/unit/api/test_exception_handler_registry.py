@@ -62,7 +62,20 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
 
     @test_app.get("/trigger-http-405")
     async def trigger_http_405() -> dict[str, str]:
-        raise HTTPException(status_code=405)
+        # ``headers={"Allow": "POST"}`` exercises the ``Allow`` forwarding
+        # path through ``_problem_response(extra_headers=...)``. Without
+        # explicit headers the typed-405 path silently ships RFC-9110-
+        # non-compliant responses.
+        raise HTTPException(status_code=405, headers={"Allow": "POST"})
+
+    @test_app.post("/post-only")
+    async def post_only() -> dict[str, str]:
+        # Real framework-405 vector: Starlette's ``Route.handle`` raises
+        # ``HTTPException(405, headers={"Allow": "POST"})`` automatically
+        # for a method mismatch on a registered route. The handler chain
+        # must forward Starlette's ``Allow`` header to the response per
+        # RFC 9110 §15.5.6.
+        return {"ok": "1"}
 
     test_app.add_middleware(RequestIdMiddleware)
     return test_app
@@ -317,6 +330,37 @@ def test_http_exception_405_returns_typed_method_not_allowed_problem_json(
     assert body["status"] == 405
     assert body["code"] == "METHOD_NOT_ALLOWED"
     assert body["request_id"] == response.headers[REQUEST_ID_HEADER]
+
+
+def test_http_exception_405_forwards_allow_header(client: TestClient) -> None:
+    """The 405 path forwards ``Allow:`` headers per RFC 9110 §15.5.6.
+
+    A standards-compliant client (curl --retry, requests Retry adapter)
+    cannot discover supported methods on a 405 if the header is missing.
+    The handler explicitly forwards ``http_exc.headers`` to the response;
+    a regression that drops ``extra_headers=`` would silently ship non-
+    compliant 405s — this test pins the contract on the wire.
+    """
+    response = client.get("/trigger-http-405")
+    assert response.status_code == 405
+    assert response.headers["allow"] == "POST"
+
+
+def test_framework_405_on_method_mismatch_includes_allow_header(client: TestClient) -> None:
+    """A real method-mismatch 405 (no typed raise) carries Starlette's auto Allow header.
+
+    Mounts a POST-only route and GETs it — Starlette's ``Route.handle``
+    auto-raises ``HTTPException(405, headers={"Allow": "POST"})``, and
+    the handler chain must round-trip the ``Allow`` header into the
+    wire response. This is the canonical framework-405 vector that
+    dashboarding clients see; the typed-route ``HTTPException(405,
+    headers=...)`` in the test above is the unit-tier mirror.
+    """
+    response = client.get("/post-only")
+    assert response.status_code == 405
+    assert response.headers["allow"] == "POST"
+    body = response.json()
+    assert body["code"] == "METHOD_NOT_ALLOWED"
 
 
 def test_unmatched_route_returns_about_blank_404_problem_json(client: TestClient) -> None:

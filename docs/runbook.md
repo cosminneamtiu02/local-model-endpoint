@@ -111,7 +111,7 @@ single request can be correlated across handler + adapter + access log.
 | `timestamp` | ISO 8601 UTC |
 | `logger` | dotted module path |
 | `request_id` | UUID set by `RequestIdMiddleware` (or by `_resolve_request_id`'s fallback if the middleware was misconfigured) |
-| `phase` | `lifespan` / `startup` / `request` (set on every line via contextvars) |
+| `phase` | `lifespan` / `pre_lifespan` / `request` (set on every line via contextvars; `pre_lifespan` lines emit before `configure_logging` runs and so ride the unconfigured chain — env-typo audit, app-version resolution) |
 
 Per-request lines additionally carry `method`, `path`,
 `request_id_source` (`client` if the consumer supplied a valid
@@ -125,7 +125,7 @@ and `duration_ms` on the trailing `request_completed` line.
 | Event | When it fires | Level |
 |---|---|---|
 | `app_startup` | First line of `lifespan` after `configure_logging` | `info` |
-| `app_startup_completed` | After `OllamaClient` is constructed and bound to `app.state.context` (mirrors `app_shutdown_completed` on the teardown half) | `info` |
+| `app_startup_completed` | After all lifespan resources are constructed and `application.state.context` is bound (mirrors `app_shutdown_completed` on the teardown half) | `info` |
 | `app_shutdown` | Inner `finally` of lifespan (carries `reason="clean"|"cancelled"|"exception"`) | `info` |
 | `app_shutdown_completed` | Outer `finally` after `lifespan_resources` exits | `info` |
 | `app_startup_cancelled` / `app_shutdown_cancelled` | `CancelledError` arm (SIGTERM, Ctrl-C) | `info` |

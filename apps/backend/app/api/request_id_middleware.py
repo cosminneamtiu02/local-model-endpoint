@@ -15,9 +15,9 @@ Two concerns layered on the ASGI scope:
 """
 
 import asyncio
-import contextlib
 import time
 import uuid
+from contextlib import suppress
 from http import HTTPStatus
 from typing import Final
 
@@ -79,7 +79,7 @@ _CLIENT_CLOSED_REQUEST_STATUS: Final[int] = 499
 # loops or pathological consumers OOM-ing uvicorn on the 16 GB M4 host.
 # 64 MiB is well above any realistic single audio clip / multimodal prompt
 # and far below memory-pressure territory; not a configurable wire knob.
-_MAX_REQUEST_BODY_BYTES: Final[int] = 64 * 1024 * 1024
+_MAX_REQUEST_BODY_BYTES: Final[int] = 67_108_864  # 64 MiB
 
 logger = structlog.get_logger(__name__)
 
@@ -426,7 +426,7 @@ class RequestIdMiddleware:
                 # Python re-raises the finally exception and drops the
                 # original. The access log is best-effort telemetry; losing
                 # one line is preferable to losing a 5xx traceback.
-                with contextlib.suppress(Exception):
+                with suppress(Exception):
                     # ``method`` and ``path`` are also threaded explicitly
                     # (in addition to flowing in via ``merge_contextvars``
                     # from the bind block above) as defense-in-depth

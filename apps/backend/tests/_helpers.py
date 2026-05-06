@@ -15,7 +15,11 @@ from typing import TYPE_CHECKING, Any
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from app.schemas.wire_constants import REQUEST_ID_HEADER
+from app.schemas.wire_constants import (
+    CONTENT_LANGUAGE,
+    PROBLEM_JSON_MEDIA_TYPE,
+    REQUEST_ID_HEADER,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -106,8 +110,14 @@ def assert_problem_json_envelope(
     follow-up assertions.
     """
     assert response.status_code == status
-    assert response.headers["content-type"] == "application/problem+json; charset=utf-8"
-    assert response.headers["content-language"] == "en"
+    # Read both the media-type and the language code from the canonical
+    # ``wire_constants`` constants (instead of duplicated literals) so a
+    # future bump (e.g. RFC 7807 §3 permits the bare
+    # ``application/problem+json`` form) is a single edit at the
+    # source-of-truth module — symmetric with how the production handler
+    # / middleware reference these values.
+    assert response.headers["content-type"] == PROBLEM_JSON_MEDIA_TYPE
+    assert response.headers["content-language"] == CONTENT_LANGUAGE
     body = response.json()
     assert body["code"] == code
     assert "request_id" in body

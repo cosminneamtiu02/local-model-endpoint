@@ -83,7 +83,13 @@ tasks:
     desc: Run pyright on the backend app
     dir: "{{.BACKEND_DIR}}"
     cmds:
-      - uv run --frozen pyright app/
+      # Honour ``[tool.pyright].include = ["app", "tests"]`` from
+      # ``pyproject.toml`` — a positional ``app/`` would silently
+      # override the ``include`` list, leaving ``tests/`` outside
+      # strict-mode coverage and turning round-21's widening into dead
+      # config (the very upgrade-rot guard the rule was meant to
+      # install would not run in CI).
+      - uv run --frozen pyright
 
   check:types:errors:
     desc: Run pyright on the error-contracts package (codegen + tests)

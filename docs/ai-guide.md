@@ -32,7 +32,7 @@ unified RFC 7807 `application/problem+json` ProblemDetails envelope (LIP-E004-F0
 for liveness. Readiness will be added by LIP-E006-F001 when the warm-up signal from
 LIP-E005-F001 is wired.
 
-**Architecture enforcement** is mechanical: import-linter has fourteen contracts —
+**Architecture enforcement** is mechanical: import-linter has fifteen contracts —
 1 generated-error gate (`no-direct-generated-error-imports`) +
 4 leaf rules (`core-is-leaf`, `exceptions-is-leaf`, `schemas-is-leaf`,
 `inference-model-is-leaf` — the last absorbs the model→repository forbidden
@@ -43,8 +43,9 @@ edge that previously lived in a separate contract) +
 2 inference cross-layer rules (`inference-schemas-cross-layer`,
 `inference-repository-cross-layer`) that forbid the inference feature
 reaching up into `app.api`/`app.exceptions` from those layers +
-3 api-cross-cutting rules (`api-exception-handlers-feature-agnostic`,
-`api-request-id-middleware-feature-agnostic`, `api-uses-inference-feature-root`).
+4 api-cross-cutting rules (`api-exception-handlers-feature-agnostic`,
+`api-request-id-middleware-feature-agnostic`,
+`api-health-router-feature-agnostic`, `api-uses-inference-feature-root`).
 See [apps/backend/architecture/import-linter-contracts.ini](../apps/backend/architecture/import-linter-contracts.ini)
 for the full list. Each cross-cutting layer (`app.core`, `app.exceptions`, `app.schemas`)
 cannot import features and cannot import each other; the inference feature's `model/`,
@@ -110,7 +111,7 @@ external systems that are out of v1 scope.
 client addr), and the lifespan event family (`app_startup` / `app_startup_completed` /
 `app_shutdown` / `app_shutdown_completed` / `*_cancelled` / `*_failed`). See
 [runbook.md](runbook.md) "Logs & triage" for the full event taxonomy. The
-disambiguated-idea Observability section's carve-out (line 153-154) is the
+disambiguated-idea Observability section's carve-out (line 154) is the
 authoritative pin.
 
 ### No quotas or rate limiting

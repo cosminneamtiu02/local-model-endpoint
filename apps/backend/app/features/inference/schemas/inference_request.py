@@ -35,7 +35,7 @@ def _validate_nested_metadata_key(inner_key: str, key_path: str) -> None:
     if not inner_key:
         msg = (
             f"metadata[{key_path}] nested key is the empty string; "
-            f"keys must be at least 1 character long."
+            "keys must be at least 1 character long."
         )
         raise ValueError(msg)
     if len(inner_key) > METADATA_KEY_MAX_LENGTH:
