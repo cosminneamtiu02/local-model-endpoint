@@ -211,6 +211,13 @@ def test_audit_lip_env_typos_de_dups_case_variants(
     # Exactly ONE entry in the env_vars list (the upper-cased form),
     # not two.
     assert warnings[0]["env_vars"].count("LIP_BOGUS_TYPO_VAR") == 1
+    # ``env_var_count`` ships in lockstep with the deduped list (see the
+    # paired comment at ``deps.py``). A regression that broke the dedup
+    # half-way (e.g. switched ``actual`` to a list while keeping the list-
+    # render via ``sorted(set(...))``) could produce ``env_var_count=2``
+    # while ``env_vars`` stays deduped — silently doubling operator-side
+    # log-volume metrics keyed on the count.
+    assert warnings[0]["env_var_count"] == 1
 
 
 def test_get_settings_construction_no_longer_emits_warnings(

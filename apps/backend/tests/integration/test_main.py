@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 def test_production_app_disables_openapi_routes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """In production mode (LIP_APP_ENV=production), /docs, /redoc, /openapi.json are disabled."""
+    """In production mode (LIP_APP_ENV=production), every docs-tier route is disabled."""
     monkeypatch.setenv("LIP_APP_ENV", "production")
     # The autouse _reset_settings_cache fixture clears the lru_cache *before*
     # each test, so we don't need to call cache_clear() here — the cache is
@@ -20,10 +20,16 @@ def test_production_app_disables_openapi_routes(monkeypatch: pytest.MonkeyPatch)
     assert app.docs_url is None
     assert app.redoc_url is None
     assert app.openapi_url is None
+    # ``swagger_ui_oauth2_redirect_url`` is the fourth docs-tier knob FastAPI
+    # exposes; without an explicit assertion the production-zero-docs-surface
+    # invariant is mechanically pinned on three of four prongs and prose-only
+    # on the fourth — exactly the asymmetric-coverage class that turns into a
+    # regression incident the day a contributor refactors ``is_prod``.
+    assert app.swagger_ui_oauth2_redirect_url is None
 
 
 def test_development_app_exposes_openapi_routes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """In development mode (default), /docs, /redoc, /openapi.json are exposed."""
+    """In development mode (default), every docs-tier route is exposed."""
     monkeypatch.setenv("LIP_APP_ENV", "development")
     from app.main import create_app
 
@@ -31,6 +37,10 @@ def test_development_app_exposes_openapi_routes(monkeypatch: pytest.MonkeyPatch)
     assert app.docs_url == "/docs"
     assert app.redoc_url == "/redoc"
     assert app.openapi_url == "/openapi.json"
+    # Symmetric with the production-side assertion — the FastAPI default for
+    # this URL is ``/docs/oauth2-redirect`` when docs_url is set, so a future
+    # constructor refactor that drops the prong silently in dev surfaces here.
+    assert app.swagger_ui_oauth2_redirect_url == "/docs/oauth2-redirect"
 
 
 def test_app_redirect_slashes_disabled_at_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,3 +156,39 @@ def test_lifespan_passes_get_settings_to_lifespan_resources() -> None:
         "app.main.lifespan must NOT construct Settings via "
         "model_validate(...) — use the get_settings() carve-out factory."
     )
+
+
+def test_create_app_invokes_audit_lip_env_typos(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``create_app`` MUST invoke ``audit_lip_env_typos`` exactly once.
+
+    The audit's whole reason for existing (per ADR-014) is to surface
+    typo'd ``LIP_*`` env vars that pydantic-settings silently ignores.
+    The unit tests in ``tests/unit/api/test_deps.py`` drive the audit
+    function directly; this integration test drives ``create_app`` so a
+    regression that removes the call site at ``app/main.py`` turns the
+    test red. Without this pin, the operator-discoverability contract
+    relies entirely on prose; the call-site is invisible to the unit
+    suite.
+
+    Monkey-patches the audited symbol (``app.main.audit_lip_env_typos``,
+    NOT the deps-module export) and counts invocations. Capturing logs
+    via ``structlog.testing.capture_logs`` would not work here because
+    ``create_app`` calls ``configure_logging`` which replaces structlog's
+    processor chain mid-startup, dropping the test's capture.
+    """
+    monkeypatch.setenv("LIP_APP_ENV", "development")
+    invocation_count = 0
+
+    def _fake_audit() -> None:
+        nonlocal invocation_count
+        invocation_count += 1
+
+    # Patch on ``app.main`` (the call site) rather than ``app.api.deps``
+    # (the definition site) — Python imports bind a NAME at the time of
+    # ``from X import Y``, so patching the source module after import
+    # would leave ``main``'s already-bound reference untouched.
+    import app.main
+
+    monkeypatch.setattr(app.main, "audit_lip_env_typos", _fake_audit)
+    app.main.create_app()
+    assert invocation_count == 1

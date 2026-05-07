@@ -1,21 +1,23 @@
-"""Internal validation helpers shared between sibling content variants.
+"""Internal validation helpers shared by sibling content variants.
 
-Currently houses the URL-or-base64 mutual-exclusion check used by both
-:class:`AudioContent` and :class:`ImageContent`. Single underscore on
-the module name marks the helpers as internal-to-the-feature; consumers
-import the parent value-objects, not this module.
+Houses the URL-or-base64 mutual-exclusion check used by ``AudioContent``
+and ``ImageContent``. The leading-underscore module name marks the
+helpers as internal-to-the-feature: imported only by sibling files
+within ``app.features.inference.model``. Not part of the model layer's
+public surface; CLAUDE.md sacred-rule discipline + the leading-
+underscore convention is the safeguard against a sibling layer
+(``repository`` / ``schemas`` / future ``router``) shortcutting through
+this module.
 
-FORWARD (lane 12.6): the current
-``ensure_exactly_one_url_or_base64(model, label)`` helper takes a
-``BaseModel`` argument and reaches for ``getattr(model, "url", None)``
-because a typed ``Protocol`` carrying ``url: object | None`` is
+FORWARD: the current ``ensure_exactly_one_url_or_base64(model, label)``
+helper takes a ``BaseModel`` and reaches for ``getattr(model, "url",
+None)`` because a typed ``Protocol`` carrying ``url: object | None`` is
 rejected by Pyright as type-invariant on a mutable attribute. A future
-refactor can replace the ``getattr`` indirection with explicit
-keyword-only ``url`` and ``base64`` args
-(``def ensure_exactly_one_url_or_base64(*, url: object | None,
-base64: object | None, label: str)``), letting Pyright narrow at each
-call site and removing one runtime introspection. The present shape
-works; the refactor is ergonomic-only.
+refactor can replace the ``getattr`` indirection with explicit keyword-
+only ``url`` and ``base64`` args (``def ensure_exactly_one_url_or_base64(
+*, url: object | None, base64: object | None, label: str)``), letting
+Pyright narrow at each call site and removing one runtime introspection.
+The present shape works; the refactor is ergonomic-only.
 """
 
 from pydantic import BaseModel

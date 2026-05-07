@@ -219,6 +219,24 @@ def test_decode_ollama_json_rejects_non_json_content_type() -> None:
         _decode_ollama_json(response)
 
 
+def test_decode_ollama_json_accepts_ows_before_semicolon_in_content_type() -> None:
+    """RFC 7231 §3.1.1.1 OWS before ``;`` must not bucket as malformed-frame.
+
+    The ABNF ``media-type = type "/" subtype *( OWS ";" OWS parameter )``
+    allows whitespace AROUND the parameter separator. A reverse proxy or a
+    future Ollama version emitting ``application/json ;charset=utf-8``
+    (one space before ``;``) is RFC-legal; an earlier guard shape that
+    string-matched ``"application/json;"`` would silently re-bucket the
+    real Ollama response as malformed-frame.
+    """
+    response = httpx.Response(
+        200,
+        headers={"content-type": "application/json ;charset=utf-8"},
+        json={"ok": True},
+    )
+    assert _decode_ollama_json(response) == {"ok": True}
+
+
 def test_decode_ollama_json_rejects_malformed_json_body() -> None:
     """A malformed JSON body surfaces as ValueError chaining the decoder cause."""
     response = httpx.Response(

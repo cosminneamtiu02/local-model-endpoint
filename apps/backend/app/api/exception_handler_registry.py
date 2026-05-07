@@ -113,7 +113,7 @@ on a pathological Pydantic upstream regression (the warning is for the
 would otherwise inflate this single warning)."""
 
 
-def _bounded_instance(request: Request) -> str:
+def _bound_instance(request: Request) -> str:
     """Return ``request.url.path`` ascii-scrubbed and truncated to ``INSTANCE_PATH_MAX_CHARS``.
 
     Symmetric with the ``RequestIdMiddleware`` 413 path's ``bounded_path``
@@ -188,6 +188,16 @@ def _resolve_request_id(request: Request) -> _RequestIdResolution:
     # documented ``select(.phase == "request")`` jq filter in
     # ``request_id_middleware.py`` would silently drop every fallback-path
     # event — exactly the diagnostic surface that needs maximum visibility.
+    # ``client_ip`` / ``client_port`` / ``had_rejected_client_id`` mirror
+    # the middleware's happy-path bind at ``request_id_middleware.py``:
+    # the documented "page-the-team-owner vs page-everyone" client-
+    # attribution discipline applies MORE on the fallback path (the
+    # diagnostic surface that needs maximum visibility), not less. Without
+    # these three fields, every downstream log line on the misconfigured-
+    # app path silently drops attribution data. ``had_rejected_client_id
+    # =False`` because middleware never ran (rejection requires the
+    # middleware to have evaluated the X-Request-ID header).
+    client = request.client
     structlog.contextvars.bind_contextvars(
         request_id=fallback,
         method=request.method,
@@ -197,6 +207,9 @@ def _resolve_request_id(request: Request) -> _RequestIdResolution:
         path=ascii_safe(request.url.path, max_chars=INSTANCE_PATH_MAX_CHARS),
         phase="request",
         request_id_source="fallback",
+        client_ip=client.host if client is not None else None,
+        client_port=client.port if client is not None else None,
+        had_rejected_client_id=False,
     )
     # ``path``, ``method``, ``request_id``, and ``phase`` ride in via
     # ``merge_contextvars`` from the bind above; ``request_id_source=
@@ -314,7 +327,7 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
             title=exc.title,
             status=exc.http_status,
             detail=detail_override if detail_override is not None else exc.detail(),
-            instance=_bounded_instance(request),
+            instance=_bound_instance(request),
             code=exc.code,
             request_id=request_id,
             **spread,
@@ -356,7 +369,7 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
         )
 
 
-def _problem_response(
+def _build_problem_response(
     problem: ProblemDetails,
     *,
     extra_headers: Mapping[str, str] | None = None,
@@ -440,7 +453,7 @@ async def _handle_domain_error(request: Request, exc: Exception) -> Response:
             status_code=domain_exc.http_status,
         )
     problem = _build_problem_payload(domain_exc, request, request_id)
-    response = _problem_response(problem)
+    response = _build_problem_response(problem)
     _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
     return response
 
@@ -682,12 +695,12 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         extras=ProblemExtras(validation_errors=validation_errors or None),
         suppress_typed_params=error_count != 1,
     )
-    response = _problem_response(problem)
+    response = _build_problem_response(problem)
     _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
     return response
 
 
-def _http_status_phrase(status_code: int) -> str:
+def _get_http_status_phrase(status_code: int) -> str:
     """Return the IANA reason phrase for ``status_code``, falling back gracefully."""
     try:
         return HTTPStatus(status_code).phrase
@@ -698,7 +711,7 @@ def _http_status_phrase(status_code: int) -> str:
         return "HTTP Error"
 
 
-def _http_code_for_status(status_code: int) -> str:
+def _get_http_code_for_status(status_code: int) -> str:
     """Map a raw HTTP status code into a SCREAMING_SNAKE LIP error code.
 
     For statuses we already model in :mod:`app.exceptions` (404, 405, 500,
@@ -749,7 +762,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     initial_code = (
         InternalError.code
         if status_code < HTTPStatus.BAD_REQUEST
-        else _http_code_for_status(status_code)
+        else _get_http_code_for_status(status_code)
     )
     structlog.contextvars.bind_contextvars(error_code=initial_code)
     request_id, missed_middleware = _resolve_request_id(request)
@@ -786,7 +799,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
             detail=truncated_detail,
         )
         problem = _build_problem_payload(InternalError(), request, request_id)
-        response = _problem_response(problem)
+        response = _build_problem_response(problem)
         # Typed-handler responses flow back through RequestIdMiddleware (this
         # handler is registered via ``add_exception_handler``, so Starlette's
         # ExceptionMiddleware — inside the user stack — invokes it). Use the
@@ -794,7 +807,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # the middleware was missed, to avoid duplicating the header.
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response
-    status_phrase = _http_status_phrase(status_code)
+    status_phrase = _get_http_status_phrase(status_code)
     # ``ascii_safe`` (truncate + control-char scrub) symmetric with
     # ``ValidationErrorDetail.reason`` (2048-char cap) and the 415-content-
     # type surface above. Starlette today only constructs HTTPException with
@@ -806,7 +819,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     detail_text = ascii_safe(raw_detail, max_chars=REASON_MAX_CHARS)
     # Reuse ``initial_code`` computed above — for status>=400 it's the
     # final code (the <400 short-circuit already returned above), so a
-    # second ``_http_code_for_status`` call would produce the same value.
+    # second ``_get_http_code_for_status`` call would produce the same value.
     code = initial_code
     if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
         # 5xx HTTPExceptions raised by the framework would otherwise ship
@@ -858,7 +871,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
             request,
             request_id,
         )
-        response = _problem_response(problem)
+        response = _build_problem_response(problem)
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response
 
@@ -906,9 +919,9 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
                 "http_exception_405_missing_allow_header",
                 phase="request",
                 method=request.method,
-                path=_bounded_instance(request),
+                path=_bound_instance(request),
             )
-        response = _problem_response(problem, extra_headers=http_exc.headers)
+        response = _build_problem_response(problem, extra_headers=http_exc.headers)
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response
 
@@ -927,7 +940,7 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # headers (e.g. ``Retry-After`` on 503) are preserved via
         # ``extra_headers``.
         problem = _build_problem_payload(InternalError(), request, request_id)
-        response = _problem_response(problem, extra_headers=http_exc.headers)
+        response = _build_problem_response(problem, extra_headers=http_exc.headers)
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response
 
@@ -936,11 +949,11 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         title=status_phrase,
         status=status_code,
         detail=detail_text,
-        instance=_bounded_instance(request),
+        instance=_bound_instance(request),
         code=code,
         request_id=request_id,
     )
-    response = _problem_response(problem)
+    response = _build_problem_response(problem)
     _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
     return response
 
@@ -1027,7 +1040,7 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     )
     domain_err = InternalError()
     problem = _build_problem_payload(domain_err, request, request_id)
-    response = _problem_response(problem)
+    response = _build_problem_response(problem)
     # ``missed=True`` is hard-coded here because ServerErrorMiddleware
     # lives outside the user middleware stack today — the response goes
     # back to the client without re-entering ``RequestIdMiddleware``, so

@@ -116,11 +116,14 @@ def _attach_media_to_message(
     Ollama /api/chat documents both arrays only on user/assistant turns;
     system-role media raises so the failure is loud rather than silently
     dropped. The two media kinds share an identical attach contract — a
-    dict-keyed loop expresses the rule once so a future media-kind addition
-    is a single-line change. ``key, media`` ordering mirrors the rest of
-    the file's key→value reads (e.g. ``_PARAM_RENAMES.items()``).
+    paired-tuple loop expresses the rule once so a future media-kind
+    addition is a single-line change. ``key, media`` ordering mirrors the
+    rest of the file's key→value reads (e.g. ``_PARAM_RENAMES.items()``).
+    A tuple of pairs (rather than a dict) avoids a per-call dict allocation
+    on the multimodal hot path; key-uniqueness/key-lookup semantics aren't
+    needed.
     """
-    for key, media in {"images": images, "audios": audios}.items():
+    for key, media in (("images", images), ("audios", audios)):
         if not media:
             continue
         if role == "system":
@@ -130,7 +133,7 @@ def _attach_media_to_message(
 
 
 def translate_message(msg: "Message") -> dict[str, Any]:
-    r"""Service Message -> Ollama /api/chat message dict.
+    """Service Message -> Ollama /api/chat message dict.
 
     String-content messages pass through unchanged. List-content
     (multimodal) messages are flattened: text parts joined with the
@@ -192,6 +195,16 @@ def build_chat_result(
         raise ValueError(msg)
     raw_finish = response_json.get("done_reason", "stop")
     finish_reason: FinishReason = _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop")
+    # Surface a 200-with-``{"error":"..."}`` body's diagnostic string when
+    # the upstream emits one; ``raise_for_status`` only fires on 4xx/5xx,
+    # so a misbehaving cache/proxy returning 200 + ``{"error": "model not
+    # found"}`` would otherwise lose the upstream string and bucket as
+    # the generic "missing message" diagnostic. Stays in the malformed-
+    # frame category; the message just carries the upstream signal.
+    raw_error = response_json.get("error")
+    if isinstance(raw_error, str) and raw_error:
+        msg = f"Ollama returned error frame: {raw_error}"
+        raise ValueError(msg)
     if "message" not in response_json:
         msg = "Ollama malformed frame: response missing 'message' field."
         raise ValueError(msg)
@@ -243,9 +256,15 @@ def build_chat_result(
     if isinstance(candidate, list):
         tool_calls = cast("list[object]", candidate)
         if tool_calls:
+            # ``tool_call_count=`` mirrors the codebase's ``_count`` suffix
+            # convention (see ``message_count`` / ``error_count`` /
+            # ``raw_error_count``) so an operator's
+            # ``select(.tool_call_count > 0)`` filter binds to a self-
+            # documenting key. A bare ``count=`` collides with future
+            # counters added on the same event surface.
             logger.warning(
                 "ollama_tool_calls_ignored",
-                count=len(tool_calls),
+                tool_call_count=len(tool_calls),
                 model_name=model_tag,
                 endpoint=CHAT_ENDPOINT,
             )

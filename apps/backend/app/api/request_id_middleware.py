@@ -108,7 +108,7 @@ def _resolve_access_log_status(captured_status: int, unhandled_exc: BaseExceptio
     return int(HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
-def _content_length_from_scope(scope: Scope) -> int | None:
+def _resolve_content_length(scope: Scope) -> int | None:
     """Read Content-Length from ASGI scope headers; None if absent, unparseable, or negative."""
     raw = next(
         (v for k, v in scope.get("headers", []) if k == b"content-length"),
@@ -374,7 +374,7 @@ class RequestIdMiddleware:
             # uploads without a length header are not a current LIP
             # profile (LAN-local backend clients send fixed-size JSON),
             # so absence is permitted.
-            content_length = _content_length_from_scope(scope)
+            content_length = _resolve_content_length(scope)
             if content_length is not None and content_length > _MAX_REQUEST_BODY_BYTES:
                 logger.warning(
                     "request_body_too_large",

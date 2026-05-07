@@ -69,7 +69,7 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
     @test_app.get("/trigger-http-405")
     async def trigger_http_405() -> dict[str, str]:
         # ``headers={"Allow": "POST"}`` exercises the ``Allow`` forwarding
-        # path through ``_problem_response(extra_headers=...)``. Without
+        # path through ``_build_problem_response(extra_headers=...)``. Without
         # explicit headers the typed-405 path silently ships RFC-9110-
         # non-compliant responses.
         raise HTTPException(status_code=405, headers={"Allow": "POST"})
@@ -486,7 +486,7 @@ def test_build_problem_payload_raises_internal_error_on_extras_collision() -> No
         validation_errors=[ValidationErrorDetail(field="other", reason="value")],
     )
 
-    # Mock request — _bounded_instance reads request.url.path; provide
+    # Mock request — _bound_instance reads request.url.path; provide
     # one so the helper doesn't fail at the instance-construction step
     # (which it never reaches because the collision raise fires first).
     mock_request = MagicMock()
@@ -503,7 +503,14 @@ def test_build_problem_payload_raises_internal_error_on_extras_collision() -> No
     )
     assert payload.code == "QUEUE_FULL"
 
-    with pytest.raises(InternalError):
+    # ``match=`` binds the assertion to the InternalError code
+    # specifically. Without it, an unrelated raise upstream of the
+    # extras-collision detector (e.g. via a future refactor changing
+    # helper-internal failure modes) would silently satisfy the test.
+    # The match anchors on ``str(InternalError())`` which is the code
+    # ``"INTERNAL_ERROR"`` (DomainError's __str__ returns ``self.code``);
+    # a future code rename (or ``__str__`` refactor) surfaces here.
+    with pytest.raises(InternalError, match="INTERNAL_ERROR"):
         _build_problem_payload(
             _CollidingError(),
             mock_request,

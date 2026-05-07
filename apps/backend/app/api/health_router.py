@@ -57,6 +57,12 @@ _PROBLEM_RESPONSE: Final[dict[str, Any]] = {
 # error path symmetrically. FastAPI infers 200 from the return-type
 # annotation, but the inferred entry is content-typeless; declaring it
 # here makes the wire contract self-documenting in /openapi.json.
+# Future routes that override the served media type via ``media_type=``
+# on a ``Response`` subclass MUST keep this ``content`` key in sync;
+# FastAPI does not auto-derive the served media type from a custom
+# ``JSONResponse`` subclass, so a copy of this declarative shape that
+# served ``application/vnd.api+json`` while leaving the spec advertising
+# ``application/json`` would land an SDK/spec mismatch.
 _HEALTH_OK_RESPONSE: Final[dict[str, Any]] = {
     "model": HealthResponse,
     "description": (

@@ -69,14 +69,16 @@ def _resolve_app_version() -> _AppVersionResolution:
     """
     try:
         return _AppVersionResolution(_metadata.version(PACKAGE_NAME), None)
-    except _metadata.PackageNotFoundError as exc:
-        return _AppVersionResolution(VERSION_FALLBACK, exc)
-    except Exception as exc:  # noqa: BLE001 — defense-in-depth at module-singleton boot
-        # A corrupted dist-info under editable-install layouts can raise
-        # non-PackageNotFoundError (KeyError / ValueError from
-        # importlib.metadata internals). Returning the exception keeps the
-        # failure visible without crashing module import; the caller emits
-        # the structured warning after structlog is configured.
+    except (_metadata.PackageNotFoundError, Exception) as exc:  # noqa: BLE001 — defense-in-depth at module-singleton boot
+        # PackageNotFoundError is the expected failure (editable install
+        # missing dist-info); a corrupted dist-info under editable-install
+        # layouts can additionally raise non-PackageNotFoundError (KeyError
+        # / ValueError from importlib.metadata internals). Both flow through
+        # the same fallback path; the ``isinstance`` discrimination lives at
+        # the consumer (``_emit_app_version_resolve_failure``) so the
+        # producer stays single-arm. PackageNotFoundError IS a subclass of
+        # Exception, so the tuple is documentation-as-code; collapse to a
+        # bare ``except Exception`` if the documentation value ever drops.
         return _AppVersionResolution(VERSION_FALLBACK, exc)
 
 
@@ -209,9 +211,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             # corresponding *_started phase finished cleanly" signal —
             # operator dashboards keying on
             # ``select(.event | endswith("_completed"))`` find both
-            # startup-success and shutdown-success uniformly. The
-            # previous name (``lifespan_resources_ready``) read as an
-            # internal seam rather than a startup terminal.
+            # startup-success and shutdown-success uniformly.
             # ``reason="clean"`` keeps the field-set parity with
             # ``app_shutdown_completed`` (which always carries ``reason``):
             # operators correlating "did this app come up cleanly AND go
@@ -219,16 +219,25 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
             # endswith("_completed")) | .reason`` and see "clean" on
             # both halves. The startup-side ``_failed`` / ``_cancelled``
             # peers do not carry ``reason=`` because the event NAME
-            # already encodes the disposition.
-            logger.info(
-                "app_startup_completed",
-                phase="lifespan",
-                scope="construction",
-                reason="clean",
-                version=application.version,
-                env=settings.app_env,
-                duration_ms=elapsed_ms(start),
-            )
+            # already encodes the disposition. ``suppress(Exception)``
+            # mirrors the symmetric protection on ``app_shutdown_completed``
+            # below: a future structlog regression on the redaction
+            # processor (the regression-class that motivated the shutdown-
+            # side suppress) would otherwise raise here AFTER
+            # ``entered_yield = True``, mis-routing the outer ``except
+            # Exception`` arm to ``app_shutdown_failed`` for what is
+            # actually a startup-time failure. Best-effort telemetry must
+            # never overwrite the disposition signal.
+            with suppress(Exception):
+                logger.info(
+                    "app_startup_completed",
+                    phase="lifespan",
+                    scope="construction",
+                    reason="clean",
+                    version=application.version,
+                    env=settings.app_env,
+                    duration_ms=elapsed_ms(start),
+                )
             try:
                 yield
             except CancelledError:
@@ -336,11 +345,19 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # "lifespan") | .scope`` see non-null values across every line —
         # the CRITICAL emit is the most operator-actionable line and was
         # the only lifespan event missing the discriminator.
+        # ``duration_ms`` matches the startup/shutdown-completed and
+        # *_cancelled peers' field set so the operator dashboard can
+        # aggregate "lifespan-event duration vs disposition" with the
+        # CRITICAL-level paging line included; the cancelled branch
+        # already ships ``duration_ms`` and the failed branch is the
+        # most operator-actionable line, so missing the field here was
+        # the lone field-set asymmetry across the lifespan family.
         logger.critical(
             event_name,
             phase="lifespan",
             version=application.version,
             env=settings.app_env,
+            duration_ms=elapsed_ms(start),
             exc_info=True,
             scope="teardown" if entered_yield else "construction",
         )

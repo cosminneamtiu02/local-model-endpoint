@@ -120,10 +120,12 @@ def _clean_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # concern, so it is imported at module scope alongside ``re``.
     from app.core.config import Settings
 
-    env_prefix = Settings.model_config.get("env_prefix") or ""
-    if not env_prefix:
-        # Defensive guard mirroring ``audit_lip_env_typos``: an empty
-        # prefix would match every env var on the host.
+    env_prefix = Settings.model_config.get("env_prefix")
+    # Defensive guard mirroring ``audit_lip_env_typos``: an empty or non-
+    # string prefix would match every env var on the host. The
+    # ``isinstance(str)`` narrow defends against a future model_config
+    # typo (``env_prefix=False``) collapsing to the silent-skip path.
+    if not isinstance(env_prefix, str) or not env_prefix:
         return
     env_prefix_upper = env_prefix.upper()
     for name in [n for n in os.environ if n.upper().startswith(env_prefix_upper)]:

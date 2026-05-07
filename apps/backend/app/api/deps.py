@@ -66,12 +66,16 @@ def audit_lip_env_typos() -> None:
     stream. The env-prefix is read from ``Settings.model_config`` so a
     future ADR renaming ``LIP_`` propagates here automatically.
     """
-    env_prefix = Settings.model_config.get("env_prefix") or ""
-    if not env_prefix:
-        # ADR-014 assumes a non-empty prefix; without one, ``startswith("")``
-        # would match every env var on the host and surface the operator's
-        # entire shell environment as "unknown LIP". A future ADR removing
-        # the prefix must update this audit in lockstep.
+    env_prefix = Settings.model_config.get("env_prefix")
+    # ADR-014 assumes a non-empty prefix; without one, ``startswith("")``
+    # would match every env var on the host and surface the operator's
+    # entire shell environment as "unknown LIP". A future ADR removing
+    # the prefix must update this audit in lockstep. The ``isinstance(str)``
+    # narrow defends against a future model_config typo (``env_prefix=False``
+    # rather than ``""``) collapsing to the silent-skip path; the
+    # ``test_settings_env_prefix_is_lip`` introspection test pins the
+    # truthy-string contract at the model_config layer.
+    if not isinstance(env_prefix, str) or not env_prefix:
         return
     # Case-fold-symmetric with ``Settings.model_config["case_sensitive"]=False``:
     # ``str.startswith`` is case-sensitive, but pydantic-settings folds env-var
@@ -138,15 +142,19 @@ def audit_lip_env_typos() -> None:
         # operators searching "did this typo fire" can grep the unknown
         # set directly. CLAUDE.md's prompt-content ban applies to
         # message bodies; env-var names are operator metadata.
-        # ``count`` ships alongside the list so a malformed ``.env``
+        # ``env_var_count`` ships alongside the list so a malformed ``.env``
         # exporting hundreds of typo'd ``LIP_*`` names doesn't force the
         # operator to ``.env_vars | length`` from the structured field —
         # symmetric with ``error_count`` on the validation handler and
-        # ``message_count`` on ``OllamaClient.chat``.
+        # ``message_count`` on ``OllamaClient.chat``. The ``_count`` suffix
+        # binds the field name to the codebase's metric-shape convention so
+        # an operator's ``select(.env_var_count > 1)`` jq filter is self-
+        # documenting (a bare ``count=`` would collide with future counters
+        # added on the same event surface).
         logger.warning(
             "unknown_lip_env_vars_ignored",
             env_vars=sanitized,
-            count=len(sanitized),
+            env_var_count=len(sanitized),
             phase="pre_lifespan",
         )
 
@@ -193,17 +201,24 @@ def get_app_state(request: Request) -> AppState:
         # ``select(.event | endswith("_5xx_raised"))`` filter now finds
         # this site too. ``code`` + ``status_code`` complete the field-set
         # parity with the sibling 5xx surfaces.
+        # ``method=`` defense-in-depth: this diagnostic specifically fires
+        # on the lifespan-never-ran path where the request_id middleware's
+        # contextvar bind never executed, so ``method`` is silently absent
+        # from the contextvar surface. The explicit kwarg matches the
+        # ``internal_error_5xx_raised`` discipline at the canonical 5xx
+        # site so an operator's "misconfigured-app GET vs POST" split
+        # works on this line too.
         logger.error(
             "app_state_unavailable_5xx_raised",
             phase="request",
             code=InternalError.code,
             status_code=int(HTTPStatus.INTERNAL_SERVER_ERROR),
+            method=request.method,
             path=ascii_safe(request.url.path, max_chars=INSTANCE_PATH_MAX_CHARS),
             has_context_attr=hasattr(request.app.state, "context"),
         )
-        # ruff's RSE102 prefers ``raise X`` over ``raise X()`` for
-        # parameterless exception classes — Python auto-instantiates and
-        # the no-parens form makes the intent obvious.
+        # Python auto-instantiates parameterless exception classes; the
+        # no-parens form makes the intent obvious.
         raise InternalError
     return state
 
