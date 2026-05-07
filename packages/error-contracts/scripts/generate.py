@@ -426,8 +426,7 @@ _PII_SAFE_5XX_STRING_PARAMS: Final[frozenset[tuple[str, str]]] = frozenset(
         # different param name.
         ("ADAPTER_CONNECTION_FAILURE", "backend"),
         # The ``reason`` allowlist depends on every raise site keeping
-        # to the documented closed alphabet ("timeout",
-        # "connection_refused", "http_status", "transport",
+        # to the documented closed alphabet ("http_status", "transport",
         # "unsupported_input", "malformed_frame", "unknown" — see the
         # ``failure_category`` literal arms in
         # ``app/features/inference/repository/ollama_client.py``).

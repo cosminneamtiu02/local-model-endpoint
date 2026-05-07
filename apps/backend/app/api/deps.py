@@ -24,9 +24,26 @@ def get_settings() -> Settings:
     ``Settings()``: pydantic-settings 2.14's ``model_validate`` runs the same
     env / .env load path while letting pyright see the typed construction
     surface, so the call site stays contract-clean without a
-    ``# pyright: ignore`` escape hatch. ``maxsize=1`` is the FastAPI-blessed
+    ``# pyright: ignore`` escape hatch. The ``model_validate({})`` →
+    "runs env / .env load" behavior is a pydantic-settings 2.14
+    implementation detail — a future major bump may align with upstream
+    Pydantic-core's ``model_validate``-validates-arg-only contract; the
+    cross-version risk is pinned by
+    ``test_settings_model_validate_empty_dict_reads_lip_env_vars`` so a
+    bump that breaks the load path turns the test red and forces a
+    deliberate re-architecture rather than a silent regression to
+    Settings-with-defaults. ``maxsize=1`` is the FastAPI-blessed
     Settings-singleton pattern (CLAUDE.md sole-carve-out); tests use
     ``get_settings.cache_clear()`` for hermetic isolation.
+
+    FORWARD note (LIP-E001-F002): when feature handlers consume Settings
+    via ``Annotated[Settings, Depends(get_settings)]``, the
+    inference-router PR MUST decide whether tests vary Settings-driven
+    behavior via (a) ``app.dependency_overrides[get_settings] = lambda:
+    Settings(...)`` (FastAPI-blessed) or (b) the existing monkeypatch-env
+    + ``cache_clear`` pattern used throughout ``test_config.py``. The
+    decision has cascading test-fixture consequences; pin it in lockstep
+    with the router PR.
     """
     return Settings.model_validate({})
 
@@ -93,6 +110,11 @@ def audit_lip_env_typos() -> None:
     # exactly once per startup audit (mirrors the ``o := ord(c)`` pattern in
     # ``app/api/request_id_middleware.py``'s C0-control scan — same
     # "compute-once, use twice" idiom).
+    # CLAUDE.md ADR-014 carve-out: the ``os.environ`` read here enumerates
+    # NAMES only (values are never read), which is the documented
+    # exception to the project-wide ``os.environ`` / ``os.getenv`` ban —
+    # the rationale lives in this function's docstring above; the inline
+    # comment makes the carve-out greppable from the source line.
     actual = {upper for name in os.environ if (upper := name.upper()).startswith(env_prefix_upper)}
     unknown = sorted(actual - declared)
     if unknown:

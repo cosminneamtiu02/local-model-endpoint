@@ -260,12 +260,16 @@ def test_audit_lip_env_typos_handles_alias_path_when_field_uses_it() -> None:
         if isinstance(info.validation_alias, AliasPath)
     ]
     if not fields_with_alias_path:
-        # No field uses AliasPath today — the canary passes vacuously.
-        # When the first such field is added, this assert flips to a
-        # source-line read of audit_lip_env_typos to verify the loop
-        # was extended in lockstep. The prose-comment in deps.py is the
-        # source of truth for the extension contract.
-        return
+        # No field uses AliasPath today — the canary trip is the moment
+        # the first such field lands. ``pytest.skip`` (rather than a bare
+        # ``return``) keeps the canary visible in ``pytest -v`` output as
+        # ``s`` instead of a silent green pass — matching the
+        # "no-assert-pass becomes a deliberate skip" discipline pinned by
+        # CLAUDE.md ("Never write a test with no assertions").
+        pytest.skip(
+            "No Settings field uses AliasPath today; canary tripwire becomes "
+            "assertive once the first AliasPath lands."
+        )
 
     # Once the first AliasPath field exists, this branch must verify
     # the audit was extended. The check is encoded as a string-search

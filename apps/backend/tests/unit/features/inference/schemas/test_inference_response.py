@@ -93,5 +93,11 @@ def test_inference_response_propagates_missing_metadata_field_errors(
 ) -> None:
     metadata = _valid_metadata(valid_response_metadata_kwargs).model_dump()
     del metadata[missing_field]
-    with pytest.raises(ValidationError, match=missing_field):
+    # ``(?s)<field>.*Field required`` mirrors the dialect at the sibling
+    # ``test_inference_response_requires_metadata`` site — the bare
+    # ``match=missing_field`` would also match Pydantic's preamble line
+    # which contains the model name (``"validation errors for
+    # InferenceResponse"``) and would silently pass on an unrelated
+    # error category that happens to mention ``model``.
+    with pytest.raises(ValidationError, match=rf"(?s){missing_field}.*Field required"):
         InferenceResponse.model_validate({"content": "x", "metadata": metadata})

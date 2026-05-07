@@ -43,10 +43,12 @@ from app.schemas.wire_constants import (
     UUID_PATTERN_STR,
 )
 
-# Per-string length caps, symmetric with ValidationErrorDetail's
-# field=512 / reason=2048 caps. Bounds response amplification on the
-# error path: an upstream Ollama failure interpolated into ``detail``
-# could otherwise ship multi-KB problem+json bodies.
+# Per-string length caps. Bounded for the same response-amplification
+# reason as ValidationErrorDetail's field=512 / reason=2048 caps; the
+# per-cap values differ here because title/detail/code/type carry
+# different free-form-vs-closed-alphabet content profiles. An upstream
+# Ollama failure interpolated into ``detail`` could otherwise ship
+# multi-KB problem+json bodies.
 _TITLE_MAX_CHARS: Final[int] = 128
 _DETAIL_MAX_CHARS: Final[int] = 4096
 _CODE_MAX_CHARS: Final[int] = 128

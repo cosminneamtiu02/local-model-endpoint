@@ -114,7 +114,7 @@ would otherwise inflate this single warning)."""
 
 
 def _bounded_instance(request: Request) -> str:
-    """Return ``request.url.path`` truncated to ``INSTANCE_PATH_MAX_CHARS``.
+    """Return ``request.url.path`` ascii-scrubbed and truncated to ``INSTANCE_PATH_MAX_CHARS``.
 
     Symmetric with the ``RequestIdMiddleware`` 413 path's ``bounded_path``
     truncation, so both halves of the error envelope (middleware-emitted
@@ -125,8 +125,18 @@ def _bounded_instance(request: Request) -> str:
     pathological URL well under uvicorn's request-line limit but past
     the schema cap would otherwise fail ProblemDetails construction
     inside an exception handler.
+
+    ``ascii_safe`` (control-char scrub) is applied here — and not only on
+    the log-emit path — because every consumer of the return value
+    threads it through either (a) the wire body's ``ProblemDetails.instance``
+    field (which Pydantic's JSON encoder escapes correctly, but downstream
+    operator dashboards rendering the JSON-decoded string into HTML or a
+    terminal would inherit raw control bytes) or (b) a ``logger.warning``
+    ``path=`` field (which the dev-mode ConsoleRenderer would render
+    raw). Pre-scrubbing at the helper makes the discipline mechanical
+    rather than per-call-site.
     """
-    return request.url.path[:INSTANCE_PATH_MAX_CHARS]
+    return ascii_safe(request.url.path, max_chars=INSTANCE_PATH_MAX_CHARS)
 
 
 class _RequestIdResolution(NamedTuple):
@@ -198,7 +208,14 @@ def _resolve_request_id(request: Request) -> _RequestIdResolution:
     # ``deps.py`` is also at ``error`` for the same "infrastructure
     # layer didn't run" severity; operator paging on level=error catches
     # both diagnostics uniformly.
-    logger.error("request_id_missing_in_state")
+    # ``phase="request"`` defense-in-depth: the contextvar bind above
+    # carries it via ``merge_contextvars`` today, but a future refactor
+    # narrowing the contextvar lifetime would silently drop the field
+    # from this emit. The explicit literal kwarg keeps the
+    # ``select(.phase == "request")`` operator-grep contract greppable
+    # even if the bind changes — symmetric with the same pattern in
+    # ``deps.app_state_unavailable``.
+    logger.error("request_id_missing_in_state", phase="request")
     return _RequestIdResolution(fallback, missed_middleware=True)
 
 
@@ -268,8 +285,13 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
         # len(validation_errors)`` hoist pattern used elsewhere in this
         # module to keep "compute-once, use twice" consistent.
         sorted_collisions = sorted(collisions)
+        # ``phase="request"`` defense-in-depth — see the rationale on
+        # ``request_id_missing_in_state`` above; symmetric across the
+        # three handler-edge diagnostics so a contextvar-lifetime
+        # narrowing cannot silently drop the field from any of them.
         logger.error(
             "problem_details_extras_collision",
+            phase="request",
             collisions=sorted_collisions,
             original_code=exc.code,
         )
@@ -586,8 +608,12 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         # Sibling 4xx ``warning`` calls (line ~510 above and the
         # http-exception 4xx branch) keep their level — only the
         # framework-bug abnormal path escalates.
+        # ``phase="request"`` defense-in-depth — see the rationale on
+        # ``request_id_missing_in_state``; symmetric across the three
+        # handler-edge diagnostics.
         logger.exception(
             "validation_error_details_missing",
+            phase="request",
             raw_error_count=len(raw_errors),
             # Pydantic's ``errors()`` returns ``Sequence[ErrorDetails]`` typed
             # dicts; ``type(e).__name__`` would always be the constant
@@ -882,6 +908,25 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
                 method=request.method,
                 path=_bounded_instance(request),
             )
+        response = _problem_response(problem, extra_headers=http_exc.headers)
+        _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
+        return response
+
+    if status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
+        # Route framework-emitted 5xx HTTPExceptions through the typed
+        # ``InternalError`` envelope so the wire body's
+        # ``type=urn:lip:error:internal-error`` matches what a typed
+        # ``raise InternalError()`` ships. Without this branch, framework
+        # 5xx ships ``type="about:blank"`` while typed-5xx ships the URN —
+        # consumers pattern-matching on ``type`` would see two URIs for the
+        # same ``code=INTERNAL_ERROR``. Mirrors the 404 / 405 routing
+        # discipline above. CLAUDE.md sacred rule forbids ``raise
+        # HTTPException`` in app code, so this branch fires only on the
+        # regression-class (a future Starlette internal raising 5xx
+        # HTTPException, or a stray app-code raise). Framework-supplied
+        # headers (e.g. ``Retry-After`` on 503) are preserved via
+        # ``extra_headers``.
+        problem = _build_problem_payload(InternalError(), request, request_id)
         response = _problem_response(problem, extra_headers=http_exc.headers)
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response
