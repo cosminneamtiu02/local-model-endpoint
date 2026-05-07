@@ -5,10 +5,12 @@ from typing import Annotated, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from app.features.inference.model.dos_caps import (
-    METADATA_KEY_MAX_LENGTH,
+    MESSAGES_LIST_MAX,
+    METADATA_KEY_MAX_CHARS,
     METADATA_NESTED_CARDINALITY_MAX,
-    METADATA_VALUE_MAX_LENGTH,
-    MODEL_NAME_MAX_LENGTH,
+    METADATA_TOP_LEVEL_KEYS_MAX,
+    METADATA_VALUE_MAX_CHARS,
+    MODEL_NAME_MAX_CHARS,
 )
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
@@ -21,12 +23,12 @@ from app.features.inference.model.model_params import ModelParams
 # that would pass the top-level cardinality and per-key max-length
 # checks but be uninterpretable as attribution / project-tag handles
 # downstream.
-type MetadataKey = Annotated[str, Field(min_length=1, max_length=METADATA_KEY_MAX_LENGTH)]
+type MetadataKey = Annotated[str, Field(min_length=1, max_length=METADATA_KEY_MAX_CHARS)]
 
 
 def _validate_nested_metadata_key(inner_key: str, key_path: str) -> None:
     """Reject empty / over-cap nested-dict keys; symmetric with the top-
-    level ``MetadataKey`` ``min_length=1`` + ``max_length=METADATA_KEY_MAX_LENGTH``
+    level ``MetadataKey`` ``min_length=1`` + ``max_length=METADATA_KEY_MAX_CHARS``
     constraints. Without this guard, a consumer could bypass the top-level
     ``MetadataKey`` cap by nesting one level deeper (``metadata={"safe":
     {"<long-key>": "v"}}`` would land the long key under the unrestrained
@@ -38,10 +40,10 @@ def _validate_nested_metadata_key(inner_key: str, key_path: str) -> None:
             "keys must be at least 1 character long."
         )
         raise ValueError(msg)
-    if len(inner_key) > METADATA_KEY_MAX_LENGTH:
+    if len(inner_key) > METADATA_KEY_MAX_CHARS:
         msg = (
             f"metadata[{key_path}] nested key {inner_key!r} exceeds "
-            f"the {METADATA_KEY_MAX_LENGTH}-character cap."
+            f"the {METADATA_KEY_MAX_CHARS}-character cap."
         )
         raise ValueError(msg)
 
@@ -54,10 +56,10 @@ def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
     operator at the offending leaf.
     """
     if isinstance(value, str):
-        if len(value) > METADATA_VALUE_MAX_LENGTH:
+        if len(value) > METADATA_VALUE_MAX_CHARS:
             msg = (
                 f"metadata[{key_path}] string value exceeds the "
-                f"{METADATA_VALUE_MAX_LENGTH}-character cap."
+                f"{METADATA_VALUE_MAX_CHARS}-character cap."
             )
             raise ValueError(msg)
         return
@@ -101,12 +103,12 @@ class InferenceRequest(BaseModel):
 
     messages: list[Message] = Field(
         min_length=1,
-        max_length=64,
-        description="Ordered chat messages; first must be system or user.",
+        max_length=MESSAGES_LIST_MAX,
+        description="Ordered chat messages.",
     )
     model: str = Field(
         min_length=1,
-        max_length=MODEL_NAME_MAX_LENGTH,
+        max_length=MODEL_NAME_MAX_CHARS,
         description="Logical model name resolved by the registry to a backend tag.",
     )
     # ``default_factory=ModelParams`` is the Pydantic v2 idiom — symmetric
@@ -133,7 +135,7 @@ class InferenceRequest(BaseModel):
     # per-string-leaf length via the recursive validator).
     metadata: dict[MetadataKey, JsonValue] = Field(
         default_factory=dict,
-        max_length=16,
+        max_length=METADATA_TOP_LEVEL_KEYS_MAX,
         description=(
             "Pass-through per-project metadata; structural bounds enforced "
             "(<=16 keys, key length, recursive string-leaf length), content "
@@ -149,8 +151,8 @@ class InferenceRequest(BaseModel):
             # the Annotated wrapper without updating this validator would
             # otherwise silently widen the surface — re-check here keeps
             # the cap visible at the validator level too.
-            if len(key) > METADATA_KEY_MAX_LENGTH:
-                msg = f"metadata key {key!r} exceeds the {METADATA_KEY_MAX_LENGTH}-character cap."
+            if len(key) > METADATA_KEY_MAX_CHARS:
+                msg = f"metadata key {key!r} exceeds the {METADATA_KEY_MAX_CHARS}-character cap."
                 raise ValueError(msg)
             _bounded_strings_in_metadata(value, repr(key))
         return self

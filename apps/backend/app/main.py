@@ -17,6 +17,8 @@ from app.api.request_id_middleware import configure_middleware
 from app.api.router_registry import register_routers
 from app.core.logging import (
     EXC_MESSAGE_PREVIEW_MAX_CHARS,
+    PACKAGE_NAME,
+    VERSION_FALLBACK,
     ascii_safe,
     configure_logging,
     elapsed_ms,
@@ -47,26 +49,35 @@ class _AppVersionResolution(NamedTuple):
 def _resolve_app_version() -> _AppVersionResolution:
     """Return ``_AppVersionResolution(version, error)`` for the LIP package.
 
-    Single source of truth shared with ``OllamaClient._build_user_agent`` so
-    a future bump in ``pyproject.toml`` flows automatically into both the
-    OpenAPI ``info.version`` field and the User-Agent header — no second
-    hand-edited literal to remember. Returns the resolution exception (if
-    any) rather than logging it because this function is called at module-
-    import time, BEFORE ``configure_logging`` runs in ``create_app``; the
-    caller emits the warning post-``configure_logging`` so the line lands
-    as JSON in production rather than as orphaned dev-format text mid-stream.
+    Each consumer (``_resolve_app_version`` here, ``OllamaClient._build_user_agent``)
+    reads ``_metadata.version("lip-backend")`` independently — there is no
+    shared resolver — so a future ``pyproject.toml`` version bump flows into
+    both the OpenAPI ``info.version`` field and the User-Agent header via the
+    editable-install metadata, without a second hand-edited literal to
+    remember. Returns the resolution exception (if any) rather than logging
+    it because this function is called at module-import time, BEFORE
+    ``configure_logging`` runs in ``create_app``; the caller emits the
+    warning post-``configure_logging`` so the line lands as JSON in
+    production rather than as orphaned dev-format text mid-stream.
+
+    Caller contract: ``_emit_app_version_resolve_failure()`` MUST be called
+    AFTER ``configure_logging`` from any entry point that imports this
+    module (today: ``create_app`` only). A future entry point that imports
+    ``_APP_VERSION`` without going through ``create_app`` (e.g. an ad-hoc
+    CLI script) silently drops the warning — extend the discipline with
+    a paired emit in lockstep.
     """
     try:
-        return _AppVersionResolution(_metadata.version("lip-backend"), None)
+        return _AppVersionResolution(_metadata.version(PACKAGE_NAME), None)
     except _metadata.PackageNotFoundError as exc:
-        return _AppVersionResolution("unknown", exc)
+        return _AppVersionResolution(VERSION_FALLBACK, exc)
     except Exception as exc:  # noqa: BLE001 — defense-in-depth at module-singleton boot
         # A corrupted dist-info under editable-install layouts can raise
         # non-PackageNotFoundError (KeyError / ValueError from
         # importlib.metadata internals). Returning the exception keeps the
         # failure visible without crashing module import; the caller emits
         # the structured warning after structlog is configured.
-        return _AppVersionResolution("unknown", exc)
+        return _AppVersionResolution(VERSION_FALLBACK, exc)
 
 
 _APP_VERSION_RESOLUTION: Final[_AppVersionResolution] = _resolve_app_version()
@@ -101,8 +112,8 @@ def _emit_app_version_resolve_failure() -> None:
         # vs ``app_shutdown_cancelled`` discrimination pattern.
         logger.warning(
             "app_version_resolve_missing",
-            package_name="lip-backend",
-            fallback_version="unknown",
+            package_name=PACKAGE_NAME,
+            fallback_version=VERSION_FALLBACK,
             phase="pre_lifespan",
         )
         return

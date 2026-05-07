@@ -11,7 +11,13 @@ import httpx
 import structlog
 from pydantic import ValidationError as PydanticValidationError
 
-from app.core.logging import EXC_MESSAGE_PREVIEW_MAX_CHARS, ascii_safe, elapsed_ms
+from app.core.logging import (
+    EXC_MESSAGE_PREVIEW_MAX_CHARS,
+    PACKAGE_NAME,
+    VERSION_FALLBACK,
+    ascii_safe,
+    elapsed_ms,
+)
 from app.features.inference.model.ollama_translation import (
     CHAT_ENDPOINT,
     build_chat_result,
@@ -306,7 +312,7 @@ class OllamaClient:
         fallback so the silent-substitution case is visible to operators.
         """
         try:
-            lip_version = _metadata.version("lip-backend")
+            lip_version = _metadata.version(PACKAGE_NAME)
         except _metadata.PackageNotFoundError:
             # ``phase="lifespan"`` for field-set parity with the rest of
             # the OllamaClient lifecycle events (entered/closed/close_failed)
@@ -317,11 +323,11 @@ class OllamaClient:
             # OllamaClient(...)`` directly).
             logger.warning(
                 "ollama_user_agent_version_missing",
-                package_name="lip-backend",
-                fallback_version="unknown",
+                package_name=PACKAGE_NAME,
+                fallback_version=VERSION_FALLBACK,
                 phase="lifespan",
             )
-            lip_version = "unknown"
+            lip_version = VERSION_FALLBACK
         # ``ascii_safe`` defense-in-depth: a future build pipeline that
         # interpolates a non-PEP-440-clean local-version segment (e.g.
         # ``0.1.0+control\x1b[31mchars``) would otherwise inject the bytes
@@ -500,6 +506,18 @@ class OllamaClient:
             msg = f"path must be absolute (start with /), got {path!r}"
             raise ValueError(msg)
         if self._client.is_closed:
+            # Named-diagnostic-before-raise pattern, symmetric with
+            # ``app/api/deps.app_state_unavailable_5xx_raised`` — operator triage on a
+            # Depends-after-teardown bug benefits from a greppable
+            # ``select(.event == "ollama_client_use_after_close")`` rather
+            # than reconstructing the cause from the raised RuntimeError's
+            # traceback. ``phase="lifespan"`` for field-set parity with
+            # the rest of the OllamaClient lifecycle events.
+            logger.warning(
+                "ollama_client_use_after_close",
+                phase="lifespan",
+                base_url=self._loggable_base_url,
+            )
             msg = "OllamaClient cannot be used after close()"
             raise RuntimeError(msg)
         return await self._client.request(method, path, json=json)

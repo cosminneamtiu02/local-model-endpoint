@@ -28,7 +28,12 @@ concurrency:
 
 jobs:
   backend-checks:
-    runs-on: ubuntu-latest
+    # Pin to the current major rather than ``ubuntu-latest`` so a GitHub
+    # auto-bump to a future major doesn't silently shift the runner image
+    # under us — symmetric with the SHA-pinned actions and the macos-15
+    # pin on darwin-checks below. Dependabot's ``github-actions``
+    # ecosystem will surface major bumps via PR.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
@@ -147,7 +152,10 @@ jobs:
         run: task check:secrets
 
   error-contracts:
-    runs-on: ubuntu-latest
+    # Pin to the current major rather than ``ubuntu-latest`` — see
+    # ``backend-checks`` rationale above for symmetry with the
+    # SHA-pinned actions and macos-15 pin.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
@@ -238,6 +246,18 @@ jobs:
       - name: detect-secrets version sync
         working-directory: .
         run: task check:detect-secrets-version-sync
+
+      # ruff version sync between .pre-commit-config.yaml's ruff-pre-commit
+      # rev and apps/backend/pyproject.toml's ``ruff==X.Y.Z`` pin —
+      # symmetric with the detect-secrets gate above. Dependabot's
+      # ``pre-commit`` and ``pip`` ecosystems update each independently,
+      # so a multi-day drift window can otherwise pass between bumps;
+      # divergent rulesets between local pre-commit and CI's
+      # ``uv run --frozen ruff check`` would silently apply different
+      # rule alphabets.
+      - name: ruff version sync
+        working-directory: .
+        run: task check:ruff-version-sync
 
       # Cross-workspace dev-tool version sync — pinned in CI so a
       # Dependabot PR that bumps ``pytest`` / ``pytest-cov`` / ``ruff``

@@ -100,10 +100,11 @@ preserved but with redefined semantics for a no-DB feature:
 
 - Never use `print`. Use structlog.
 - Never use `logging.getLogger`. Use structlog. The single production
-  carve-outs are the two `logging.getLogger` calls at the bottom of
-  `configure_logging` in `app/core/logging.py` — root-handler bind and
-  uvicorn.access silencer; both are documented in the module docstring.
-  Adding a third stdlib-logger site requires updating this rule and the
+  carve-outs are the four `logging.getLogger` calls at the bottom of
+  `configure_logging` in `app/core/logging.py` — root-handler bind plus
+  three uvicorn-logger silencers (`uvicorn.access`, `uvicorn.error`,
+  `uvicorn.asgi`); all four are documented in the module docstring.
+  Adding a fifth stdlib-logger site requires updating this rule and the
   module docstring in lockstep. Line numbers are intentionally elided
   here because the carve-out drifts each time the redaction processor
   is bumped; the prose pin keeps the lockstep clause armed.

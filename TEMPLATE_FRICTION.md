@@ -24,7 +24,7 @@ When the monorepo uses a single root `pnpm-lock.yaml` with per-workspace `packag
 
 **Prerequisites for the sync workflow to function** (downstream project concern — see [docs/automerge.md#setup](docs/automerge.md#setup) for the canonical numbered list, items 1–5):
 1. A fine-grained PAT with `Contents: Read and write` + `Pull requests: Read and write` scoped to the project's one repo. Must be a PAT, not `GITHUB_TOKEN`, because `GITHUB_TOKEN`-authored pushes do not trigger subsequent workflow runs and CI would never re-run on the fixed commit.
-2. Repo secret `DEPENDABOT_LOCKFILE_SYNC_PAT` set to that PAT.
+2. Dependabot secret `DEPENDABOT_LOCKFILE_SYNC_PAT` set to that PAT (Settings → Secrets and variables → **Dependabot** tab → New repository secret, or `gh secret set DEPENDABOT_LOCKFILE_SYNC_PAT --app dependabot --body "<PAT>"`). The Actions-store path silently resolves to an empty string when read from a Dependabot-triggered workflow — that is the failure the PAT-verify step in `dependabot-lockfile-sync.yml` exists to catch.
 3. Repo variable `DEPENDABOT_LOCKFILE_SYNC_ENABLED` set to `"true"`.
 
 Both the variable and secret are unset on the template itself so the workflow is dormant. Downstream projects enable them after the `main-protection` ruleset is in place (see [docs/automerge.md#setup](docs/automerge.md#setup)).

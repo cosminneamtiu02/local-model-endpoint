@@ -38,14 +38,14 @@ def test_response_metadata_rejects_non_uuid_request_id(
 def test_response_metadata_rejects_oversize_model_name(
     valid_response_metadata_kwargs: dict[str, object],
 ) -> None:
-    """Mirrors InferenceRequest.model's MODEL_NAME_MAX_LENGTH-char cap — the
+    """Mirrors InferenceRequest.model's MODEL_NAME_MAX_CHARS-char cap — the
     same logical name flows in (request) and out (response), so the bounds
     must be symmetric. Deriving the oversize length from the source-of-
     truth constant means a future cap bump only needs to change one site."""
-    from app.features.inference.model.dos_caps import MODEL_NAME_MAX_LENGTH
+    from app.features.inference.model.dos_caps import MODEL_NAME_MAX_CHARS
 
     kwargs = dict(valid_response_metadata_kwargs)
-    kwargs["model"] = "x" * (MODEL_NAME_MAX_LENGTH + 1)
+    kwargs["model"] = "x" * (MODEL_NAME_MAX_CHARS + 1)
     with pytest.raises(ValidationError, match="model"):
         ResponseMetadata.model_validate(kwargs)
 

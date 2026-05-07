@@ -5,7 +5,10 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.inference.model.content_part import ContentPart
-from app.features.inference.model.dos_caps import TEXT_PART_MAX_CHARS
+from app.features.inference.model.dos_caps import (
+    MESSAGE_CONTENT_PARTS_MAX,
+    TEXT_PART_MAX_CHARS,
+)
 
 
 class Message(BaseModel):
@@ -32,6 +35,6 @@ class Message(BaseModel):
     # the per-arm Annotated form already used on each branch.
     content: Annotated[
         Annotated[str, Field(min_length=1, max_length=TEXT_PART_MAX_CHARS)]
-        | Annotated[list[ContentPart], Field(min_length=1, max_length=32)],
+        | Annotated[list[ContentPart], Field(min_length=1, max_length=MESSAGE_CONTENT_PARTS_MAX)],
         Field(union_mode="left_to_right"),
     ]

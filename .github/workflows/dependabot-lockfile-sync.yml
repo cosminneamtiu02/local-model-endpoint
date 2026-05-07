@@ -132,7 +132,10 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    # Pin to the current major rather than ``ubuntu-latest`` so a GitHub
+    # auto-bump to a future major doesn't silently shift the runner image
+    # — symmetric with ci.yml's backend-checks / error-contracts pins.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.draft == false && vars.DEPENDABOT_LOCKFILE_SYNC_ENABLED == 'true'
     steps:

@@ -14,7 +14,7 @@ tasks:
 
   # ── Check (run before declaring work done) ───────────────────
   check:
-    desc: Run ALL checks — lint, format, lockfile, types, arch, coverage-gated tests, error contracts, plist, audit, secrets
+    desc: Run ALL checks — lint, format, lockfile, types, arch, coverage-gated tests, error contracts, plist, audit, secrets, cross-workspace drift-guards (test-class regex sync, detect-secrets version sync, dev-tool version sync)
     # ``check:lockfile`` runs before the slow test suite so a manifest/lockfile
     # mismatch fails fast (seconds) instead of after ~minutes of test runtime.
     # ``check:coverage`` runs the full pytest suite WITH coverage and enforces
@@ -43,6 +43,7 @@ tasks:
       - task: check:coverage:errors
       - task: check:test-class-regex-sync
       - task: check:detect-secrets-version-sync
+      - task: check:ruff-version-sync
       - task: check:dev-tool-version-sync
       - task: check:plist
       - task: check:audit
@@ -254,6 +255,37 @@ tasks:
     dir: "{{.ERROR_CONTRACTS_DIR}}"
     cmds:
       - uv run --frozen pytest tests/ --cov=scripts --cov-report=term-missing --cov-fail-under=80
+
+  check:ruff-version-sync:
+    desc: Verify the ruff pin matches between .pre-commit-config.yaml and pyproject.toml
+    # ``.pre-commit-config.yaml`` runs the local ruff-pre-commit hook against
+    # ``rev: vX.Y.Z`` and ``apps/backend/pyproject.toml`` declares the
+    # canonical ``"ruff==X.Y.Z"`` pin. Both must share the same version
+    # literal — Dependabot's ``pre-commit`` ecosystem (daily cadence) and
+    # ``pip`` ecosystem (weekly cadence) update each independently, so a
+    # multi-day window can pass with one bumped and the other not. With
+    # ruff pinned to the exact patch in pyproject (matching CI's
+    # ``uv run --frozen ruff check``), a divergent ruff-pre-commit rev
+    # would silently apply a different ruleset locally vs in CI — exactly
+    # the failure class the detect-secrets sync gate already prevents
+    # for ``detect-secrets``. ruff ships rule changes ~10× more frequently
+    # than detect-secrets, so this gate is the higher-leverage symmetric
+    # extension. ``packages/error-contracts/pyproject.toml`` already
+    # locks-step ruff via ``check:dev-tool-version-sync`` (above) so we
+    # only need to compare the apps/backend pin against the pre-commit
+    # rev here.
+    cmds:
+      - |
+        set -euo pipefail
+        precommit_rev=$(awk '/repo:.*ruff-pre-commit/{found=1; next} found && /rev:/ {print $2; exit}' .pre-commit-config.yaml)
+        pyproject_pin=$(grep -oE '"ruff==[0-9.]+"' apps/backend/pyproject.toml | head -1 | cut -d= -f3 | tr -d '"')
+        # Strip the leading ``v`` from the pre-commit pin (tag style) so
+        # the literal compare works against the PEP 440 form in pyproject.
+        precommit_norm=${precommit_rev#v}
+        if [ "$precommit_norm" != "$pyproject_pin" ]; then
+          echo "::error::ruff version drift: .pre-commit-config.yaml=${precommit_rev} (normalized ${precommit_norm}), apps/backend/pyproject.toml=${pyproject_pin}"
+          exit 1
+        fi
 
   check:detect-secrets-version-sync:
     desc: Verify the detect-secrets pin matches between pre-commit and the CI invocation

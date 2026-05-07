@@ -15,7 +15,6 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
-from typing import Final
 
 from app.schemas import ProblemExtras
 
@@ -58,7 +57,7 @@ def test_problem_extras_field_names_are_reserved_in_codegen() -> None:
     )
 
 
-_RFC7807_ENVELOPE_FIELDS: Final[frozenset[str]] = frozenset(
+_RFC7807_ENVELOPE_FIELDS = frozenset(
     {
         "type",
         "title",

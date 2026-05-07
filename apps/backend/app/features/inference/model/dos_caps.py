@@ -30,7 +30,7 @@ URL_MAX_CHARS: Final[int] = 2048
 # far above any realistic Gemma 4 E2B output (128K tokens ≈ ~512K chars) and
 # below memory-pressure territory on the 16 GB M4 host. Belt-and-suspenders
 # alongside the sibling string caps (``TextContent.text``, ``ImageContent.url``).
-CONTENT_MAX_LENGTH: Final[int] = 1_048_576
+CONTENT_MAX_CHARS: Final[int] = 1_048_576
 
 # Per-string cap for InferenceRequest metadata values. Bounds payload size
 # symmetrically with Message string-content limits and prevents
@@ -38,12 +38,12 @@ CONTENT_MAX_LENGTH: Final[int] = 1_048_576
 # but-not-infallible consumer path. The validator walks nested lists/dicts
 # so a consumer cannot bypass the cap by wrapping a long string in a
 # one-element list or a single-key dict.
-METADATA_VALUE_MAX_LENGTH: Final[int] = 4096
+METADATA_VALUE_MAX_CHARS: Final[int] = 4096
 
 # Per-key cap for InferenceRequest metadata. 64 chars is a comfortable
 # ceiling for any sensible attribution / project-tag key while bounding the
 # third orthogonal DoS axis (key length) on the metadata path.
-METADATA_KEY_MAX_LENGTH: Final[int] = 64
+METADATA_KEY_MAX_CHARS: Final[int] = 64
 
 # Per-collection cardinality cap on nested lists/dicts inside metadata
 # JsonValue trees. The top-level ``metadata`` dict is bounded at 16 keys
@@ -56,11 +56,34 @@ METADATA_KEY_MAX_LENGTH: Final[int] = 64
 # so all four cardinality surfaces are uniformly bounded.
 METADATA_NESTED_CARDINALITY_MAX: Final[int] = 64
 
+# Cap on multimodal content parts per Message. A message of 32 image/audio
+# parts already represents a pathological multi-MB payload at the
+# ``BASE64_MEDIA_MAX_CHARS`` per-part ceiling; bounding part-count is the
+# fourth orthogonal DoS axis (cardinality) symmetric with the per-part-
+# size caps elsewhere in this file. Centralized here so the schema's
+# ``Field(max_length=...)`` and the test-tier mirror constant stay in
+# lockstep.
+MESSAGE_CONTENT_PARTS_MAX: Final[int] = 32
+
+# Top-level metadata key cap. The schema's ``metadata`` dict accepts at
+# most ``METADATA_TOP_LEVEL_KEYS_MAX`` keys; ``METADATA_NESTED_CARDINALITY_MAX``
+# bounds nested lists/dicts inside the values. Together with the per-key
+# (``METADATA_KEY_MAX_CHARS``) and per-value (``METADATA_VALUE_MAX_CHARS``)
+# caps, the four orthogonal axes are uniformly bounded.
+METADATA_TOP_LEVEL_KEYS_MAX: Final[int] = 16
+
+# Per-request message-list cardinality cap. 64 is generous enough for any
+# realistic multi-turn conversation while bounding the request-shape DoS
+# axis. Symmetric with ``METADATA_NESTED_CARDINALITY_MAX`` (same value)
+# because a metadata tree as wide as the message list is fine; a wider
+# metadata tree is the surprise.
+MESSAGES_LIST_MAX: Final[int] = 64
+
 # Cap on the logical ``model`` name string. Same logical name flows in
 # (``InferenceRequest.model``) and out (``ResponseMetadata.model``), so the
 # bound must be symmetric — keeping it here means a future cap bump on the
 # request side automatically tightens the response side too.
-MODEL_NAME_MAX_LENGTH: Final[int] = 128
+MODEL_NAME_MAX_CHARS: Final[int] = 128
 
 # Defense-in-depth cap on Ollama-reported token counts. Ollama's
 # ``prompt_eval_count`` / ``eval_count`` are model-controlled (not

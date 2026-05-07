@@ -5,15 +5,16 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.features.inference.model.dos_caps import TEXT_PART_MAX_CHARS
+from app.features.inference.model.dos_caps import MESSAGE_CONTENT_PARTS_MAX, TEXT_PART_MAX_CHARS
 from app.features.inference.model.image_content import ImageContent
 from app.features.inference.model.message import Message
 from app.features.inference.model.text_content import TextContent
 
-# max_length=32 caps content-part cardinality (DoS axis); kept symmetric
-# with the schema constant. Imported here because the cap lives on the
-# Pydantic Field, not in the shared caps module.
-_MESSAGE_CONTENT_LIST_MAX_PARTS = 32
+# Cap on content-part cardinality (DoS axis). Aliased here for test
+# readability; the canonical value is in ``dos_caps.MESSAGE_CONTENT_PARTS_MAX``
+# and a future bump moves both the schema and this test in lockstep
+# automatically.
+_MESSAGE_CONTENT_LIST_MAX_PARTS = MESSAGE_CONTENT_PARTS_MAX
 
 
 def test_message_constructs_with_simple_string_content() -> None:

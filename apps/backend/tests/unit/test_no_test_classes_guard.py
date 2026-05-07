@@ -49,19 +49,6 @@ def test_no_classes_guard_matches_offending_class(source: str) -> None:
     assert _TEST_CLASS_PATTERN.search(source) is not None
 
 
-def test_no_classes_guard_documents_digit_after_test_is_not_matched() -> None:
-    """``class Test1:`` does NOT match the regex.
-
-    The character class ``[A-Za-z_]`` after ``Test`` is intentional: a
-    pytest test container is conventionally ``TestPascalCase`` (a
-    capital, lowercase, or underscore continuation). Pure-digit
-    continuations are not idiomatic; the regex prioritizes the false-
-    positive class (private ``_Test...``) over a hypothetical
-    ``Test1Foo`` form.
-    """
-    assert _TEST_CLASS_PATTERN.search("class Test1:\n    pass") is None
-
-
 @pytest.mark.parametrize(
     "source",
     [
@@ -81,6 +68,14 @@ def test_no_classes_guard_documents_digit_after_test_is_not_matched() -> None:
         pytest.param("class Foo:\n    pass", id="non-test-class-name"),
         # Functions (the canonical CLAUDE.md form) must NOT match.
         pytest.param("def test_foo() -> None:\n    pass", id="function-form"),
+        # ``class Test1:`` does NOT match: the character class
+        # ``[A-Za-z_]`` after ``Test`` is intentional. A pytest test
+        # container is conventionally ``TestPascalCase`` (a capital,
+        # lowercase, or underscore continuation); pure-digit
+        # continuations are not idiomatic. The regex prioritizes the
+        # false-positive class (private ``_Test...``) over a
+        # hypothetical ``Test1Foo`` form.
+        pytest.param("class Test1:\n    pass", id="digit-continuation-not-matched"),
     ],
 )
 def test_no_classes_guard_rejects_non_offending_source(source: str) -> None:

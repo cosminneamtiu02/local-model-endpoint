@@ -1,0 +1,16 @@
+# GitHub CODEOWNERS — single-developer LIP project.
+#
+# This file is one-line of insurance against a future ``main-protection``
+# ruleset toggle to ``require_code_owner_review: true``. With the toggle off
+# (today's posture) and no CODEOWNERS file, ``gh`` PR triage tooling falls
+# back to the repo's "Top contributors" surface for owner suggestions; with
+# the toggle on (a hypothetical future review-discipline change) and no
+# CODEOWNERS file, every PR lands in "no required reviewer" limbo.
+#
+# Naming the sole repo owner explicitly here costs nothing today and keeps
+# the future toggle a one-flag change rather than a "discover the missing
+# file in production" incident. Documented at round-25 review-sweep batch 3
+# (auto-decided STOP-AND-CONFIRM): the user's calibration list excludes
+# multi-reviewer rules (single-developer project), so a wildcard rule with
+# the sole owner is the correct minimal shape.
+*       @cosminneamtiu02

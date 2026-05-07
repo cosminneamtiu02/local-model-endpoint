@@ -1,4 +1,17 @@
-"""Application configuration via pydantic-settings."""
+"""Application configuration via pydantic-settings.
+
+``is_private_host(host)`` is co-located here as a module-level helper —
+the Settings clamp is the only consumer, and a separate
+``host_classifier.py`` would split the safety-clamp pair across two
+files. The function is the FIRST published-public name in this module
+(no leading underscore) because the test tier in
+``apps/backend/tests/unit/core/test_config.py`` imports it directly to
+exercise the bracketed-IPv6 / zone-ID / IPv4-mapped-IPv6 contract; the
+Settings model_validator is the runtime-call site. CLAUDE.md's
+"one class per file" rule does not cover module-level helpers, but the
+co-location with Settings is deliberate per this docstring rather than
+incidental.
+"""
 
 import ipaddress
 from pathlib import Path
@@ -39,7 +52,7 @@ def is_private_host(host: str) -> bool:
     # link-local rather than triggering ipaddress's ValueError. The zone-ID
     # is interface-local routing metadata, not part of the address itself,
     # so dropping it is the correct classification semantics.
-    classifiable = classifiable.split("%", 1)[0]
+    classifiable = classifiable.partition("%")[0]
     try:
         ip = ipaddress.ip_address(classifiable)
     except ValueError:
@@ -144,6 +157,16 @@ class Settings(BaseSettings):
             "link-local / ULA / mDNS clamp unless ``allow_external_ollama`` "
             "is set; httpx accepts the ``str()`` form."
         ),
+        # ``max_length=2048`` is the conventional URL-cap from RFC-implementing
+        # browsers and is symmetric with ``bind_host``'s 253-char hostname
+        # cap discipline. AnyHttpUrl validates scheme + host but accepts
+        # arbitrary-length URLs (RFC 3986 has no fixed cap), so a
+        # pathological ``LIP_OLLAMA_HOST`` env value with a multi-MB query
+        # string would parse, log into ``ollama_client_started.base_url``,
+        # and thread into httpx without surfacing the size at the Settings
+        # boundary. The cap closes that defense-in-depth gap; the query/
+        # fragment screening below handles the structural case.
+        max_length=2048,
     )
 
     # Escape hatch for pointing Ollama at a non-private host (cloud
@@ -208,20 +231,23 @@ class Settings(BaseSettings):
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_log_level(cls, value: object) -> object:
-        """Lowercase incoming log-level strings to match the canonical alphabet.
+        """Strip + lowercase incoming log-level strings to match the canonical alphabet.
 
-        Both ``LIP_LOG_LEVEL=INFO`` and ``LIP_LOG_LEVEL=info`` are accepted
-        — the ``Literal[...]`` constraint on ``log_level`` is case-sensitive,
-        so without this normalizer an uppercase value (the natural form for
-        operators copy-pasting from stdlib ``logging`` docs) would fail
+        Both ``LIP_LOG_LEVEL=INFO`` and ``LIP_LOG_LEVEL=info`` are accepted,
+        as is ``LIP_LOG_LEVEL=" INFO "`` (a hand-edited ``.env`` line with
+        trailing whitespace) — the ``Literal[...]`` constraint on
+        ``log_level`` is case-sensitive AND whitespace-sensitive, so without
+        this normalizer an operator copy-pasting from stdlib ``logging``
+        docs (uppercase) or hand-editing ``.env`` (whitespace) would fail
         validation with a confusing "Input should be 'debug', 'info', ..."
         error. Non-string inputs are returned unchanged so Pydantic's
         downstream Literal-membership check produces the canonical
         "Input should be 'debug', 'info', 'warning', 'error' or 'critical'"
-        error (the test ``test_settings_log_level_rejects_invalid_value``
-        pins this exact message).
+        error (DO NOT raise here — the canonical message is pinned by
+        ``test_settings_log_level_rejects_invalid_value`` and a custom
+        type-error would break that contract).
         """
-        return value.lower() if isinstance(value, str) else value
+        return value.strip().lower() if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def _check_safety_invariants(self) -> Self:
@@ -282,6 +308,26 @@ class Settings(BaseSettings):
             msg = (
                 f"ollama_host must not include a path segment (got {ollama_path!r}); "
                 "use the bare host:port form."
+            )
+            raise ValueError(msg)
+        # Reject URL query strings and fragments on ollama_host for the same
+        # silently-broken-merge reason the path clamp above defends against:
+        # ``LIP_OLLAMA_HOST=http://127.0.0.1:11434?token=secret`` would be
+        # threaded into httpx as the base URL, and httpx's relative-URL join
+        # semantics on ``/api/chat`` would either drop or preserve the query
+        # in surprise patterns. Fragment values are equally surprise-prone
+        # (httpx strips them silently). Both are clamped here so the ``base_url``
+        # contract is the bare host:port:scheme form and nothing else.
+        if self.ollama_host.query:
+            msg = (
+                f"ollama_host must not include a query string (got "
+                f"{self.ollama_host.query!r}); use the bare host:port form."
+            )
+            raise ValueError(msg)
+        if self.ollama_host.fragment:
+            msg = (
+                f"ollama_host must not include a URL fragment (got "
+                f"{self.ollama_host.fragment!r}); use the bare host:port form."
             )
             raise ValueError(msg)
         return self

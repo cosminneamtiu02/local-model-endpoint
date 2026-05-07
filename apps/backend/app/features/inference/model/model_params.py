@@ -27,6 +27,17 @@ class ModelParams(BaseModel):
     (`ge=0.0`) because greedy decoding is a legitimate setting.
     """
 
+    # ``str_strip_whitespace`` is intentionally NOT set: the only string
+    # field today (``stop: list[StopToken]``) carries semantically-
+    # meaningful trailing whitespace as stop-sequence matchers (a stop
+    # token like ``"\n\n"`` would silently truncate to ``""`` under the
+    # strip). Sibling user-input schemas (Message, TextContent, etc.)
+    # opt in via per-field ``StringConstraints`` where the cap-bypass
+    # concern is real; here the per-element ``StopToken`` Annotated cap
+    # bounds DoS without needing the strip. A future string field added
+    # to this class MUST decide explicitly whether the whitespace is
+    # part of the value (opt out) or operator slop (opt in via per-
+    # field StringConstraints).
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     temperature: float | None = Field(

@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.features.inference.model.dos_caps import MODEL_NAME_MAX_LENGTH, TOKEN_COUNT_MAX
+from app.features.inference.model.dos_caps import MODEL_NAME_MAX_CHARS, TOKEN_COUNT_MAX
 from app.features.inference.model.finish_reason import FinishReason
 from app.schemas.wire_constants import REQUEST_ID_LENGTH, UUID_PATTERN_STR
 
@@ -21,7 +21,7 @@ class ResponseMetadata(BaseModel):
 
     model: str = Field(
         min_length=1,
-        max_length=MODEL_NAME_MAX_LENGTH,
+        max_length=MODEL_NAME_MAX_CHARS,
         description="Logical model name resolved from the request envelope.",
     )
     # ``le=TOKEN_COUNT_MAX`` mirrors :class:`OllamaChatResult` so a defective

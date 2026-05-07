@@ -74,9 +74,12 @@ permissions:
 
 jobs:
   automerge:
-    runs-on: ubuntu-latest
+    # Pin to the current major rather than ``ubuntu-latest`` so a GitHub
+    # auto-bump to a future major doesn't silently shift the runner image
+    # — symmetric with ci.yml's backend-checks / error-contracts pins.
+    runs-on: ubuntu-24.04
     # ``gh pr merge --auto`` is a single GitHub API call that resolves in
-    # ~1 second. 5 minutes leaves headroom for ubuntu-latest cold-start
+    # ~1 second. 5 minutes leaves headroom for ubuntu-24.04 cold-start
     # variance during peak-hours runner congestion (cold ``Set up job``
     # provisioning has been observed at 90s+ in worst case) without
     # masking a hung API call as a long-running step. The widening

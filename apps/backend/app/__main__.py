@@ -7,6 +7,8 @@ rejects 0.0.0.0 binds without LIP_ALLOW_PUBLIC_BIND=true then actually
 takes effect on the running process.
 """
 
+import sys
+
 import uvicorn
 
 from app.api.deps import get_settings
@@ -38,6 +40,4 @@ if __name__ == "__main__":
     # truth. Adding a second CLI knob requires an ADR — the temptation
     # to add ``--port`` here is exactly the paradigm-drift seed
     # CLAUDE.md sacred rule #3 ("one way to do each thing") forbids.
-    import sys
-
     main(reload="--reload" in sys.argv)

@@ -314,6 +314,7 @@ emits at warning level and never raises. The unit tests at
 `tests/unit/api/test_deps.py::test_audit_lip_env_typos_*`
 (`warns_on_unknown_lip_env_var`, `does_not_warn_when_all_env_vars_known`,
 `catches_lowercase_typo`, `no_ops_when_env_prefix_empty`,
-`de_dups_case_variants`) pin the warn-only contract together. A future
-change of mind on this ADR needs to flip both sites in lockstep AND
-update all five tests to assert the raise path.
+`de_dups_case_variants`, `handles_alias_path_when_field_uses_it`) pin
+the warn-only contract together. A future change of mind on this ADR
+needs to flip both sites in lockstep AND update all six tests to
+assert the raise path.

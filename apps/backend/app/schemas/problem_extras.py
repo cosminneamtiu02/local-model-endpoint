@@ -35,16 +35,20 @@ class ProblemExtras(BaseModel):
 
     ``validation_errors`` is typed as ``list[ValidationErrorDetail]``;
     inside ``_build_problem_payload`` the handler calls
-    ``extras.model_dump(mode="python", exclude_none=True)`` which Pydantic
-    walks recursively, converting each entry to a plain dict before the
+    ``extras.model_dump(mode="json", exclude_none=True)`` which Pydantic
+    walks recursively, rendering each entry as a JSON-primitive dict
+    (datetime/UUID/Decimal flattened to their JSON forms) before the
     spread reaches ``ProblemDetails(**extras_widened)``. ``model_dump_json``
     on the resulting ProblemDetails then serializes those dicts as the
-    final wire body. Consumers should treat the array as canonical and
-    ignore root-level ``field`` / ``reason`` (which reflect only the first
-    error in a multi-field response). The list is soft-truncated by the
-    handler at ``VALIDATION_ERRORS_MAX_LENGTH`` entries (the ``detail``
-    field names the truncation when it kicks in); the schema ``max_length``
-    is a belt-and-suspenders ceiling — see that constant's docstring for
+    final wire body. Consumers: root-level ``field`` / ``reason`` ship
+    only when ``error_count == 1`` (the canonical single-error case
+    where they ARE the authoritative per-field surface); the multi-error
+    and zero-error paths suppress them via ``suppress_typed_params=True``
+    so ``validation_errors[]`` is the only per-field surface in those
+    cases. The list is soft-truncated by the handler at
+    ``VALIDATION_ERRORS_MAX_LENGTH`` entries (the ``detail`` field names
+    the truncation when it kicks in); the schema ``max_length`` is a
+    belt-and-suspenders ceiling — see that constant's docstring for
     the response-amplification rationale.
     """
 
