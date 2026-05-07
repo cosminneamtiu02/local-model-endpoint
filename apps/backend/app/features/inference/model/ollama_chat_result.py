@@ -15,6 +15,20 @@ class OllamaChatResult(BaseModel):
     metadata (``request_id``, ``latency_ms``, ``queue_wait_ms``, ``backend``).
     F002 itself never sets ``finish_reason="timeout"``; LIP-E004-F003
     does, when its ``asyncio.wait_for`` budget elapses around the call.
+
+    FORWARD (LIP-E001-F002 envelope work): consider threading the
+    upstream-reported ``response_json["model"]`` through this value-
+    object as a ``served_model: str | None`` field. Ollama's chat
+    response includes a ``model`` key reflecting the daemon's actually-
+    loaded model — which can differ from the requested ``model_tag``
+    if the daemon resolved an alias, fell back to a sibling tag, or
+    auto-pulled a different quantization. Operators triaging "served
+    model drift" cannot today distinguish "consumer asked X, daemon
+    served Y" from "consumer asked X, daemon served X". Because this
+    field threads through ``InferenceResponse`` (the public envelope),
+    landing it belongs in the same PR as the orchestrator (LIP-E001-
+    F002) — adding it as a standalone change today would surface it
+    on a contract that has no consumer-side handling.
     """
 
     # ``str_strip_whitespace`` is intentionally NOT set on the config: this

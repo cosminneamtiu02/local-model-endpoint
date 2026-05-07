@@ -633,6 +633,23 @@ class OllamaClient:
         # with the natural reading "start_clock → started → work →
         # end_clock → completed".
         start = time.perf_counter()
+        # FORWARD (background watchdog / pre-request warm-up): the four
+        # ``ollama_call_*`` events here, ``ollama_call_completed``,
+        # ``ollama_call_failed``, ``ollama_call_cancelled``) rely on
+        # ``phase="request"`` riding in via ``RequestIdMiddleware``'s
+        # contextvar bind. Every current caller of ``OllamaClient.chat``
+        # is a request-bound handler, so the contextvar is always set
+        # — the literal kwarg is omitted to keep the per-call log line
+        # terse. When/if a non-request caller lands (LIP-E001-F002 might
+        # add a startup warm-up; a future watchdog might poll outside
+        # any request context), thread an explicit ``phase="request"``
+        # / ``phase="background"`` literal on these four sites in
+        # lockstep with the new caller — the
+        # ``select(.phase == "request")`` operator filter would silently
+        # drop background-emit lines otherwise. Defense-in-depth-via-
+        # explicit-literal is the pattern used at
+        # ``request_id_middleware.py`` and ``exception_handler_registry.py``;
+        # extend it here when the caller surface widens.
         logger.info(
             "ollama_call_started",
             model_name=model_tag,
@@ -720,6 +737,21 @@ class OllamaClient:
                 # and defeat the dashboarding intent of the bucket above.
                 # Today only ``chat`` is wired and the only path is the
                 # literal ``CHAT_ENDPOINT``, so this arm is preventive.
+                #
+                # FORWARD (LIP-E002-F001 — sibling adapter methods
+                # interpolating dynamic data into ``path``): when ``tags()``
+                # / ``show()`` / similar methods land and their path
+                # construction is operator/registry-derived, split this
+                # bucket OFF ``"transport"`` into a dedicated
+                # ``"path_construction"`` bucket. ``InvalidURL`` is
+                # semantically a programmer error (malformed path string),
+                # not a network failure — operators triaging a wedged
+                # daemon vs a code bug shouldn't have to disambiguate
+                # them on the same dashboard slice. Today the
+                # ``"transport"`` bucket is harmless (zero observed
+                # InvalidURLs because the only path is a literal); the
+                # categorization re-categorize-or-remove decision belongs
+                # in the LIP-E002-F001 PR alongside the new methods.
                 failure_category = "transport"
             elif isinstance(call_exc, NotImplementedError):
                 failure_category = "unsupported_input"

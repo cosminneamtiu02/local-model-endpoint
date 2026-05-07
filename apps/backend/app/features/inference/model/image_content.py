@@ -32,6 +32,14 @@ class ImageContent(BaseModel):
     # constraint targets the ``str`` core schema, not ``Url`` instances).
     # ``base64`` cap bounds the per-part inline-blob DoS at ~15 MB binary
     # (20 MiB of base64 ≈ 15 MB raw).
+    #
+    # FORWARD (URL-fetching adapter): see the symmetric note on
+    # ``AudioContent.url``. When LIP fetches consumer-supplied URLs on
+    # the consumer's behalf, add an INVERTED ``is_private_host``-style
+    # clamp REJECTING private / loopback / link-local / metadata-service
+    # hosts here so a request body cannot trick LIP into bouncing onto
+    # 169.254.169.254, 127.0.0.1:11434 (Ollama itself), etc. Land the
+    # clamp in the same PR as the URL-fetch wiring.
     url: Annotated[AnyHttpUrl, UrlConstraints(max_length=URL_MAX_CHARS)] | None = None
     base64: str | None = Field(default=None, min_length=1, max_length=BASE64_MEDIA_MAX_CHARS)
 
