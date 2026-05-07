@@ -2,8 +2,9 @@
 
 Verifies ``configure_logging`` wires the 7-step processor chain, both
 renderer paths (JSON + console), the stdlib bridge for foreign loggers,
-and the uvicorn.access silencer; the redaction processor backstop for
-the CLAUDE.md no-prompt-content rule is exercised against the live
+and the three uvicorn-logger silencers (uvicorn.access / uvicorn.error /
+uvicorn.asgi); the redaction processor backstop for the CLAUDE.md
+no-prompt-content rule is exercised against the live
 ``_REDACTION_BLOCKLIST`` source so the parametrize cannot drift behind
 new entries.
 """
@@ -51,6 +52,24 @@ def test_configure_logging_silences_uvicorn_access_to_warning() -> None:
     # The exact level matters because uvicorn.access emits at INFO; pinning at
     # WARNING is the silencer.
     assert logging.getLogger("uvicorn.access").level == logging.WARNING
+
+
+def test_configure_logging_silences_uvicorn_error_to_warning() -> None:
+    configure_logging(log_level="info", json_output=False)
+    # uvicorn.error emits startup banners ("Uvicorn running on...",
+    # "Application startup complete") at INFO that duplicate the LIP-side
+    # ``app_startup_started`` / ``app_startup_completed`` structured events;
+    # pinning at WARNING removes the duplicate-line surface.
+    assert logging.getLogger("uvicorn.error").level == logging.WARNING
+
+
+def test_configure_logging_silences_uvicorn_asgi_to_warning() -> None:
+    configure_logging(log_level="info", json_output=False)
+    # uvicorn.asgi emits lifespan-message / send-receive-cycle banners at
+    # INFO; pinning at WARNING is symmetric with uvicorn.error so jq
+    # filters by ``select(.event | startswith("app_"))`` are not raced
+    # by stdlib-logger lines.
+    assert logging.getLogger("uvicorn.asgi").level == logging.WARNING
 
 
 def test_configure_logging_round_trips_event_via_capture_logs() -> None:

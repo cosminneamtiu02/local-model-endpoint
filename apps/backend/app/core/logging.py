@@ -1,11 +1,14 @@
 """Structured logging configuration with structlog.
 
 This module is the SOLE approved location in the codebase for
-``logging.getLogger``. There are TWO carve-out call sites at the
+``logging.getLogger``. There are FOUR carve-out call sites at the
 bottom of ``configure_logging``: one binds the JSON handler to the
-root logger, the other silences ``uvicorn.access`` (which would
-otherwise duplicate the ``request_completed`` line emitted by
-``RequestIdMiddleware``). The CLAUDE.md "never use
+root logger, and three silence the noisy uvicorn loggers
+(``uvicorn.access`` — duplicates the ``request_completed`` line
+emitted by ``RequestIdMiddleware``; ``uvicorn.error`` and
+``uvicorn.asgi`` — emit startup / lifespan banners that duplicate
+the LIP-side ``app_startup_*`` structured events with overlapping
+but inconsistent field sets). The CLAUDE.md "never use
 logging.getLogger" sacred rule covers application code; this
 bridge to stdlib's logger registry is the documented exception.
 All other code uses ``structlog.get_logger``.
@@ -350,8 +353,17 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
     # Silence noisy third-party loggers. uvicorn.access duplicates
     # information that the RequestIdMiddleware request_completed line
     # already carries — and we don't want the unstructured access format
-    # polluting JSON output.
-    # This is one of the two approved uses of stdlib logging.getLogger
-    # in the codebase (the other is the root-handler bind above); the
-    # forbidden pattern is using stdlib loggers for application logs.
+    # polluting JSON output. uvicorn.error and uvicorn.asgi default to
+    # INFO and emit duplicate-banner lines for startup ("Uvicorn running
+    # on...", "Application startup complete") that already have LIP-side
+    # structured-event coverage via ``app_startup_started`` /
+    # ``app_startup_completed`` in ``app/main.py``; raising both to WARNING
+    # avoids two log lines per startup event with overlapping but
+    # inconsistent field sets, which makes operator jq filters race.
+    # This block holds three of the approved stdlib ``logging.getLogger``
+    # uses in the codebase (the fourth is the root-handler bind above);
+    # the forbidden pattern is using stdlib loggers for application logs.
+    # CLAUDE.md prose pin lockstep with this carve-out.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.asgi").setLevel(logging.WARNING)

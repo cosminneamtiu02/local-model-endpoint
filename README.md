@@ -47,7 +47,7 @@ task dev
 | Command | Description |
 |---|---|
 | `task dev` | Start backend with hot reload |
-| `task check` | Run lint, format, lockfile, types, architecture, coverage-gated tests, error contracts, plist, audit, secrets |
+| `task check` | Run lint, format, lockfile, types, architecture, coverage-gated tests, error contracts, plist, audit, secrets, plus the cross-workspace drift-guards (test-class regex sync, detect-secrets version sync, dev-tool version sync) |
 | `task test` | Run all tests (unit + integration + contract) |
 | `task test:unit` | Run unit tests |
 | `task test:integration` | Run integration tests (in-process via ASGI transport) |

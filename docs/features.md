@@ -4,11 +4,11 @@ Every capability in the LIP scaffold, with a short description.
 
 The features documented below describe what exists *right now*. The current
 `status:` field on every LIP feature graph is the source of truth — run
-`grep -n '^status:' graphs/LIP/LIP-*.md` to enumerate the live state. Today
-five LIP feature nodes have landed in code (LIP-E001-F001, LIP-E003-F001,
-LIP-E003-F002, LIP-E004-F004, LIP-E005-F003); the per-node `status:` values
-indicate whether each is `implemented` (code + tests + green `task check`)
-or `verifiable` (code present but graph-status not yet hand-bumped per the
+`grep -n '^status: implemented' graphs/LIP/LIP-*.md` to enumerate the live
+state (the in-text enumeration is intentionally NOT replicated here because
+the next implemented-flip would silently rot it). The per-node `status:`
+values are `implemented` (code + tests + green `task check`) or `verifiable`
+(code present but graph-status not yet hand-bumped per the
 [conventions.md](conventions.md) workflow). `service/` and `router/` slices
 arrive with LIP-E001-F002 per ADR-011 lazy scaffolding.
 

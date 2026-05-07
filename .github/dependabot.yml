@@ -140,9 +140,11 @@ updates:
           - "pyright"
           - "pip-audit"
           - "import-linter"
-          # ``pyyaml`` is the workspace's runtime dep but ships often enough
-          # that a solo bump can cascade-conflict with sibling dev-tool PRs
-          # on adjacent lines of pyproject.toml. Co-grouping mirrors the
+          # ``pyyaml`` is the workspace's only YAML dep — dev-only here
+          # (codegen + invariants tests; no runtime surface in the
+          # error-contracts package), but it ships often enough that a
+          # solo bump can cascade-conflict with sibling dev-tool PRs on
+          # adjacent lines of pyproject.toml. Co-grouping mirrors the
           # backend's ``dev-tools`` group rationale (lane 10.1).
           - "pyyaml"
 
