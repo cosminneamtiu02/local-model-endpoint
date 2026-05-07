@@ -277,8 +277,8 @@ class Settings(BaseSettings):
         # into stdout-rendered ValidationError messages.
         if not is_private_host(self.bind_host) and not self.allow_public_bind:
             msg = (
-                f"bind_host={self.bind_host!r} is not loopback / private LAN / link-local; "
-                "set LIP_ALLOW_PUBLIC_BIND=true explicitly to acknowledge "
+                f"bind_host={self.bind_host!r} is not loopback / RFC1918 / link-local / "
+                "ULA / mDNS; set LIP_ALLOW_PUBLIC_BIND=true explicitly to acknowledge "
                 "LIP has no auth before LAN-exposing it"
             )
             raise ValueError(msg)
@@ -293,7 +293,7 @@ class Settings(BaseSettings):
         host = self.ollama_host.host or ""
         if not is_private_host(host) and not self.allow_external_ollama:
             msg = (
-                f"ollama_host={host!r} is not localhost / private LAN / link-local; "
+                f"ollama_host={host!r} is not localhost / RFC1918 / link-local / ULA / mDNS; "
                 "set LIP_ALLOW_EXTERNAL_OLLAMA=true explicitly to acknowledge that LIP will "
                 "forward consumer prompts to a non-private host"
             )
@@ -316,7 +316,7 @@ class Settings(BaseSettings):
         # against a base URL — a misconfigured ``LIP_OLLAMA_HOST=
         # http://127.0.0.1:11434/foo/bar`` would either RFC-3986-merge into
         # ``/foo/api/chat`` (silently broken) or land the unexpected path in
-        # the ``ollama_client_lifecycle_entered`` log line. ``""`` and ``"/"``
+        # the ``ollama_client_started`` log line. ``""`` and ``"/"``
         # are both legitimate "no path" forms that AnyHttpUrl normalizes.
         ollama_path = self.ollama_host.path or ""
         if ollama_path not in ("", "/"):

@@ -26,7 +26,9 @@ class Message(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
-    role: Literal["user", "assistant", "system"]
+    role: Literal["user", "assistant", "system"] = Field(
+        description="Conversation-turn role: 'user', 'assistant', or 'system'.",
+    )
     # Per-arm constraints: str -> char-count cap (single-turn plain prompt);
     # list -> part-count cap. ``TEXT_PART_MAX_CHARS`` is shared with
     # ``TextContent.text`` so a future cap bump moves both at once. The
@@ -36,5 +38,12 @@ class Message(BaseModel):
     content: Annotated[
         Annotated[str, Field(min_length=1, max_length=TEXT_PART_MAX_CHARS)]
         | Annotated[list[ContentPart], Field(min_length=1, max_length=MESSAGE_CONTENT_PARTS_MAX)],
-        Field(union_mode="left_to_right"),
+        Field(
+            union_mode="left_to_right",
+            description=(
+                "Either a plain string (single-turn prompt) or a list of multimodal "
+                "ContentPart variants. union_mode='left_to_right' pins string-first "
+                "resolution so str | list never races into the list arm on str inputs."
+            ),
+        ),
     ]

@@ -15,6 +15,21 @@ from pydantic import ValidationError
 from app.features.inference.model.ollama_chat_result import OllamaChatResult
 
 
+def test_ollama_chat_result_str_strip_whitespace_is_disabled_by_omission() -> None:
+    """Pin the deliberate omission of ``str_strip_whitespace`` on the model_config.
+
+    The OllamaChatResult docstring explicitly preserves trailing newlines
+    on model output (fenced code blocks); Pydantic's default for
+    ``str_strip_whitespace`` is ``False``, so OMITTING the kwarg is the
+    opt-out. A regression flipping ``str_strip_whitespace=True`` (e.g.
+    a "consistency with siblings" cleanup) would silently truncate
+    trailing-newline content. This canary pins the absent-kwarg as a
+    contract — the in-source comment claiming the omission is
+    intentional is now mechanically defended.
+    """
+    assert OllamaChatResult.model_config.get("str_strip_whitespace", False) is False
+
+
 def test_ollama_chat_result_constructs_with_all_four_fields(
     valid_ollama_chat_result_kwargs: dict[str, object],
 ) -> None:

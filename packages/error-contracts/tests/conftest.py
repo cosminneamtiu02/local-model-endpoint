@@ -11,7 +11,12 @@ import pytest
 # ``class TestFoo:`` and ``class TestFoo(unittest.TestCase):`` forms;
 # does NOT catch ``class _TestFoo:``. MUST stay in lockstep with the
 # same regex in ``apps/backend/tests/conftest.py`` — cross-workspace
-# import isn't installable so the duplication is intentional.
+# import isn't installable so the duplication is intentional, and the
+# ``check:test-class-regex-sync`` Taskfile target greps the literal
+# ``_TEST_CLASS_PATTERN = re.compile`` substring for byte-equality —
+# which is why this constant is intentionally NOT annotated with
+# ``Final[re.Pattern[str]]`` (would change the grep substring and
+# silently break the lockstep gate).
 _TEST_CLASS_PATTERN = re.compile(r"^class Test[A-Za-z_]", re.MULTILINE)
 
 

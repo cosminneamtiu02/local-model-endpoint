@@ -5,9 +5,17 @@ Do not subclass DomainError directly in application code — edit errors.yaml
 and run `task errors:generate` instead.
 """
 
-from typing import ClassVar
+from typing import ClassVar, Final
 
 from pydantic import BaseModel
+
+_REQUIRED_CLASSVARS: Final[tuple[str, ...]] = (
+    "code",
+    "http_status",
+    "type_uri",
+    "title",
+    "detail_template",
+)
 
 
 class DomainError(Exception):
@@ -56,8 +64,7 @@ class DomainError(Exception):
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        required: tuple[str, ...] = ("code", "http_status", "type_uri", "title", "detail_template")
-        missing = [name for name in required if not hasattr(cls, name)]
+        missing = [name for name in _REQUIRED_CLASSVARS if not hasattr(cls, name)]
         if missing:
             joined = ", ".join(missing)
             msg = f"{cls.__name__} must declare ClassVar fields: {joined}"

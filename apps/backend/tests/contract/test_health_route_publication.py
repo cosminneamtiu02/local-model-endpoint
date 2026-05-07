@@ -21,13 +21,15 @@ Settings-env scrub applied.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
 
 
-def test_health_route_declares_problem_details_default_response(client: TestClient) -> None:
+def test_health_route_declares_problem_details_default_response(
+    openapi_spec: dict[str, Any],
+) -> None:
     """The /health route advertises ProblemDetails on its OpenAPI ``default`` response.
 
     The route uses ``responses={"default": ...}`` instead of enumerating
@@ -37,8 +39,7 @@ def test_health_route_declares_problem_details_default_response(client: TestClie
     is liveness-only and never raises (so listing 500/503 as endpoint-
     specific responses would imply behavior that doesn't exist).
     """
-    spec = client.get("/openapi.json").json()
-    health = spec["paths"]["/health"]["get"]
+    health = openapi_spec["paths"]["/health"]["get"]
     responses = health.get("responses", {})
 
     assert "default" in responses, (

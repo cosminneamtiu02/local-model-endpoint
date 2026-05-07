@@ -18,8 +18,8 @@ import pytest
 import structlog
 from structlog.testing import capture_logs
 
+from app.core.logging import _REDACTED_SENTINEL, configure_logging
 from app.core.logging import _REDACTION_BLOCKLIST as _REDACTION_BLOCKLIST_SOURCE
-from app.core.logging import configure_logging
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -165,7 +165,7 @@ def test_redaction_processor_strips_sensitive_keys(sensitive_key: str) -> None:
 
     event_dict = {sensitive_key: "secret-prompt-content", "event": "smoke"}
     result = _redact_sensitive_keys(None, "info", event_dict)
-    assert result[sensitive_key] == "<redacted>"
+    assert result[sensitive_key] == _REDACTED_SENTINEL
     # Untouched non-sensitive keys must pass through verbatim.
     assert result["event"] == "smoke"
 
@@ -272,7 +272,7 @@ def test_redaction_processor_redacts_contextvar_bound_message_content(
         logger = structlog.get_logger("test")
         logger.info("smoke")
         out = capsys.readouterr().out
-        assert "<redacted>" in out, out
+        assert _REDACTED_SENTINEL in out, out
         assert "SECRET-PROMPT-MARKER-12345" not in out, out
     finally:
         structlog.contextvars.clear_contextvars()
@@ -306,6 +306,49 @@ def test_redaction_processor_does_not_recurse_into_nested_dicts(
     # the ``request=`` value, which is rendered verbatim. This is the
     # documented limitation.
     assert "NESTED-PROMPT-MARKER" in out, out
+
+
+def test_log_level_renders_as_lowercase_string_in_json_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``add_log_level`` must emit the level field as lowercase (``"critical"``,
+    not ``"CRITICAL"``).
+
+    CLAUDE.md (Forbidden Patterns) pins operator-paging behavior on
+    ``level=critical`` (lowercase per ``structlog.stdlib.add_log_level``'s
+    wire form). Without this test, a future structlog bump that flipped the
+    output to uppercase OR a refactor swapping ``add_log_level`` for a
+    custom processor would silently break the operator-alert filters.
+
+    Also verifies the ``logger.exception`` -> ``"error"`` mapping that
+    ``app/api/exception_handler_registry.py``'s ``_handle_unhandled_exception``
+    relies on (structlog routes ``exception()`` calls through the ``error``
+    method-name, so ``add_log_level`` writes ``level="error"``, not
+    ``"exception"``).
+    """
+    import json as _json
+
+    def _raise_value_error() -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    configure_logging(log_level="info", json_output=True)
+    logger = structlog.get_logger("level_canary")
+    logger.critical("critical_canary")
+    try:
+        _raise_value_error()
+    except ValueError:
+        logger.exception("exception_canary")
+    out = capsys.readouterr().out
+    lines = [ln for ln in out.splitlines() if ln.startswith("{")]
+    by_event = {_json.loads(ln)["event"]: _json.loads(ln) for ln in lines}
+    assert by_event["critical_canary"]["level"] == "critical", (
+        f"Expected lowercase level='critical'; got {by_event['critical_canary']['level']!r}"
+    )
+    assert by_event["exception_canary"]["level"] == "error", (
+        f"Expected lowercase level='error' for logger.exception; got "
+        f"{by_event['exception_canary']['level']!r}"
+    )
 
 
 def test_configure_logging_round_trips_debug_event_via_capture_logs() -> None:

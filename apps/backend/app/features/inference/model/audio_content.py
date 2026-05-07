@@ -20,7 +20,10 @@ class AudioContent(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
-    type: Literal["audio"] = "audio"
+    type: Literal["audio"] = Field(
+        default="audio",
+        description="Discriminator value 'audio' selecting the audio variant of ContentPart.",
+    )
     # ``AnyHttpUrl`` clamps URL schemes to http/https (defense-in-depth vs
     # SSRF / scheme-confusion when the URL-fetching adapter path lands).
     # ``UrlConstraints(max_length=...)`` enforces the string-form length
@@ -43,8 +46,22 @@ class AudioContent(BaseModel):
     # content must FORBID private to avoid metadata-service / loopback-
     # bounce attacks). Land the clamp in the same PR that wires the
     # URL-fetch adapter so it cannot ship ahead of the protection.
-    url: Annotated[AnyHttpUrl, UrlConstraints(max_length=URL_MAX_CHARS)] | None = None
-    base64: str | None = Field(default=None, min_length=1, max_length=BASE64_MEDIA_MAX_CHARS)
+    url: (
+        Annotated[
+            AnyHttpUrl,
+            UrlConstraints(max_length=URL_MAX_CHARS),
+            Field(
+                description="Public http/https URL of the audio. Mutually exclusive with base64.",
+            ),
+        ]
+        | None
+    ) = None
+    base64: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=BASE64_MEDIA_MAX_CHARS,
+        description="Base64-encoded audio bytes. Mutually exclusive with url.",
+    )
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> Self:

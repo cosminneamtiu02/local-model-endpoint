@@ -114,6 +114,27 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
         # non-compliant responses.
         raise HTTPException(status_code=405, headers={"Allow": "POST"})
 
+    @test_app.get("/trigger-http-503")
+    async def trigger_http_503() -> dict[str, str]:
+        # Exercises the ``http_exception_5xx_raised`` re-routing branch:
+        # framework-emitted ``HTTPException(>=500)`` ships through
+        # ``InternalError`` (typed URN) instead of ``about:blank``.
+        raise HTTPException(status_code=503)
+
+    @test_app.get("/trigger-http-200")
+    async def trigger_http_200() -> dict[str, str]:
+        # Exercises the ``http_exception_invalid_status_raised`` short-
+        # circuit: ``HTTPException(<400)`` is a misconfiguration and
+        # the handler synthesizes a 500 InternalError response.
+        raise HTTPException(status_code=200)
+
+    @test_app.get("/trigger-http-415")
+    async def trigger_http_415() -> dict[str, str]:
+        # Exercises the generic-4xx ``HTTP_ERROR`` fallback for status
+        # codes without a dedicated DomainError class (415 is unmodeled
+        # — there is no UnsupportedMediaTypeError in errors.yaml).
+        raise HTTPException(status_code=415)
+
     @test_app.get("/trigger-http-405-without-allow")
     async def trigger_http_405_without_allow() -> dict[str, str]:
         # Negative companion to ``trigger-http-405``: a typed
@@ -312,8 +333,8 @@ def test_typed_validation_failed_raise_ships_canonical_wire_shape(client: TestCl
     assert body["status"] == 422
 
 
-def test_rate_limited_still_works_under_rfc7807(client: TestClient) -> None:
-    """Existing generic code RATE_LIMITED keeps mapping correctly post-rewrite."""
+def test_rate_limited_maps_to_429_problem_json(client: TestClient) -> None:
+    """RATE_LIMITED routes through ``RateLimitedError`` (typed URN) at status 429."""
     response = client.get("/trigger-rate-limited")
     assert response.status_code == 429
     body = response.json()
@@ -524,8 +545,90 @@ def test_framework_405_on_method_mismatch_includes_allow_header(client: TestClie
     assert body["code"] == "METHOD_NOT_ALLOWED"
 
 
-def test_unmatched_route_returns_about_blank_404_problem_json(client: TestClient) -> None:
-    """A request for an undefined route surfaces RFC 7807 with code NOT_FOUND."""
+def test_http_exception_5xx_routes_through_internal_error_typed_urn(
+    client: TestClient,
+) -> None:
+    """Framework-emitted ``HTTPException(>=500)`` ships ``urn:lip:error:internal-error``.
+
+    The 5xx-routing branch in ``_handle_http_exception`` re-routes any
+    framework-side 5xx HTTPException through ``InternalError`` (which
+    has ``http_status=500``), so consumers pattern-matching on
+    ``type`` see one URN for every 5xx — never ``about:blank``. Note
+    the wire status collapses to 500 (the InternalError envelope),
+    not the original ``HTTPException(503)``: the 5xx rerouting is
+    typed-URN normalization, NOT status-code preservation.
+    """
+    import structlog.testing
+
+    with structlog.testing.capture_logs() as captured:
+        response = client.get("/trigger-http-503")
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["type"] == "urn:lip:error:internal-error"
+    assert body["code"] == "INTERNAL_ERROR"
+    assert body["status"] == 500
+
+    # The defensive log line preserves the original HTTPException status_code
+    # (503) under the ``status_code`` key so operators can correlate the
+    # framework raise to the rewritten wire response.
+    rerouted = [e for e in captured if e.get("event") == "http_exception_5xx_raised"]
+    assert len(rerouted) == 1, captured
+    assert rerouted[0]["status_code"] == 503
+
+
+def test_http_exception_invalid_status_synthesizes_500_internal_error(
+    client: TestClient,
+) -> None:
+    """``HTTPException(<400)`` is misconfiguration; handler synthesizes a 500.
+
+    The wire response status is 500 (not the misconfigured 200), the
+    body code is INTERNAL_ERROR, and the ``http_exception_invalid_
+    status_raised`` defensive log line surfaces the offending raise.
+    """
+    import structlog.testing
+
+    with structlog.testing.capture_logs() as captured:
+        response = client.get("/trigger-http-200")
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["code"] == "INTERNAL_ERROR"
+    assert body["type"] == "urn:lip:error:internal-error"
+
+    invalid_status = [
+        e for e in captured if e.get("event") == "http_exception_invalid_status_raised"
+    ]
+    assert len(invalid_status) == 1, captured
+    assert invalid_status[0]["status_code"] == 200
+    assert invalid_status[0]["code"] == "INTERNAL_ERROR"
+
+
+def test_http_exception_unmodeled_4xx_ships_about_blank_http_error(client: TestClient) -> None:
+    """A 4xx status without a dedicated DomainError ships ``HTTP_ERROR`` /
+    ``about:blank``.
+
+    415 (Unsupported Media Type) has no per-error class in errors.yaml,
+    so the generic-4xx fallback branch in ``_handle_http_exception``
+    builds a ProblemDetails with ``code="HTTP_ERROR"`` and
+    ``type="about:blank"`` per RFC 7807 §4.2 (un-typed HTTP errors).
+    """
+    response = client.get("/trigger-http-415")
+    assert response.status_code == 415
+    body = response.json()
+    assert body["code"] == "HTTP_ERROR"
+    assert body["type"] == "about:blank"
+    assert body["status"] == 415
+
+
+def test_unmatched_route_returns_typed_not_found_404_problem_json(client: TestClient) -> None:
+    """A request for an undefined route surfaces RFC 7807 with code NOT_FOUND.
+
+    The 404 path routes through ``NotFoundError`` (typed URN), NOT
+    ``about:blank``. The earlier name said "about_blank" but the body
+    asserted the typed URN — a future regression that re-routed 404 back
+    through ``about:blank`` would have passed the old name's test silently.
+    """
     response = client.get("/this-route-does-not-exist")
     assert response.status_code == 404
     assert response.headers["content-type"].startswith(PROBLEM_JSON_MEDIA_TYPE)
@@ -553,9 +656,10 @@ def test_build_problem_payload_raises_internal_error_on_extras_collision() -> No
     Pydantic model whose fields collide with ``ProblemExtras``.
     """
     from typing import ClassVar
-    from unittest.mock import MagicMock
 
+    from fastapi import FastAPI
     from pydantic import BaseModel, ConfigDict
+    from starlette.requests import Request
 
     from app.api.exception_handler_registry import _build_problem_payload
     from app.exceptions import DomainError, InternalError, QueueFullError
@@ -587,11 +691,21 @@ def test_build_problem_payload_raises_internal_error_on_extras_collision() -> No
         validation_errors=[ValidationErrorDetail(field="other", reason="value")],
     )
 
-    # Mock request — _bound_instance reads request.url.path; provide
-    # one so the helper doesn't fail at the instance-construction step
-    # (which it never reaches because the collision raise fires first).
-    mock_request = MagicMock()
-    mock_request.url.path = "/test"
+    # Real Request — _bound_instance reads request.url.path; build one
+    # from a minimal ASGI scope (mirroring the dialect at
+    # ``tests/unit/api/test_deps.py::_request_for``) instead of mixing
+    # ``unittest.mock`` into a suite that uses ``monkeypatch`` everywhere
+    # else. Pattern uniformity matters more than the per-test convenience
+    # of ``MagicMock`` — CLAUDE.md sacred rule "no paradigm drift".
+    scope: dict[str, object] = {
+        "type": "http",
+        "app": FastAPI(),
+        "headers": [],
+        "method": "GET",
+        "path": "/test",
+        "query_string": b"",
+    }
+    request = Request(scope)
 
     # Use the existing QueueFullError as a sanity precondition: without
     # a collision, _build_problem_payload should succeed. Then the
@@ -599,7 +713,7 @@ def test_build_problem_payload_raises_internal_error_on_extras_collision() -> No
     sane = QueueFullError(max_waiters=4, current_waiters=5)
     payload = _build_problem_payload(
         sane,
-        mock_request,
+        request,
         request_id="00000000-0000-4000-8000-000000000abc",
     )
     assert payload.code == "QUEUE_FULL"
@@ -614,7 +728,7 @@ def test_build_problem_payload_raises_internal_error_on_extras_collision() -> No
     with pytest.raises(InternalError, match="INTERNAL_ERROR"):
         _build_problem_payload(
             _CollidingError(),
-            mock_request,
+            request,
             request_id="00000000-0000-4000-8000-000000000abc",
             extras=extras,
         )

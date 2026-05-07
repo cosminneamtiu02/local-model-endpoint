@@ -15,23 +15,28 @@ carry a non-empty description and an HTTP status in the 400-599 range.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 import pytest
 
 # The canonical source-of-truth path — locked here so a future move of
 # errors.yaml requires updating one constant rather than every test.
-_ERRORS_YAML_PATH = Path(__file__).parents[5] / "packages" / "error-contracts" / "errors.yaml"
+_ERRORS_YAML_PATH: Final[Path] = (
+    Path(__file__).parents[5] / "packages" / "error-contracts" / "errors.yaml"
+)
 
 # Baseline floor. A future code addition is permitted (assert with >=);
 # a code removal is a wire-contract change that must come with an
 # explicit test update + ADR. Tracking the exact baseline catches both
 # silent removals AND an "I generated zero codes" regression at once.
-# Bumped to 11 after METHOD_NOT_ALLOWED landed: 5 generic codes
-# (NOT_FOUND, METHOD_NOT_ALLOWED, CONFLICT, INTERNAL_ERROR,
-# VALIDATION_FAILED) + 6 LIP-specific codes (RATE_LIMITED, QUEUE_FULL,
-# INFERENCE_TIMEOUT, MODEL_CAPABILITY_NOT_SUPPORTED, REGISTRY_NOT_FOUND,
-# ADAPTER_CONNECTION_FAILURE). Bump in lockstep with errors.yaml additions.
-_MIN_CODE_COUNT = 11
+# Bumped to 11 after METHOD_NOT_ALLOWED landed: 6 generic codes
+# (NOT_FOUND, CONFLICT, VALIDATION_FAILED, INTERNAL_ERROR,
+# METHOD_NOT_ALLOWED, RATE_LIMITED) + 5 LIP-specific codes (QUEUE_FULL,
+# INFERENCE_TIMEOUT, ADAPTER_CONNECTION_FAILURE, REGISTRY_NOT_FOUND,
+# MODEL_CAPABILITY_NOT_SUPPORTED). Grouping mirrors errors.yaml's
+# ``# ── Generic codes`` / ``# ── LIP-specific codes`` comment headers —
+# the YAML is the single source of truth. Bump in lockstep with errors.yaml.
+_MIN_CODE_COUNT: Final[int] = 11
 
 
 @pytest.fixture(scope="module")
@@ -108,8 +113,8 @@ def test_errors_yaml_every_code_has_non_empty_description(
         assert description.strip(), f"{code} description must be non-empty"
 
 
-_HTTP_STATUS_MIN = 400
-_HTTP_STATUS_MAX = 599
+_HTTP_STATUS_MIN: Final[int] = 400
+_HTTP_STATUS_MAX: Final[int] = 599
 
 
 def test_errors_yaml_every_http_status_is_in_error_range(

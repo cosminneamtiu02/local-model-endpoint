@@ -17,26 +17,23 @@ Settings-env scrub applied.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from fastapi.testclient import TestClient
+from typing import Any
 
 
-def test_openapi_publishes_problem_details_component(client: TestClient) -> None:
+def test_openapi_publishes_problem_details_component(openapi_spec: dict[str, Any]) -> None:
     """ProblemDetails appears as a named component once a route references it."""
-    spec = client.get("/openapi.json").json()
-    schemas = spec.get("components", {}).get("schemas", {})
+    schemas = openapi_spec.get("components", {}).get("schemas", {})
     assert "ProblemDetails" in schemas, (
         "ProblemDetails must be in components.schemas — it is the "
         "F004 contract surface other features build on."
     )
 
 
-def test_problem_details_component_has_rfc7807_fields_and_extensions(client: TestClient) -> None:
+def test_problem_details_component_has_rfc7807_fields_and_extensions(
+    openapi_spec: dict[str, Any],
+) -> None:
     """All five RFC 7807 standard fields plus code + request_id appear in the schema."""
-    spec = client.get("/openapi.json").json()
-    pd_schema = spec["components"]["schemas"]["ProblemDetails"]
+    pd_schema = openapi_spec["components"]["schemas"]["ProblemDetails"]
     properties = pd_schema.get("properties", {})
 
     # RFC 7807 standard fields
@@ -47,10 +44,11 @@ def test_problem_details_component_has_rfc7807_fields_and_extensions(client: Tes
         assert field in properties, f"Missing LIP extension: {field}"
 
 
-def test_problem_details_component_allows_additional_properties(client: TestClient) -> None:
+def test_problem_details_component_allows_additional_properties(
+    openapi_spec: dict[str, Any],
+) -> None:
     """extra='allow' must serialize to additionalProperties: true (or schema)."""
-    spec = client.get("/openapi.json").json()
-    pd_schema = spec["components"]["schemas"]["ProblemDetails"]
+    pd_schema = openapi_spec["components"]["schemas"]["ProblemDetails"]
     additional = pd_schema.get("additionalProperties")
     # Pydantic v2 emits either True or a schema dict for extra='allow'
     assert additional is True or isinstance(additional, dict), (

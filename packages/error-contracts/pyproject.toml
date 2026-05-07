@@ -93,19 +93,27 @@ branch = true
 omit = ["**/__init__.py"]
 
 [tool.coverage.report]
-# Establish a coverage gate symmetric with the backend's. Floor is set
-# below the measured baseline (~88%) to leave room for transient
-# regressions without flapping during feature-dev. Follow-up: walk
-# the uncovered branches in ``generate.py`` (mostly defensive-error
-# arms inside the YAML parser) and either add tests or pragma:no-cover
-# them, then bump the gate to 90% in lockstep with the backend.
+# Establish a coverage gate symmetric with the backend's. Measured
+# baseline is ~90.67% as of round 27 (2026-05-07); the floor stays at
+# 80 because the workspace is small and a single removed test can
+# flip 5+ percentage points. Follow-up (now actionable, since the
+# measured baseline already exceeds 90): walk the uncovered branches
+# in ``generate.py`` (mostly defensive-error arms inside the YAML
+# parser) and either add tests or pragma:no-cover them, then bump
+# the gate to 90% in lockstep with the backend.
 fail_under = 80
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
-    "\\.\\.\\.\\s*$",
+    # Anchored at start (with optional leading whitespace) so the pattern
+    # matches ONLY a bare ``...`` on its own line and cannot accidentally
+    # match a comment or docstring whose final line ends in three dots
+    # followed by whitespace. Symmetric with the apps/backend pattern —
+    # see the rationale block on apps/backend/pyproject.toml's
+    # ``exclude_lines`` for the full reasoning.
+    "^\\s*\\.\\.\\.\\s*$",
     "if __name__ == .__main__.:",
 ]
 

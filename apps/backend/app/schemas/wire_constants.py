@@ -43,7 +43,7 @@ two response envelopes."""
 
 INSTANCE_PATH_MAX_CHARS: Final[int] = 2048
 """Cap for ``ProblemDetails.instance`` and the matching truncation in
-:func:`app.api.exception_handler_registry._bounded_instance`. Hoisted here
+:func:`app.api.exception_handler_registry._bound_instance`. Hoisted here
 (rather than living in two parallel ``Final[int]`` definitions in
 ``schemas/problem_details.py`` and ``api/exception_handler_registry.py``) so a
 future bump moves both sites in lockstep — the handler's truncation

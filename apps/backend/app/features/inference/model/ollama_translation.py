@@ -193,8 +193,16 @@ def build_chat_result(
     if not response_json.get("done", True):
         msg = "Ollama malformed frame: done=False under stream=False; expected terminal frame."
         raise ValueError(msg)
+    # ``raw_finish`` flows in as ``Any`` from ``response_json.get(...)``.
+    # Mirror the ``isinstance(raw_error, str)`` narrow below — a future
+    # Ollama protocol drift returning a non-string ``done_reason`` should
+    # land the default arm rather than silently widen Any into the typed
+    # mapping. The unconditional default to ``"stop"`` preserves the
+    # original behavior on the non-string path.
     raw_finish = response_json.get("done_reason", "stop")
-    finish_reason: FinishReason = _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop")
+    finish_reason: FinishReason = (
+        _OLLAMA_TO_LIP_FINISH.get(raw_finish, "stop") if isinstance(raw_finish, str) else "stop"
+    )
     # Surface a 200-with-``{"error":"..."}`` body's diagnostic string when
     # the upstream emits one; ``raise_for_status`` only fires on 4xx/5xx,
     # so a misbehaving cache/proxy returning 200 + ``{"error": "model not
@@ -203,6 +211,15 @@ def build_chat_result(
     # frame category; the message just carries the upstream signal.
     raw_error = response_json.get("error")
     if isinstance(raw_error, str) and raw_error:
+        # NOTE: bounding/sanitizing the upstream string here would couple
+        # ``model/`` to ``app.core.logging`` (forbidden by the
+        # ``inference-model-cross-layer`` import-linter contract). The
+        # downstream ``OllamaClient.chat``'s ``except`` arm wraps
+        # ``str(call_exc)`` in ``ascii_safe(..., max_chars=
+        # EXC_MESSAGE_PREVIEW_MAX_CHARS)`` before logging, which is the
+        # canonical log-emit-site bound. If a future failure-mapping
+        # layer (LIP-E003-F003) needs to surface this string into a wire
+        # ``detail`` field, the bounding belongs at THAT layer, not here.
         msg = f"Ollama returned error frame: {raw_error}"
         raise ValueError(msg)
     if "message" not in response_json:

@@ -178,7 +178,7 @@ def test_pydantic_model_name_namespace_does_not_warn() -> None:
     lockstep with consumer raise sites, or (b) extend the codegen
     template to emit ``protected_namespaces=()`` on the affected
     ``*Params`` classes. Today, neither is needed — this test passes
-    cleanly on pydantic ``2.13.3``.
+    cleanly on pydantic ``2.13.4``.
     """
     import warnings
 
@@ -230,7 +230,8 @@ def test_domain_error_str_does_not_leak_params() -> None:
 def test_parameterized_error_detail_renders_when_assertions_stripped() -> None:
     """detail() must succeed even when assertions are stripped (Python -O).
 
-    Generated subclasses use ``cast("BaseModel", self.params)`` instead of
+    Generated subclasses use ``cast("<ConcreteParams>", self.params)`` (e.g.
+    ``cast("QueueFullParams", self.params)``) instead of
     ``assert self.params is not None`` so the narrowing survives -O. This test
     documents the contract — it doesn't actually re-launch under -O (pytest
     doesn't run with -O by default), but a regression that re-introduced an

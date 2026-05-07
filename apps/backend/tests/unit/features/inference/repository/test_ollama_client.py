@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Final
 
 import httpx
 import pytest
@@ -26,6 +27,15 @@ from app.features.inference.repository.ollama_client import (
     OllamaClient,
     _decode_ollama_json,
 )
+
+# Centralized base-URL literals so a future Ollama-default-port bump or
+# test-domain rename is a single-constant edit rather than a 21-site
+# sweep. Symmetric with the integration-tier helper's ``model_tag``
+# default at
+# ``tests/integration/features/inference/repository/test_ollama_client.py``.
+_LOCAL_OLLAMA_URL: Final[str] = "http://localhost:11434"
+_CANARY_INVALID_URL: Final[str] = "http://example.invalid"
+_MOCK_TRANSPORT_URL: Final[str] = "http://ollama.test"
 
 
 # ``DEFAULT_TIMEOUT`` is the v1 backstop until LIP-E004-F003 lands. The
@@ -103,7 +113,7 @@ def test_default_timeout_remains_stable_across_client_instances() -> None:
         # Construct without using ``async with`` — ``__init__`` is the
         # only relevant path here (no need for ``__aenter__`` /
         # ``__aexit__`` lifecycle on a constants-stability check).
-        OllamaClient(base_url="http://example.invalid")
+        OllamaClient(base_url=_CANARY_INVALID_URL)
     assert (
         DEFAULT_TIMEOUT.connect,
         DEFAULT_TIMEOUT.read,
@@ -116,9 +126,9 @@ def test_default_timeout_remains_stable_across_client_instances() -> None:
 
 
 async def test_constructor_sets_base_url_on_internal_httpx_client() -> None:
-    client = OllamaClient(base_url="http://localhost:11434")
+    client = OllamaClient(base_url=_LOCAL_OLLAMA_URL)
     try:
-        assert str(client._client.base_url) == "http://localhost:11434"
+        assert str(client._client.base_url) == _LOCAL_OLLAMA_URL
     finally:
         await client.close()
 
@@ -133,7 +143,7 @@ async def test_constructor_uses_default_timeout_when_none_supplied() -> None:
     check. Field-by-field assertions stay specific to the four bounds we
     actually rely on.
     """
-    client = OllamaClient(base_url="http://localhost:11434")
+    client = OllamaClient(base_url=_LOCAL_OLLAMA_URL)
     try:
         assert client._client.timeout.connect == DEFAULT_TIMEOUT.connect
         assert client._client.timeout.read == DEFAULT_TIMEOUT.read
@@ -146,7 +156,7 @@ async def test_constructor_uses_default_timeout_when_none_supplied() -> None:
 async def test_constructor_accepts_custom_timeout_override() -> None:
     """Field-by-field assertion mirrors the default-timeout test above."""
     custom = httpx.Timeout(connect=2.0, read=1.0, write=1.0, pool=1.0)
-    client = OllamaClient(base_url="http://localhost:11434", timeout=custom)
+    client = OllamaClient(base_url=_LOCAL_OLLAMA_URL, timeout=custom)
     try:
         assert client._client.timeout.connect == custom.connect
         assert client._client.timeout.read == custom.read
@@ -157,7 +167,7 @@ async def test_constructor_accepts_custom_timeout_override() -> None:
 
 
 async def test_async_context_manager_returns_self_and_closes_on_exit() -> None:
-    async with OllamaClient(base_url="http://localhost:11434") as client:
+    async with OllamaClient(base_url=_LOCAL_OLLAMA_URL) as client:
         assert isinstance(client, OllamaClient)
         assert client._client.is_closed is False
 
@@ -167,7 +177,7 @@ async def test_async_context_manager_returns_self_and_closes_on_exit() -> None:
 async def test_async_context_manager_closes_on_exception_in_body() -> None:
     captured: OllamaClient | None = None
     with pytest.raises(RuntimeError, match="boom"):
-        async with OllamaClient(base_url="http://localhost:11434") as client:
+        async with OllamaClient(base_url=_LOCAL_OLLAMA_URL) as client:
             captured = client
             raise RuntimeError("boom")
 
@@ -176,7 +186,7 @@ async def test_async_context_manager_closes_on_exception_in_body() -> None:
 
 
 async def test_close_is_idempotent() -> None:
-    client = OllamaClient(base_url="http://localhost:11434")
+    client = OllamaClient(base_url=_LOCAL_OLLAMA_URL)
     await client.close()
     await client.close()  # second call must not raise
     assert client._client.is_closed is True
@@ -192,13 +202,13 @@ async def test_request_get_forwards_to_httpx_with_no_body() -> None:
         return httpx.Response(200, json={"models": []})
 
     transport = httpx.MockTransport(handler)
-    async with OllamaClient(base_url="http://localhost:11434", transport=transport) as client:
+    async with OllamaClient(base_url=_LOCAL_OLLAMA_URL, transport=transport) as client:
         response = await client._request("GET", "/api/tags")
 
     assert response.status_code == 200
     assert response.json() == {"models": []}
     assert captured["method"] == "GET"
-    assert captured["url"] == "http://localhost:11434/api/tags"
+    assert captured["url"] == f"{_LOCAL_OLLAMA_URL}/api/tags"
     assert captured["body"] == b""
 
 
@@ -213,7 +223,7 @@ async def test_request_post_sends_json_body() -> None:
 
     transport = httpx.MockTransport(handler)
     payload = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
-    async with OllamaClient(base_url="http://localhost:11434", transport=transport) as client:
+    async with OllamaClient(base_url=_LOCAL_OLLAMA_URL, transport=transport) as client:
         response = await client._request("POST", "/api/chat", json=payload)
 
     assert response.status_code == 200
@@ -241,7 +251,7 @@ async def test_request_propagates_connect_error_via_mock_transport() -> None:
         raise httpx.ConnectError(msg)
 
     transport = httpx.MockTransport(_raises_connect)
-    client = OllamaClient(base_url="http://example.invalid", transport=transport)
+    client = OllamaClient(base_url=_CANARY_INVALID_URL, transport=transport)
     try:
         with pytest.raises(httpx.ConnectError, match="simulated connect failure"):
             await client._request("GET", "/api/tags")
@@ -323,7 +333,7 @@ async def test_request_rejects_relative_path_with_value_error() -> None:
     transport = httpx.MockTransport(
         lambda _request: httpx.Response(200, json={}),
     )
-    client = OllamaClient(base_url="http://example.invalid", transport=transport)
+    client = OllamaClient(base_url=_CANARY_INVALID_URL, transport=transport)
     try:
         with pytest.raises(ValueError, match="path must be absolute"):
             await client._request("GET", "api/tags")
@@ -338,7 +348,7 @@ async def test_request_rejects_use_after_close_with_runtime_error() -> None:
     transport = httpx.MockTransport(
         lambda _request: httpx.Response(200, json={}),
     )
-    client = OllamaClient(base_url="http://example.invalid", transport=transport)
+    client = OllamaClient(base_url=_CANARY_INVALID_URL, transport=transport)
     await client.close()
     with pytest.raises(RuntimeError, match="OllamaClient cannot be used after close"):
         await client._request("GET", "/api/tags")
@@ -376,7 +386,7 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
         return httpx.Response(200, json={"message": {"content": "x"}, "done_reason": "stop"})
 
     transport = httpx.MockTransport(slow_handler)
-    async with OllamaClient(base_url="http://ollama.test", transport=transport) as client:
+    async with OllamaClient(base_url=_MOCK_TRANSPORT_URL, transport=transport) as client:
         with capture_logs() as captured:
             task = asyncio.create_task(
                 client.chat(
@@ -388,14 +398,13 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
             # Yield control so the task starts and parks on the slow handler.
             await asyncio.sleep(0)
             task.cancel()
-            # ``match="^$"`` keeps the project dialect ("every
-            # pytest.raises carries match=") consistent — CancelledError
-            # is constructed without a message in the cancellation
-            # pathway, so the empty-string anchor pins the no-message
-            # contract. ``match=""`` would warn ("matching against an
-            # empty string will *always* pass"); ``"^$"`` is the
-            # pytest-recommended form for "exactly empty message".
-            with pytest.raises(asyncio.CancelledError, match=r"^$"):
+            # ``CancelledError`` is text-less (constructed without a
+            # message in the cancellation pathway), so ``match=`` is
+            # omitted — the project dialect ("every pytest.raises
+            # carries match=") binds to exception classes that carry
+            # text, not to text-less classes. The exception class itself
+            # is the assertion.
+            with pytest.raises(asyncio.CancelledError):
                 await task
 
         cancelled_events = [e for e in captured if e.get("event") == "ollama_call_cancelled"]
@@ -417,7 +426,7 @@ async def test_aexit_propagates_close_error_when_body_did_not_raise(
     let the close error surface — a silently-failed close is itself a bug.
     """
     transport = httpx.MockTransport(lambda _r: httpx.Response(200, json={}))
-    client = OllamaClient(base_url="http://ollama.test", transport=transport)
+    client = OllamaClient(base_url=_MOCK_TRANSPORT_URL, transport=transport)
 
     async def _broken_close() -> None:
         msg = "simulated aclose failure"
@@ -449,7 +458,7 @@ async def test_aexit_suppresses_close_error_when_body_already_raised(
     documented body-error preservation invariant.
     """
     transport = httpx.MockTransport(lambda _r: httpx.Response(200, json={}))
-    client = OllamaClient(base_url="http://ollama.test", transport=transport)
+    client = OllamaClient(base_url=_MOCK_TRANSPORT_URL, transport=transport)
 
     async def _broken_close() -> None:
         msg = "secondary close failure"
@@ -491,7 +500,7 @@ async def test_build_user_agent_falls_back_when_package_metadata_missing(
         _raise_not_found,
     )
     with capture_logs() as captured:
-        client = OllamaClient(base_url="http://localhost:11434")
+        client = OllamaClient(base_url=_LOCAL_OLLAMA_URL)
         try:
             # The user-agent is a local in ``__init__`` (no longer parked
             # on ``self._user_agent``) so we read it from the live httpx
@@ -525,7 +534,7 @@ async def test_aexit_without_aenter_emits_misuse_warning() -> None:
     is not leaked — the warning is the diagnostic, not a crash.
     """
     transport = httpx.MockTransport(lambda _r: httpx.Response(200, json={}))
-    client = OllamaClient(base_url="http://ollama.test", transport=transport)
+    client = OllamaClient(base_url=_MOCK_TRANSPORT_URL, transport=transport)
     with capture_logs() as captured:
         await client.__aexit__(None, None, None)
 
@@ -555,7 +564,7 @@ async def test_double_aenter_overwrites_lifecycle_entered_at() -> None:
     a no-op.
     """
     transport = httpx.MockTransport(lambda _r: httpx.Response(200, json={}))
-    client = OllamaClient(base_url="http://ollama.test", transport=transport)
+    client = OllamaClient(base_url=_MOCK_TRANSPORT_URL, transport=transport)
     async with client:
         first_entered = client._lifecycle_entered_at
         assert first_entered is not None

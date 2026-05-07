@@ -394,10 +394,18 @@ def _validate_description_safe_for_docstring(code: str, description: str) -> Non
     bloats the generated file with no reader payoff (descriptions are
     a one-line summary; the canonical detail goes in detail_template).
     """
-    if len(description) > _DESCRIPTION_MAX_CHARS:
+    # Hoist ``len(description)`` once instead of evaluating it twice (cap
+    # check + error-message interpolation) — symmetric with the
+    # hoist-once dialect at ``app/api/exception_handler_registry.py``
+    # (see the ``len(validation_errors)`` and ``sorted(collisions)``
+    # hoists). Codegen is cold-path so the perf delta is academic; the
+    # consistency keeps a single grep pattern useful for "where do
+    # length-cap checks live in this codebase".
+    description_chars = len(description)
+    if description_chars > _DESCRIPTION_MAX_CHARS:
         msg = (
             f"Error {code} description exceeds {_DESCRIPTION_MAX_CHARS}-char cap "
-            f"({len(description)} chars). Trim to a one-line summary; the per-instance "
+            f"({description_chars} chars). Trim to a one-line summary; the per-instance "
             "human-readable detail belongs in detail_template, not the description."
         )
         raise ValueError(msg)
@@ -559,10 +567,15 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
         # error would otherwise be silently demoted to InternalError by
         # the wire-schema validator in _build_problem_payload's except
         # arm). Symmetric with _validate_description_safe_for_docstring.
-        if len(spec["title"]) > _TITLE_MAX_CHARS:
+        # Hoist ``len(spec["title"])`` once instead of evaluating it twice
+        # — same hoist-once dialect as ``_validate_description_safe_
+        # for_docstring`` and the ``app/api/exception_handler_registry``
+        # peers.
+        title_chars = len(spec["title"])
+        if title_chars > _TITLE_MAX_CHARS:
             msg = (
                 f"Error {code} title exceeds {_TITLE_MAX_CHARS}-char cap "
-                f"({len(spec['title'])} chars). The wire schema "
+                f"({title_chars} chars). The wire schema "
                 "(ProblemDetails.title) rejects over-cap titles at request "
                 "time; the codegen-time check fails fast at build instead."
             )
@@ -610,15 +623,17 @@ def _normalized_docstring_description(description: str) -> str:
 
 
 def _render_params_module(
-    *, code: str, params_class_name: str, params: _ParamsMap, description: str | None
+    *, code: str, params_class_name: str, params: _ParamsMap, description: str
 ) -> str:
     """Render the source for a generated *_params.py module.
 
-    The errors.yaml ``description`` is included in the params class docstring
-    when present so generated code carries the human-readable context.
+    The errors.yaml ``description`` is included in the params class
+    docstring. ``load_and_validate`` enforces that ``description`` is a
+    non-empty string for every error, so the rendered docstring always
+    carries the human-readable context — the bare-fallback arm is
+    unreachable and was removed.
     """
-    if description is not None:
-        description = _normalized_docstring_description(description)
+    description = _normalized_docstring_description(description)
     fields = "\n".join(
         f"    {name}: {_PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
     )
@@ -632,14 +647,11 @@ def _render_params_module(
     # back to the canonical PEP 257 multi-line form so ruff's docstring
     # rules cannot reject the generated file once the project ever opts into
     # ``D`` enforcement on ``_generated/``.
-    if description:
-        single_line = f'"""Parameters for {code} error: {description}"""'
-        if len(single_line) <= _RUFF_LINE_LENGTH - 4:
-            docstring = single_line
-        else:
-            docstring = f'"""Parameters for {code} error.\n\n    {description}\n    """'
+    single_line = f'"""Parameters for {code} error: {description}"""'
+    if len(single_line) <= _RUFF_LINE_LENGTH - 4:
+        docstring = single_line
     else:
-        docstring = f'"""Parameters for {code} error."""'
+        docstring = f'"""Parameters for {code} error.\n\n    {description}\n    """'
     # ``frozen=True`` matches the project-wide value-object discipline:
     # every hand-written wire schema and value-object is frozen so a typed
     # error's params cannot be silently mutated between ``raise`` and the
@@ -689,11 +701,16 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
     params: _ParamsMap,
     params_class_name: str | None,
     params_file_stem: str | None,
-    description: str | None,
+    description: str,
 ) -> str:
-    """Render the source for a generated *_error.py module."""
-    if description is not None:
-        description = _normalized_docstring_description(description)
+    """Render the source for a generated *_error.py module.
+
+    ``load_and_validate`` enforces that ``description`` is a non-empty
+    string, so the rendered class docstring always carries the
+    human-readable summary — no ``f"Error: {code}."`` fallback is
+    reachable.
+    """
+    description = _normalized_docstring_description(description)
     title_literal = _python_string_literal(title)
     detail_template_decl = _render_detail_template_decl(detail_template)
     classvars = (
@@ -741,14 +758,13 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
         # ``__init__`` AND used by the typed ``cast`` in ``detail()``); the
         # earlier TYPE_CHECKING-only ``from pydantic import BaseModel`` is
         # gone now that ``cast`` targets the concrete params class instead.
-        parameterized_docstring = description or f"Error: {code}."
         return (
             '"""Generated from errors.yaml. Do not edit."""\n\n'
             "from typing import ClassVar, cast, override\n\n"
             f"{params_import}\n"
             "from app.exceptions.base import DomainError\n\n\n"
             f"class {error_class_name}(DomainError):\n"
-            f'    """{parameterized_docstring}"""\n\n'
+            f'    """{description}"""\n\n'
             + classvars
             + "\n"
             + "    @override\n"
@@ -768,13 +784,12 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
         '        """Render the human-readable detail for this error."""\n'
         "        return self.detail_template\n"
     )
-    parameterless_docstring = description or f"Error: {code}."
     return (
         '"""Generated from errors.yaml. Do not edit."""\n\n'
         "from typing import ClassVar, override\n\n"
         "from app.exceptions.base import DomainError\n\n\n"
         f"class {error_class_name}(DomainError):\n"
-        f'    """{parameterless_docstring}"""\n\n'
+        f'    """{description}"""\n\n'
         + classvars
         + "\n"
         + "    @override\n"
@@ -820,7 +835,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                     code=code,
                     params_class_name=params_class_name,
                     params=params,
-                    description=spec.get("description"),
+                    description=spec["description"],
                 ),
                 encoding="utf-8",
             )
@@ -847,7 +862,7 @@ def generate_python(errors_path: Path, output_dir: Path) -> list[Path]:
                 params=params,
                 params_class_name=params_class_name,
                 params_file_stem=params_file_stem,
-                description=spec.get("description"),
+                description=spec["description"],
             ),
             encoding="utf-8",
         )

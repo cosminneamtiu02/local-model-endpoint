@@ -139,6 +139,13 @@ def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
         # TypeError with ValueError here would force the mapping to handle
         # two exception families for one logical failure category.
         raise ValueError(msg)  # noqa: TRY004 — unified malformed-frame signal
+    # ``cast`` (not a typed assignment) because ``payload`` came in as
+    # ``Any`` from ``response.json()``; ``isinstance(payload, dict)``
+    # narrows to ``dict[Unknown, Unknown]`` which pyright strict still
+    # flags. The cast is safe because Ollama's wire contract emits
+    # JSON object keys as strings; symmetric with the cast site at
+    # ``app/features/inference/model/ollama_translation.py`` for
+    # ``raw_message_value``.
     return cast("dict[str, Any]", payload)
 
 
@@ -163,8 +170,8 @@ class OllamaClient:
     def __init__(
         self,
         base_url: str,
-        timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         *,
+        timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         # Eager parse: an unparseable ``base_url`` should fail loudly here,
@@ -197,19 +204,15 @@ class OllamaClient:
         if parsed.scheme not in ("http", "https"):
             msg = f"OllamaClient base_url scheme must be http/https, got {parsed.scheme!r}"
             raise ValueError(msg)
-        # ``parsed.path`` (str in httpx 0.28) is included as defense-in-
-        # depth; ``Settings._check_safety_invariants`` already rejects
-        # path segments in ``LIP_OLLAMA_HOST`` (only "" and "/" pass), so
-        # this branch is unreachable today — but keeping it preserves
-        # full-target visibility if a future ADR relaxes the path screen
-        # (e.g. for an Ollama gateway that requires ``/api/v1`` prefix).
-        # Normalize a missing path to "/" so the loggable URL shape is
-        # invariant under ``AnyHttpUrl``'s trailing-slash normalization
-        # (production passes ``str(AnyHttpUrl(...))`` which adds the
-        # slash; test fixtures often pass the bare ``"http://host:port"``
-        # form). Operator dashboards keying on
-        # ``select(.base_url == "http://localhost:11434/")`` then match
-        # both shapes.
+        # ``parsed.path`` (str in httpx 0.28) is included so a future
+        # ADR that relaxes the path screen (e.g. for an Ollama gateway
+        # requiring ``/api/v1`` prefix) keeps the loggable URL shape
+        # full-target. httpx 0.28 normalizes missing paths to ``"/"`` for
+        # both ``http://host``, ``http://host:port``, and
+        # ``http://host:port/`` forms, so ``parsed.path`` is never the
+        # empty string in production OR test today; the ``or "/"`` arm
+        # is preserved as forward-compat against a hypothetical future
+        # httpx version that returns ``""`` for missing paths.
         path_segment = parsed.path or "/"
         self._loggable_base_url = (
             f"{parsed.scheme}://{parsed.netloc.decode('ascii', errors='replace')}{path_segment}"
@@ -221,10 +224,13 @@ class OllamaClient:
         self._lifecycle_entered_at: float | None = None
 
         # User-Agent is computed per-instance so the ``PackageNotFoundError``
-        # fallback is reachable from unit tests via monkeypatch on the
-        # instance method. Local (not ``self._user_agent``) because the
-        # value is consumed exactly once below and the instance attribute
-        # would widen the public-via-introspection surface unnecessarily.
+        # fallback is reachable from unit tests via monkeypatch on
+        # ``_metadata.version`` per construction (the canonical seam at
+        # ``tests/unit/features/inference/repository/test_ollama_client.py``
+        # uses ``monkeypatch.setattr("…ollama_client._metadata.version", …)``).
+        # Local (not ``self._user_agent``) because the value is consumed
+        # exactly once below and the instance attribute would widen the
+        # public-via-introspection surface unnecessarily.
         user_agent = self._build_user_agent()
         # Defense-in-depth vs userinfo leakage: ``Settings._check_safety_
         # invariants`` already rejects userinfo on ``LIP_OLLAMA_HOST``, but
@@ -296,7 +302,7 @@ class OllamaClient:
             transport=transport,
         )
         # No construction-time log: ``__aenter__`` (the actual lifecycle
-        # entry, see ``ollama_client_lifecycle_entered`` below) is the
+        # entry, see ``ollama_client_started`` below) is the
         # canonical lifecycle event AND it lands inside the
         # ``phase="lifespan"`` contextvar binding established by
         # ``lifespan_resources.lifespan_resources``. Logging from ``__init__``
@@ -782,9 +788,12 @@ class OllamaClient:
             # the dev ConsoleRenderer.
             # ``prompt_tokens=None`` / ``completion_tokens=None`` for
             # field-set parity with ``ollama_call_completed`` so a jq filter
-            # ``select(.event | startswith("ollama_call_")) | .prompt_tokens``
-            # finds the field on every event in the lifecycle (same parity
-            # discipline as ``ollama_status_code: int | None``).
+            # ``select(.event | startswith("ollama_call_") and .event !=
+            # "ollama_call_started") | .prompt_tokens`` finds the field on
+            # every TERMINAL event in the call lifecycle (same parity
+            # discipline as ``ollama_status_code: int | None``). The
+            # ``ollama_call_started`` event has no token counts because
+            # they're pre-call-result invariants — the filter excludes it.
             logger.exception(
                 "ollama_call_failed",
                 model_name=model_tag,
