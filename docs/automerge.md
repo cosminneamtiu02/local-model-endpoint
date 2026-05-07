@@ -11,7 +11,7 @@ Dependabot-authored PRs that pass all required status checks are automatically s
 | Component | File / Setting | What it does |
 |---|---|---|
 | CI workflow | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | **Emits** the three required status check contexts the ruleset gates on (`backend-checks`, `error-contracts`, `darwin-checks`); the ruleset and this workflow are a paired contract — required-check names declared in the ruleset MUST match the job names this workflow publishes |
-| Auto-merge workflow | [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml) | **Who** gets auto-merged (scoped by PR author + a repo variable) |
+| Auto-merge workflow | [.github/workflows/dependabot-automerge.yml](../.github/workflows/dependabot-automerge.yml) | **Who** gets auto-merged (scoped by PR author + non-draft + a repo variable) |
 | Lockfile sync workflow | [.github/workflows/dependabot-lockfile-sync.yml](../.github/workflows/dependabot-lockfile-sync.yml) | **Fixes** Dependabot's lockfile-gap bug so the auto-merge pipeline can succeed |
 | Ruleset | `main-protection` (Settings → Rules → Rulesets) | **What** has to be green before any merge |
 | Auto-merge variable | `DEPENDABOT_AUTOMERGE_ENABLED` (Settings → Secrets and variables → Actions → Variables tab) | **Whether** the auto-merge workflow is armed |
@@ -284,7 +284,7 @@ Fires on every `pull_request` event (`opened`, `synchronize`, `reopened`). The j
 
 1. **Verifies the PAT secret exists** and fails loudly if it doesn't (see "Why a PAT is required" below).
 2. **Checks out the PR branch** using the PAT as the git token.
-3. **Guards against self-triggered loops** — if the most recent commit was authored by `github-actions[bot]@users.noreply.github.com`, the workflow skips without doing anything. This is the infinite-loop prevention: the workflow's own push becomes the head commit; the resulting `synchronize` event fires the workflow again; the loop guard detects its own authorship and exits cleanly.
+3. **Guards against self-triggered loops via two independent checks**: (a) if the most recent commit's author email contains `41898282+github-actions` (the bot's stable numeric user-id prefix), or (b) if the commit subject equals `chore(deps): regenerate lockfiles after dependabot bump`, the workflow skips. Either match short-circuits — the user-id check is the fast path; the subject check is the durable fallback in case GitHub ever rotates the bot user-id. This is the infinite-loop prevention: the workflow's own push becomes the head commit; the resulting `synchronize` event fires the workflow again; either guard detects the self-push and exits cleanly.
 4. **Detects which manifests changed** by diffing `base.sha..head.sha`. Produces two flags: `needs_uv_backend` and `needs_uv_error_contracts`. The workflow only runs `uv lock` in the workspaces that actually have work to do.
 5. **Regenerates the uv lockfiles** with `uv lock` inside `apps/backend` and/or `packages/error-contracts` as needed.
 6. **Stages and commits** any lockfile changes. If `git diff --cached --quiet`, the workflow exits cleanly — there's nothing to push.

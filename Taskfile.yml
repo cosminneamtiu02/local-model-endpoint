@@ -352,7 +352,7 @@ tasks:
         backend_py=apps/backend/pyproject.toml
         errors_py=packages/error-contracts/pyproject.toml
         drifted=0
-        for tool in pytest pytest-cov ruff pyright pip-audit pyyaml; do
+        for tool in pytest pytest-cov ruff pyright pip-audit pyyaml import-linter; do
           backend_pin=$(grep -oE "\"${tool}==[^\"]+\"" "$backend_py" | head -1 || true)
           errors_pin=$(grep -oE "\"${tool}==[^\"]+\"" "$errors_py" | head -1 || true)
           if [ -z "$backend_pin" ] || [ -z "$errors_pin" ]; then
@@ -492,10 +492,15 @@ tasks:
       # rendered plist next to the install target then diff before
       # overwriting so an operator-side hand-edit is reported, not silently
       # clobbered (mirrors `task check:errors`'s diff-then-overwrite shape).
-      # ``rm -f`` first clears any pre-existing entry at the staging path
-      # (file or symlink) so a malicious symlink in ~/Library/LaunchAgents/
-      # cannot redirect the rendered plist body to a write-controlled
-      # location. ``os.path.expanduser('~')`` (not ``os.environ['HOME']``)
+      # ``rm -f`` first clears any pre-existing entry at BOTH the staging
+      # path AND the install destination (file or symlink) so a malicious
+      # symlink in ~/Library/LaunchAgents/ cannot redirect the rendered
+      # plist body to a write-controlled location. The destination clear
+      # is symmetric with the staging clear — ``mv -f`` on a symlink
+      # follows the link and overwrites the file the symlink points to,
+      # which would let a pre-planted symlink redirect the install. The
+      # subsequent ``mv -f`` then writes a regular file at the canonical
+      # path. ``os.path.expanduser('~')`` (not ``os.environ['HOME']``)
       # handles the cron / restricted-launchd-context case where ``HOME``
       # is unset and resolves via the pwd database instead of crashing
       # with ``KeyError`` and a confusing traceback.
@@ -504,12 +509,23 @@ tasks:
         python3 -c "import os, sys, pathlib;
         src = pathlib.Path('infra/launchd/com.lip.ollama.plist.tmpl').read_text();
         sys.stdout.write(src.replace('__HOME__', os.path.expanduser('~')))" > ~/Library/LaunchAgents/.com.lip.ollama.plist.next
+      # Drift detection: ``cmp -s`` is silent (exits 0 on match, 1 on
+      # mismatch) so we don't broadcast the file content to stdout.
+      # Operators wanting the diff opt in by running ``diff -u`` manually
+      # — broadcasting the content here would surface any future
+      # operator hand-edit (a documented escape hatch — including
+      # potential secrets like an Ollama auth token added by hand) into
+      # stdout/CI logs. Keep the discipline pinned to "report drift
+      # without revealing content."
       - >
         if [ -f ~/Library/LaunchAgents/com.lip.ollama.plist ] &&
         ! cmp -s ~/Library/LaunchAgents/.com.lip.ollama.plist.next ~/Library/LaunchAgents/com.lip.ollama.plist;
-        then echo "ollama:install — plist drift detected; overwriting (diff above)";
-        diff -u ~/Library/LaunchAgents/com.lip.ollama.plist ~/Library/LaunchAgents/.com.lip.ollama.plist.next || true;
+        then echo "ollama:install — plist drift detected; overwriting (run 'diff -u ~/Library/LaunchAgents/com.lip.ollama.plist ~/Library/LaunchAgents/.com.lip.ollama.plist.next' manually to inspect)";
         fi
+      # Symlink-redirection defense at the destination: clear any
+      # pre-planted symlink BEFORE the ``mv -f`` so the install lands a
+      # regular file at the canonical path rather than following a link.
+      - rm -f ~/Library/LaunchAgents/com.lip.ollama.plist
       - mv -f ~/Library/LaunchAgents/.com.lip.ollama.plist.next ~/Library/LaunchAgents/com.lip.ollama.plist
       # Idempotent re-load: bootout (tolerant of "not loaded" via `|| true`,
       # matches the symmetric ollama:uninstall pattern) then bootstrap. A

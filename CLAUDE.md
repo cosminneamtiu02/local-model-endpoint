@@ -93,6 +93,12 @@ preserved but with redefined semantics for a no-DB feature:
   no DB and `model/` holds project value-objects (Message, ModelParams,
   ContentPart, OllamaChatResult; ModelInfo lands with LIP-E002-F001), not ORM
   types. Models never import schemas — that direction stays strict.
+- Per-feature schemas (`app/features/<feature>/schemas/`) may import shared
+  wire-constants from `app/schemas/` (e.g. `UUID_PATTERN_STR`,
+  `REQUEST_ID_LENGTH` — see `inference/schemas/response_metadata.py`).
+  Cross-app `app/schemas/` itself stays a leaf and never imports from
+  anywhere else (encoded as `schemas-is-leaf` in
+  `apps/backend/architecture/import-linter-contracts.ini`).
 - core/ never imports from features/.
 - exceptions/ never imports from features/.
 
@@ -104,10 +110,14 @@ preserved but with redefined semantics for a no-DB feature:
   `configure_logging` in `app/core/logging.py` — root-handler bind plus
   three uvicorn-logger silencers (`uvicorn.access`, `uvicorn.error`,
   `uvicorn.asgi`); all four are documented in the module docstring.
-  Adding a fifth stdlib-logger site requires updating this rule and the
-  module docstring in lockstep. Line numbers are intentionally elided
-  here because the carve-out drifts each time the redaction processor
-  is bumped; the prose pin keeps the lockstep clause armed.
+  Adding a fifth stdlib-logger PRODUCTION site requires updating this rule
+  and the module docstring in lockstep. Test code that reads back the
+  effects of these carve-outs (e.g. `tests/unit/core/test_logging.py`'s
+  `assert logging.getLogger().level == logging.WARNING`) is unconstrained
+  by this rule — only application-code production sites count. Line
+  numbers are intentionally elided here because the carve-out drifts each
+  time the redaction processor is bumped; the prose pin keeps the
+  lockstep clause armed.
 - Never use f-string log messages. Use structlog's key=value pairs:
   `logger.info("event_name", key=value)` not `logger.info(f"thing {value}")`.
 - Never set `cache_logger_on_first_use=True` in `configure_logging`; it
@@ -116,14 +126,24 @@ preserved but with redefined semantics for a no-DB feature:
   acceptable for a LAN service.
 - Never raise `HTTPException`. Raise a DomainError subclass.
 - Never write a `try/except` that silently swallows errors. If you catch, re-raise or log.
+  Carve-out: `with suppress(Exception)` is permitted ONLY when wrapping a single
+  `logger.<level>(...)` call as best-effort telemetry, where a renderer failure must
+  not mask the body's primary exception via Python's finally-raises rule. The
+  carve-out fires today at three sites: `app/main.py`'s `app_startup_completed` and
+  `app_shutdown_completed` emits, and `app/api/request_id_middleware.py`'s
+  `request_completed` access-log emit. Adding a fourth site requires updating
+  this enumeration in lockstep with the new site.
 - Never edit files in `exceptions/_generated/`. Edit errors.yaml, run task errors:generate.
 - Never use `os.environ` or `os.getenv`. Use pydantic-settings. The single
   production carve-out is `audit_lip_env_typos()` in `app/api/deps.py`
   (per [docs/decisions.md ADR-014](docs/decisions.md)), which enumerates
   env-var NAMES (values are never read) once at startup to surface typo'd
-  `LIP_*` env vars that pydantic-settings silently ignores. The names
-  themselves ARE deliberately surfaced in the warning log line as a triage
-  affordance — see the `audit_lip_env_typos` docstring; do not redact them.
+  `LIP_*` env vars that pydantic-settings silently ignores. The single
+  test-side carve-out is `_clean_settings_env` in
+  `apps/backend/tests/conftest.py` — also names-only enumeration,
+  mirroring the production audit's discipline. The names themselves ARE
+  deliberately surfaced in the warning log line as a triage affordance —
+  see the `audit_lip_env_typos` docstring; do not redact them.
 - Never use `datetime.now()` without `tz=`. Use `datetime.now(UTC)`.
 - Never use `datetime.utcnow()`.
 - Never put business logic in route handlers. Handlers call one service method.
@@ -164,11 +184,14 @@ preserved but with redefined semantics for a no-DB feature:
   If you must await, capture `exc_info = sys.exc_info()` immediately and
   pass `logger.exception(..., exc_info=exc_info)` after the await.
 - Never reuse `logger.critical` outside lifespan-singleton failures
-  (currently `app_startup_failed` / `app_shutdown_failed` in
-  `app/main.py`). Operator paging keys on `level=critical` (lowercase
-  per `structlog.stdlib.add_log_level`'s wire form); a third
-  critical site dilutes the signal. Per-request errors use `logger.error`
-  or `logger.exception`.
+  (currently a single dispatch in `app/main.py`'s lifespan outer
+  `except Exception` arm that emits `app_startup_failed` or
+  `app_shutdown_failed` based on the `entered_yield` flag). Operator
+  paging keys on `level=critical` (lowercase per
+  `structlog.stdlib.add_log_level`'s wire form); a SECOND physical
+  critical site (or splitting the dispatch into two distinct
+  `logger.critical` calls) dilutes the signal. Per-request errors use
+  `logger.error` or `logger.exception`.
 
 ## Forbidden Patterns -- Cross-cutting
 
@@ -180,7 +203,11 @@ preserved but with redefined semantics for a no-DB feature:
   and running task check:errors to verify the generated files are committed.
 - Never skip a test level.
 - Never introduce a new dependency without justification.
-- Never write a test class. Use pytest functions.
+- Never write a top-level test class (`class Test*` at column 0). Use pytest
+  functions. Function-local helper classes inside a test body (e.g.
+  `class _Item(BaseModel)` defined inside a fixture or test function as a
+  typed-shape stand-in) ARE permitted — the `_TEST_CLASS_PATTERN` regex
+  in `tests/conftest.py` is the mechanical enforcement, anchored at column 0.
 - Never use unittest.TestCase. Use pytest.
 - Never write a test with no assertions.
 
@@ -197,7 +224,11 @@ preserved but with redefined semantics for a no-DB feature:
   [apps/backend/app/features/inference/repository/ollama_client.py](apps/backend/app/features/inference/repository/ollama_client.py));
   reserve `Repository` for non-HTTP data-access boundaries.
 - Python functions: `snake_case` verbs. The `is_*` / `has_*` predicate
-  forms (e.g. `is_private_host`) are an accepted carve-out from the verb
+  forms (e.g. `is_private_host`) and the explicit transformer-as-adjective
+  carve-out `ascii_safe` (in `app/core/logging.py` — the name encodes
+  "produces ASCII-safe output", and renaming it to a verb form is more
+  churn than the carve-out is worth across its 5 call sites) are accepted
+  carve-outs from the verb
   rule — the prefix encodes the predicate semantics; document the
   truthiness contract in the docstring.
 - Python tests: `test_<unit>_<scenario>_<expected>`

@@ -28,7 +28,7 @@
 apps/backend/
 ├── app/
 │   ├── core/               -- config.py, logging.py. Cross-cutting infrastructure.
-│   ├── api/                -- request_id middleware (request-id propagation + per-request access log), exception handler registry, health router, lifespan resources factory + AppState dataclass (app_state.py per ADR-012 + lifespan_resources.py), router registry, shared deps factories.
+│   ├── api/                -- request_id middleware (request-id propagation + per-request access log; the access log is bundled INTO the request_id middleware rather than living in a separate access-log middleware because it reads the same request_id contextvar bound by the same middleware — splitting the two would require either re-binding the contextvar or pinning a second middleware-ordering invariant), exception handler registry, health router, lifespan resources factory + AppState dataclass (app_state.py per ADR-012 + lifespan_resources.py), router registry, shared deps factories.
 │   ├── exceptions/         -- DomainError base (base.py) + generated subclasses (_generated/).
 │   ├── schemas/            -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants. Shared response shapes (RFC 7807 problem+json + liveness); wire_constants centralizes the UUID regex, request-id length, instance-path cap, RFC 7807 about:blank type URI, X-Request-ID and Content-Language header spellings, and the application/problem+json media-type / Content-Language values shared across api and schemas — see the module docstring for rationale.
 │   └── features/

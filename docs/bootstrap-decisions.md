@@ -57,11 +57,15 @@ This document records the decisions made during the `project-bootstrap` skill ru
 10. **Top-level rewrites:** `CLAUDE.md`, `README.md`, `.env.example`.
 11. **Doc rewrites:** `docs/architecture.md`, `docs/conventions.md`, `docs/decisions.md`, `docs/testing.md`, `docs/runbook.md`, `docs/ai-guide.md`, `docs/features.md`. Edit-only on `docs/automerge.md`. Append to `TEMPLATE_FRICTION.md`.
 
-## Verification iterations
+## Verification iterations (2026-04-27 bootstrap-day snapshot — current numbers differ; see `task check`)
 
-Single iteration. Every individual check passed on the first run.
+Single iteration on bootstrap day (2026-04-27). Every individual check
+passed on the first run; the numbers below are a frozen historical
+snapshot, NOT a current-state report. For current state run `task check`
+locally; the round-N review-sweep PRs are the canonical source for
+"what does the suite look like today."
 
-| Check | Result |
+| Check | Result (2026-04-27) |
 |---|---|
 | `uv sync --dev` (apps/backend) | OK — fresh venv, all deps installed |
 | `uv sync --dev` (packages/error-contracts) | OK |

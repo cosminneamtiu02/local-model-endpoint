@@ -45,11 +45,17 @@ shutdown timer, etc.) against Ollama without hitting the network is
 `httpx.MockTransport` injected directly into an `OllamaClient` constructor
 inside each test (NOT through the integration `conftest.py`'s shared ASGI
 client — that fixture targets `app.main.app`, which uses the production
-lifespan). See [tests/integration/api/test_lifespan_resources.py](../apps/backend/tests/integration/api/test_lifespan_resources.py)
-for the working example: the test builds its own `OllamaClient(...,
-transport=httpx.MockTransport(...))`, drives it through `__aenter__` /
-`chat` / `__aexit__`, and asserts on the orchestration shape (request
-order, payload, error mapping) without any real Ollama process running.
+lifespan). The canonical exemplar lives in
+[tests/integration/features/inference/repository/test_ollama_client.py](../apps/backend/tests/integration/features/inference/repository/test_ollama_client.py):
+each test builds its own `OllamaClient(..., transport=httpx.MockTransport(...))`,
+drives it through `__aenter__` / `chat` / `__aexit__`, and asserts on the
+orchestration shape (request order, payload, error mapping) without any
+real Ollama process running. The unit-tier mirror at
+[tests/unit/features/inference/repository/test_ollama_client.py](../apps/backend/tests/unit/features/inference/repository/test_ollama_client.py)
+follows the same pattern. The `tests/integration/api/test_lifespan_resources.py`
+suite exercises a different concern — `OllamaClient.__init__` /
+`close` invocation counting via monkeypatch + `TestClient(app)` — so do
+not copy that shape for new MockTransport-driven tests.
 
 ## Type-Driven Discipline
 

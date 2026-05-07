@@ -60,6 +60,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^Taskfile\.yml$
+        # Pre-commit only — explicit per-hook stage following the
+        # discipline ``pytest-unit`` (below) established. Without this
+        # clause the hook would run at BOTH pre-commit AND pre-push
+        # (default_install_hook_types declares both), spawning a Task
+        # subprocess on every push for a Taskfile-edit-only validation
+        # already caught at commit time.
+        stages: [pre-commit]
 
       # Pre-push: fast safety net only (lane 10.6).
       #

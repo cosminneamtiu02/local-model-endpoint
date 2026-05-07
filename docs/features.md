@@ -23,17 +23,21 @@ how-tos; it answers "what's in the box" only.
 ## Backend — Core Infrastructure
 
 ### Typed Settings ([app/core/config.py](../apps/backend/app/core/config.py))
-Pydantic-settings based configuration. Seven fields: `app_env`, `log_level`,
-`ollama_host: AnyHttpUrl` (default `http://localhost:11434`), `bind_host` /
-`bind_port` (uvicorn binding, validated to reject `0.0.0.0` unless
-`allow_public_bind=true`), `allow_public_bind` (escape hatch for the
-public-bind clamp), and `allow_external_ollama` (escape hatch for the
-SSRF-clamp validator that otherwise restricts the Ollama host to loopback /
-RFC1918 / link-local). Every field reads from a `LIP_`-prefixed env var
-(e.g. `LIP_OLLAMA_HOST`) — set via `env_prefix` on the SettingsConfigDict —
-so a single shell can run both the Ollama daemon (which reads `OLLAMA_HOST`)
-and LIP without crossed wires. LIP-specific settings (queue depth,
-per-request timeout, idle-shutdown interval) will be added during feature-dev.
+Pydantic-settings based configuration. Seven fields:
+
+1. `app_env` — environment discriminator (`development` / `production`).
+2. `log_level` — minimum log level (debug/info/warning/error/critical).
+3. `ollama_host: AnyHttpUrl` — default `http://localhost:11434`.
+4. `bind_host` — uvicorn bind interface (validated to reject `0.0.0.0` unless `allow_public_bind=true`).
+5. `bind_port` — uvicorn bind port.
+6. `allow_public_bind` — escape hatch for the public-bind clamp.
+7. `allow_external_ollama` — escape hatch for the SSRF-clamp validator that otherwise restricts the Ollama host to loopback / RFC1918 / link-local / ULA / mDNS.
+
+Every field reads from a `LIP_`-prefixed env var (e.g. `LIP_OLLAMA_HOST`) —
+set via `env_prefix` on the SettingsConfigDict — so a single shell can run
+both the Ollama daemon (which reads `OLLAMA_HOST`) and LIP without crossed
+wires. LIP-specific settings (queue depth, per-request timeout,
+idle-shutdown interval) will be added during feature-dev.
 
 ### Structured Logging ([app/core/logging.py](../apps/backend/app/core/logging.py))
 Structlog pipeline with contextvar merging, ISO timestamps, and JSON output in production
