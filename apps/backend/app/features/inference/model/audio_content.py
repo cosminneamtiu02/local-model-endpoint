@@ -29,6 +29,20 @@ class AudioContent(BaseModel):
     # core schema, not ``Url`` instances). 20 MiB base64 ≈ 15 MB binary
     # covers practical voice clips; longer audio belongs in a streaming-
     # upload path, not this body.
+    #
+    # FORWARD (URL-fetching adapter — LIP-E001-F002 multimodal extension
+    # OR a future translation-layer change): ``AnyHttpUrl`` accepts any
+    # http/https host with no private/loopback exclusion. Today nothing
+    # fetches these URLs (the translation layer raises
+    # ``NotImplementedError`` for URL-only multimodal at
+    # ``ollama_translation.py``), so the SSRF surface is dormant. When a
+    # consumer-supplied URL becomes a thing LIP fetches on the
+    # consumer's behalf, add an SSRF clamp REJECTING private/loopback
+    # hosts here — INVERTED relative to ``Settings.ollama_host``'s
+    # ``is_private_host`` clamp (Settings allows private; URL-fetched
+    # content must FORBID private to avoid metadata-service / loopback-
+    # bounce attacks). Land the clamp in the same PR that wires the
+    # URL-fetch adapter so it cannot ship ahead of the protection.
     url: Annotated[AnyHttpUrl, UrlConstraints(max_length=URL_MAX_CHARS)] | None = None
     base64: str | None = Field(default=None, min_length=1, max_length=BASE64_MEDIA_MAX_CHARS)
 

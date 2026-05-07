@@ -84,6 +84,24 @@ _REQUEST_ID_HEADER_BYTES: Final[bytes] = b"x-request-id"
 # and far below memory-pressure territory; not a configurable wire knob.
 _MAX_REQUEST_BODY_BYTES: Final[int] = 67_108_864  # 64 MiB
 
+# FORWARD (consumer-profile shift): the body-size cap reads only
+# ``Content-Length``; a request with ``Transfer-Encoding: chunked`` (no
+# Content-Length) bypasses the guard because Starlette will buffer
+# unbounded chunks into memory before route validation. Today's LAN-
+# trusted backend consumers send fixed-size JSON, so the absence is
+# acceptable per the project's threat model. When/if a streaming-upload
+# SDK enters the consumer profile (or a buggy/wedged consumer ships
+# chunked POSTs), choose one of:
+#   (a) Reject ``Transfer-Encoding: chunked`` outright with 411 Length
+#       Required (RFC 9110 §10.1.2 permits this for endpoints with no
+#       streaming-upload contract);
+#   (b) Add a streaming-aware byte counter in the ``receive()`` wrapper
+#       that tracks accumulated body size and short-circuits on overflow.
+# Option (a) is the cheaper edit and aligns with the documented
+# fixed-size JSON contract; option (b) keeps the door open for a
+# future streaming-input feature. Either way, land the choice in the
+# same PR that introduces the streaming-upload consumer.
+
 logger = structlog.get_logger(__name__)
 
 
