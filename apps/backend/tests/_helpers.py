@@ -10,7 +10,7 @@ a single edit instead of a multi-call-site sweep.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
@@ -20,6 +20,17 @@ from app.schemas.wire_constants import (
     PROBLEM_JSON_MEDIA_TYPE,
     REQUEST_ID_HEADER,
 )
+
+# Canonical UUID-shaped fixture string for tests that need a wire-form
+# request_id. Hoisted here so the schema / integration / inference-feature
+# tests share a single literal — a future tightening of ``UUID_REGEX``
+# (e.g. requiring strict v4 form) lands as ONE edit instead of three.
+# The inference subtree's ``VALID_REQUEST_ID`` (``tests/unit/features/
+# inference/conftest.py``) is the v4-shaped variant for the per-feature
+# UUID; this one is the legacy nil-style placeholder used by the
+# RFC 7807 schema tests and the request-id middleware integration tests
+# that historically predate the inference-conftest constant.
+CANONICAL_UUID_FIXTURE: Final[str] = "12345678-1234-1234-1234-123456789012"
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

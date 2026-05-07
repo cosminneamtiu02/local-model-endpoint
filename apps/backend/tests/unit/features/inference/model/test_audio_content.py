@@ -75,7 +75,17 @@ def test_audio_content_rejects_oversize_base64() -> None:
 
 
 def test_audio_content_rejects_oversize_url() -> None:
-    """URL-length cap rejects a URL longer than ``URL_MAX_CHARS``."""
+    """URL-length cap rejects a URL longer than ``URL_MAX_CHARS``.
+
+    Symmetric mirror with ``test_image_content_rejects_oversize_url``;
+    both content types share ``URL_MAX_CHARS`` as the source of truth.
+    A regression dropping the cap on one side would surface here OR in
+    the image-side test — kept per-class so a future content type
+    extending ``UrlConstraints(max_length=...)`` sets up its own
+    coverage in the same file as the field declaration, not in a
+    cross-class test that would lag the locality.
+    """
+    # ``http://x/`` is 9 chars; pad to one beyond the cap.
     pad_len = (URL_MAX_CHARS + 1) - len("http://x/")
     with pytest.raises(ValidationError, match="url"):
         AudioContent.model_validate({"url": "http://x/" + ("a" * pad_len)})

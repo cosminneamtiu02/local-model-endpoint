@@ -16,6 +16,7 @@ from app.schemas.wire_constants import (
     REQUEST_ID_HEADER,
     UUID_REGEX,
 )
+from tests._helpers import CANONICAL_UUID_FIXTURE
 
 if TYPE_CHECKING:
     from httpx import AsyncClient
@@ -32,9 +33,8 @@ async def test_response_includes_x_request_id(client: AsyncClient) -> None:
 
 async def test_request_id_uses_client_provided_uuid(client: AsyncClient) -> None:
     """A valid client-provided UUID should be echoed back in the response."""
-    client_uuid = "12345678-1234-1234-1234-123456789012"
-    response = await client.get("/health", headers={REQUEST_ID_HEADER: client_uuid})
-    assert response.headers[REQUEST_ID_HEADER] == client_uuid
+    response = await client.get("/health", headers={REQUEST_ID_HEADER: CANONICAL_UUID_FIXTURE})
+    assert response.headers[REQUEST_ID_HEADER] == CANONICAL_UUID_FIXTURE
 
 
 async def test_request_id_rejects_invalid_client_id(client: AsyncClient) -> None:

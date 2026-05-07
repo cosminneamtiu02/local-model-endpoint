@@ -135,25 +135,39 @@ def test_program_arguments_invoke_ollama_serve(
     assert args[1] == "serve"
 
 
-def test_log_paths_end_with_dot_log(parsed_plist: dict[str, object]) -> None:
-    stdout_path = parsed_plist["StandardOutPath"]
-    stderr_path = parsed_plist["StandardErrorPath"]
-    assert isinstance(stdout_path, str)
-    assert isinstance(stderr_path, str)
-    assert stdout_path.endswith(".log"), stdout_path
-    assert stderr_path.endswith(".log"), stderr_path
-
-
-def test_log_paths_use_home_placeholder(parsed_plist: dict[str, object]) -> None:
-    """Template form: log paths must use ``__HOME__`` (substituted at install
-    time), never a hardcoded developer-specific absolute path. Guards against
-    accidentally re-baking ``/Users/<someone>/...`` into the template."""
-    stdout_path = parsed_plist["StandardOutPath"]
-    stderr_path = parsed_plist["StandardErrorPath"]
-    assert isinstance(stdout_path, str)
-    assert isinstance(stderr_path, str)
-    assert stdout_path.startswith("__HOME__/"), stdout_path
-    assert stderr_path.startswith("__HOME__/"), stderr_path
+# Each ``(plist_key, predicate, expected)`` row captures one log-path
+# invariant. ``predicate`` is bound to the string method name so the
+# parametrize id reads naturally (``StandardOutPath/endswith/.log``);
+# ``expected`` is the argument passed to that method. The test body
+# reuses the type-narrowing isolation pattern.
+@pytest.mark.parametrize(
+    ("plist_key", "predicate", "expected"),
+    [
+        pytest.param("StandardOutPath", "endswith", ".log", id="StandardOutPath/endswith/.log"),
+        # Template form: log paths must use ``__HOME__`` (substituted
+        # at install time), never a hardcoded developer-specific
+        # absolute path. Guards against re-baking
+        # ``/Users/<someone>/...`` into the template.
+        pytest.param(
+            "StandardOutPath", "startswith", "__HOME__/", id="StandardOutPath/startswith/__HOME__"
+        ),
+        pytest.param("StandardErrorPath", "endswith", ".log", id="StandardErrorPath/endswith/.log"),
+        pytest.param(
+            "StandardErrorPath",
+            "startswith",
+            "__HOME__/",
+            id="StandardErrorPath/startswith/__HOME__",
+        ),
+    ],
+)
+def test_log_paths_satisfy_template_predicate(
+    parsed_plist: dict[str, object], plist_key: str, predicate: str, expected: str
+) -> None:
+    """Each log-path field satisfies its template-shape predicate."""
+    path = parsed_plist[plist_key]
+    assert isinstance(path, str)
+    method = getattr(path, predicate)
+    assert method(expected), path
 
 
 def test_docs_file_exists_with_required_sections(repo_root: Path) -> None:

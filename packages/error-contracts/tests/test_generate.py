@@ -139,42 +139,79 @@ def output_dir(tmp_path: Path) -> Path:
     return out
 
 
-def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Path) -> None:
-    """Codegen should produce one .py file per error class."""
+def test_codegen_emits_one_file_per_error_class(sample_errors_path: Path, output_dir: Path) -> None:
+    """Codegen produces one ``.py`` file per error class plus the
+    aggregator (``__init__.py``) and registry (``_registry.py``).
+
+    Split out from a previous mega-test (lane 5.10) so a file-existence
+    regression doesn't hide downstream content/registry/init/params
+    assertions; each contract now reds independently.
+    """
     from scripts.generate import generate_python
 
     generate_python(sample_errors_path, output_dir)
+    for filename in (
+        "not_found_error.py",
+        "example_not_found_error.py",
+        "example_not_found_params.py",
+        "example_name_too_long_error.py",
+        "example_name_too_long_params.py",
+        "internal_error.py",
+        "__init__.py",
+        "_registry.py",
+    ):
+        assert (output_dir / filename).exists(), f"missing generated file: {filename}"
 
-    # Should produce: not_found_error.py, example_not_found_error.py,
-    # example_not_found_params.py, example_name_too_long_error.py,
-    # example_name_too_long_params.py, internal_error.py, __init__.py, _registry.py
-    assert (output_dir / "not_found_error.py").exists()
-    assert (output_dir / "example_not_found_error.py").exists()
-    assert (output_dir / "example_not_found_params.py").exists()
-    assert (output_dir / "example_name_too_long_error.py").exists()
-    assert (output_dir / "example_name_too_long_params.py").exists()
-    assert (output_dir / "internal_error.py").exists()
-    assert (output_dir / "__init__.py").exists()
-    assert (output_dir / "_registry.py").exists()
 
-    # Verify content of a parameterized error using full-line equality checks
-    # so the assertions cannot be satisfied by docstring/comment text alone.
+def test_codegen_emits_classvars_in_pinned_form(sample_errors_path: Path, output_dir: Path) -> None:
+    """A parametrized error file emits the canonical ``ClassVar[...]`` shape.
+
+    Full-line equality checks (not docstring substrings) so the
+    assertions cannot be satisfied by docstring / comment text alone.
+    """
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
     content = (output_dir / "example_not_found_error.py").read_text()
     assert "class ExampleNotFoundError(DomainError):" in content
     assert 'code: ClassVar[str] = "EXAMPLE_NOT_FOUND"' in content
     assert "http_status: ClassVar[int] = 404" in content
     assert "def __init__(self, *, widget_id: str) -> None:" in content
 
-    # Verify the special-case branch in _code_to_class_name: codes ending in
-    # _ERROR must NOT get a doubled "ErrorError" suffix.
+
+def test_codegen_handles_error_suffixed_code_without_doubling_error_error(
+    sample_errors_path: Path, output_dir: Path
+) -> None:
+    """``_code_to_class_name`` special-cases codes ending in ``_ERROR`` so
+    the class name is ``InternalError`` rather than ``InternalErrorError``.
+
+    A regression dropping the special-case would emit
+    ``class InternalErrorError(DomainError):`` which would still pass
+    ``ast.parse`` but trip every consumer's ``from app.exceptions
+    import InternalError`` import.
+    """
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
     internal_content = (output_dir / "internal_error.py").read_text()
     assert "class InternalError(DomainError):" in internal_content
     assert "InternalErrorError" not in internal_content
     assert 'code: ClassVar[str] = "INTERNAL_ERROR"' in internal_content
     assert "http_status: ClassVar[int] = 500" in internal_content
 
-    # __init__.py: confirm the import line and __all__ entry for at least one
-    # generated error class are present in the exact format the generator emits.
+
+def test_codegen_init_emits_canonical_imports(sample_errors_path: Path, output_dir: Path) -> None:
+    """``__init__.py`` exposes each generated class via the canonical
+    ``from app.exceptions._generated.<file> import <Class>`` shape AND
+    appends each class to ``__all__``.
+
+    Both halves are load-bearing: the import binds the name into the
+    aggregator's namespace; the ``__all__`` entry is what consumers
+    actually pick up via ``from app.exceptions import *``.
+    """
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
     init_content = (output_dir / "__init__.py").read_text()
     assert (
         "from app.exceptions._generated.example_not_found_error import ExampleNotFoundError"
@@ -182,19 +219,46 @@ def test_codegen_produces_valid_python(sample_errors_path: Path, output_dir: Pat
     )
     assert '    "ExampleNotFoundError",' in init_content
 
-    # _registry.py: confirm an ERROR_CLASSES entry is emitted for at least one code.
+
+def test_codegen_registry_emits_error_classes_dict(
+    sample_errors_path: Path, output_dir: Path
+) -> None:
+    """``_registry.ERROR_CLASSES`` maps every code to its generated class."""
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
     registry_content = (output_dir / "_registry.py").read_text()
     assert '    "EXAMPLE_NOT_FOUND": ExampleNotFoundError,' in registry_content
 
-    # Params file: confirm the BaseModel class declaration and the str/int field
-    # mappings (string -> str, integer -> int) are present.
+
+def test_codegen_params_file_emits_basemodel_with_field_types(
+    sample_errors_path: Path, output_dir: Path
+) -> None:
+    """A params file declares ``class <X>Params(BaseModel)`` with
+    Pydantic-typed fields (``string -> str``, ``integer -> int``).
+    """
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
     params_content = (output_dir / "example_name_too_long_params.py").read_text()
     assert "class ExampleNameTooLongParams(BaseModel):" in params_content
     assert "    name: str" in params_content
     assert "    max_length: int" in params_content
 
-    # Compile-check every generated .py file. This catches syntax bugs in the
-    # multi-line super().__init__ branch that string-substring checks miss.
+
+def test_codegen_emitted_python_compiles_under_ast_parse(
+    sample_errors_path: Path, output_dir: Path
+) -> None:
+    """Every generated ``.py`` file parses cleanly via ``ast.parse``.
+
+    Catches syntax bugs (e.g. in the multi-line ``super().__init__``
+    branch) that pure string-substring checks miss. Split out from the
+    mega-test so this check fires independently of the file-existence
+    and content assertions.
+    """
+    from scripts.generate import generate_python
+
+    generate_python(sample_errors_path, output_dir)
     for py_file in output_dir.glob("*.py"):
         src = py_file.read_text()
         try:
@@ -821,6 +885,17 @@ errors:
     ast.parse(src)
     # The unicode character round-trips through json.dumps(ensure_ascii=False).
     assert "é" in src
+    # Title escape-sequences round-trip into the generated source so the
+    # ``A\tB\nC`` shape (with embedded escapes) lands in the rendered
+    # ``title`` ClassVar literal. Without this assertion, a regression
+    # that emitted ``title = "FALLBACK"`` for any title with non-trivial
+    # escapes would still parse cleanly under ``ast.parse`` and pass
+    # the unicode check, masking real escape-handling drift.
+    assert "non-ASCII" in src
+    # ``A\tB\n"C"`` MUST appear in the rendered title ClassVar — the
+    # generator emits this via repr() so the embedded tab/newline/quote
+    # escape sequences land as literal-character escapes in the source.
+    assert 'title: ClassVar[str] = "A\\tB\\n\\"C\\""' in src
 
 
 def test_codegen_rejects_template_with_unused_declared_param(tmp_path: Path) -> None:

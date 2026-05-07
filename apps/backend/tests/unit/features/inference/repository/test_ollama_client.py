@@ -28,41 +28,56 @@ from app.features.inference.repository.ollama_client import (
 )
 
 
-def test_default_timeout_constants_match_documented_v1_backstop() -> None:
-    """``DEFAULT_TIMEOUT`` is the v1 backstop until LIP-E004-F003 lands.
+# ``DEFAULT_TIMEOUT`` is the v1 backstop until LIP-E004-F003 lands. The
+# per-field parametrize (lane 5.8) gives each invariant its own subtest
+# id so a regression on ``read`` doesn't hide regressions on ``pool`` —
+# bundling all four into one test body silently masks N-1 fields when
+# the first asserts fail.
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        # Ollama is local, so a stalled connect is a real failure — 5s
+        # is the loud-fail threshold.
+        pytest.param("connect", 5.0, id="connect"),
+        # Generous enough not to interrupt long-running thinking-mode
+        # inference under Gemma 4, but bounded so a hung daemon does
+        # not hold the single semaphore slot indefinitely.
+        pytest.param("read", 600.0, id="read"),
+        # Unbounded — the request body is small relative to Ollama's
+        # response.
+        pytest.param("write", None, id="write"),
+        # With the LIP-E004-F001 semaphore at 1 in-flight, pool
+        # starvation should be unreachable; a finite ceiling converts
+        # a future regression (sibling adapter holding a slot) into a
+        # loud ``httpx.PoolTimeout`` rather than a silent hang.
+        pytest.param("pool", 5.0, id="pool"),
+    ],
+)
+def test_default_timeout_constants_match_documented_v1_backstop(
+    field: str, expected: float | None
+) -> None:
+    """``DEFAULT_TIMEOUT.<field>`` matches the documented v1 value."""
+    assert getattr(DEFAULT_TIMEOUT, field) == expected
 
-    Connect is 5s (Ollama is local, so a stalled connect is a real failure).
-    Read is 600s — generous enough not to interrupt long-running thinking-mode
-    inference under Gemma 4, but bounded so a hung daemon does not hold the
-    single semaphore slot indefinitely (which would be a self-inflicted DoS).
-    Write stays unbounded — the request body is small relative to Ollama's
-    response. Pool is 5s: with the LIP-E004-F001 semaphore set to 1
-    in-flight, pool starvation should be unreachable today, but a finite
-    ceiling converts a future regression (a sibling adapter call holding
-    a slot) into a loud ``httpx.PoolTimeout`` rather than a silent hang.
-    """
-    assert DEFAULT_TIMEOUT.connect == 5.0
-    assert DEFAULT_TIMEOUT.read == 600.0
-    assert DEFAULT_TIMEOUT.write is None
-    assert DEFAULT_TIMEOUT.pool == 5.0
 
-
-def test_default_limits_constants_match_documented_pool_sizing() -> None:
-    """``DEFAULT_LIMITS`` mirrors the documented LIP-E004-F001 pool sizing.
-
-    Symmetric with ``test_default_timeout_constants_match_documented_v1_backstop``
-    above. The three fields are individually load-bearing:
-    ``max_connections=1`` and ``max_keepalive_connections=1`` match the
-    LIP-E004-F001 semaphore (one-in-flight); a regression flipping either
-    to a larger value silently breaks the invariant that pool starvation
-    is a loud signal of a broken semaphore. ``keepalive_expiry=30.0`` is
-    the documented log-churn knob for any future idle-shutdown
-    coordinator. Field-by-field assertions catch a structural-equality
-    drift on ``httpx.Limits`` the same way the timeout test does.
-    """
-    assert DEFAULT_LIMITS.max_connections == 1
-    assert DEFAULT_LIMITS.max_keepalive_connections == 1
-    assert DEFAULT_LIMITS.keepalive_expiry == 30.0
+# Per-field parametrize for ``DEFAULT_LIMITS`` symmetric with the
+# timeout test above (lane 5.8). The three fields are individually
+# load-bearing: ``max_connections=1`` / ``max_keepalive_connections=1``
+# match the LIP-E004-F001 semaphore (one-in-flight) — a flip to a
+# larger value silently breaks the "pool starvation is loud" invariant.
+# ``keepalive_expiry=30.0`` is the documented log-churn knob for any
+# future idle-shutdown coordinator.
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        pytest.param("max_connections", 1, id="max_connections"),
+        pytest.param("max_keepalive_connections", 1, id="max_keepalive_connections"),
+        pytest.param("keepalive_expiry", 30.0, id="keepalive_expiry"),
+    ],
+)
+def test_default_limits_constants_match_documented_pool_sizing(field: str, expected: float) -> None:
+    """``DEFAULT_LIMITS.<field>`` matches the documented LIP-E004-F001 sizing."""
+    assert getattr(DEFAULT_LIMITS, field) == expected
 
 
 def test_default_timeout_remains_stable_across_client_instances() -> None:

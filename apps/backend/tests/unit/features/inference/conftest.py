@@ -19,25 +19,21 @@ VALID_REQUEST_ID = "00000000-0000-4000-8000-000000000abc"
 
 
 @pytest.fixture
-def valid_request_id() -> str:
-    """UUID-shaped request_id matching the wire-contract regex.
+def valid_response_metadata_kwargs() -> dict[str, object]:
+    """Canonical kwargs for ``ResponseMetadata`` construction.
 
-    The regex is enforced by both ``RequestIdMiddleware`` and
-    ``ProblemDetails.request_id``. The literal is hoisted to module
-    scope as ``VALID_REQUEST_ID`` so the drift-guard test module can
-    import and assert against it without duplicating the value.
+    The ``request_id`` value comes from the module-level
+    ``VALID_REQUEST_ID`` constant (rather than a separate fixture)
+    because the constant has only one consumer site beyond this fixture
+    — the drift-guard test in
+    ``test_request_id_fixture_drift_guard.py`` — and an indirection
+    fixture for a single-consumer constant adds noise without clarity.
     """
-    return VALID_REQUEST_ID
-
-
-@pytest.fixture
-def valid_response_metadata_kwargs(valid_request_id: str) -> dict[str, object]:
-    """Canonical kwargs for ``ResponseMetadata`` construction."""
     return {
         "model": "gemma-4-e2b",
         "prompt_tokens": 12,
         "completion_tokens": 34,
-        "request_id": valid_request_id,
+        "request_id": VALID_REQUEST_ID,
         "latency_ms": 250,
         "queue_wait_ms": 5,
         "finish_reason": "stop",

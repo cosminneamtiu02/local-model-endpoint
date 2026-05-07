@@ -169,7 +169,7 @@ def build_chat_result(
     """Ollama /api/chat JSON response -> OllamaChatResult.
 
     Reads ``message.content`` as the canonical answer (``tool_calls``
-    are ignored — tools are not currently supported, and ``content`` is
+    are ignored — tools are out of LIP v1's scope, and ``content`` is
     the source of truth either way). Token-count keys default to 0 if
     Ollama omits them; ``done_reason`` falls back to "stop" for anything
     outside the accepted Literal set.
@@ -274,7 +274,7 @@ def build_chat_result(
         # dropped by the ``isinstance(candidate, list)`` arm above —
         # defeating the documented invariant that any tool-call surface
         # is observable. Surfacing the unexpected shape (without raising,
-        # since the contract today is "tool_calls are ignored") keeps the
+        # since the v1 contract is "tool_calls are ignored") keeps the
         # silent-drop visible without escalating to malformed-frame.
         logger.warning(
             "ollama_tool_calls_unexpected_shape",

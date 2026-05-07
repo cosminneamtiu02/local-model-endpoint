@@ -89,7 +89,11 @@ def test_image_content_rejects_oversize_base64() -> None:
 
 
 def test_image_content_rejects_oversize_url() -> None:
-    """URL-length cap rejects a URL longer than ``URL_MAX_CHARS``."""
+    """URL-length cap rejects a URL longer than ``URL_MAX_CHARS``.
+
+    Symmetric mirror with ``test_audio_content_rejects_oversize_url``;
+    see that test's docstring for the per-class-locality rationale.
+    """
     # ``http://x/`` is 9 chars; pad to one beyond the cap.
     pad_len = (URL_MAX_CHARS + 1) - len("http://x/")
     with pytest.raises(ValidationError, match="url"):
