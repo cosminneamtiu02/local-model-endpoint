@@ -2,6 +2,7 @@
 
 import os
 from functools import lru_cache
+from http import HTTPStatus
 
 import structlog
 from fastapi import Request
@@ -185,9 +186,18 @@ def get_app_state(request: Request) -> AppState:
         # because the contextvar binding only happens AFTER the raise
         # propagates into ``_handle_unhandled_exception``.
         structlog.contextvars.bind_contextvars(error_code=InternalError.code)
+        # Event name carries the ``_5xx_raised`` suffix for grep parity
+        # with the canonical 5xx event family
+        # (``domain_error_5xx_raised`` / ``http_exception_5xx_raised`` /
+        # ``internal_error_5xx_raised``); the runbook's documented
+        # ``select(.event | endswith("_5xx_raised"))`` filter now finds
+        # this site too. ``code`` + ``status_code`` complete the field-set
+        # parity with the sibling 5xx surfaces.
         logger.error(
-            "app_state_unavailable",
+            "app_state_unavailable_5xx_raised",
             phase="request",
+            code=InternalError.code,
+            status_code=int(HTTPStatus.INTERNAL_SERVER_ERROR),
             path=ascii_safe(request.url.path, max_chars=INSTANCE_PATH_MAX_CHARS),
             has_context_attr=hasattr(request.app.state, "context"),
         )

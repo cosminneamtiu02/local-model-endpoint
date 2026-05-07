@@ -506,6 +506,18 @@ class OllamaClient:
             msg = f"path must be absolute (start with /), got {path!r}"
             raise ValueError(msg)
         if self._client.is_closed:
+            # Named-diagnostic-before-raise pattern, symmetric with
+            # ``app/api/deps.app_state_unavailable_5xx_raised`` — operator triage on a
+            # Depends-after-teardown bug benefits from a greppable
+            # ``select(.event == "ollama_client_use_after_close")`` rather
+            # than reconstructing the cause from the raised RuntimeError's
+            # traceback. ``phase="lifespan"`` for field-set parity with
+            # the rest of the OllamaClient lifecycle events.
+            logger.warning(
+                "ollama_client_use_after_close",
+                phase="lifespan",
+                base_url=self._loggable_base_url,
+            )
             msg = "OllamaClient cannot be used after close()"
             raise RuntimeError(msg)
         return await self._client.request(method, path, json=json)

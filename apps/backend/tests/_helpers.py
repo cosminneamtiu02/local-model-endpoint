@@ -70,11 +70,19 @@ async def make_async_client(app: ASGIApp) -> AsyncGenerator[AsyncClient]:
     # ASGI apps without ``exception_handlers`` aren't broken (pure ASGI
     # apps used in middleware tests legitimately omit the registry).
     handlers = getattr(app, "exception_handlers", None)
-    if handlers is not None:
-        assert Exception in handlers, (
+    if handlers is not None and Exception not in handlers:
+        # ``raise AssertionError`` (rather than ``assert`` keyword) so the
+        # contract enforcement survives ``python -O`` — the rest of the
+        # test infra runs ``assert`` freely under the ``S101`` ruff
+        # carve-out for tests, but this is helper-tier infrastructure
+        # that runs in every test session and should not silently
+        # no-op if a future operator runs the suite with optimization
+        # flags. Mirrors the dialect at ``app/exceptions/base.py:79``.
+        msg = (
             "App must register a catch-all Exception handler — "
             "make_async_client's raise_app_exceptions=False contract relies on it."
         )
+        raise AssertionError(msg)
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client

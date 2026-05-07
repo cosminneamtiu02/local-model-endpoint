@@ -56,14 +56,6 @@ _DEL_CHAR: Final[int] = 0x7F
 # checks are the primary defense; truncation is belt-and-suspenders).
 _REQUEST_ID_PREVIEW_MAX_CHARS: Final[int] = 32
 
-# Truncation cap on the rejected request path reflected into the 413
-# problem+json body's ``instance`` field. Sourced from
-# ``ValidationErrorDetail.FIELD_MAX_CHARS`` so a future bump of the wire-
-# field cap propagates here automatically — the documented "symmetric
-# with ValidationErrorDetail.field's 512-char cap" rationale is now a
-# mechanical link instead of a duplicated literal.
-_INSTANCE_PREVIEW_MAX_CHARS: Final[int] = FIELD_MAX_CHARS
-
 # Sentinel status code emitted in the access log when a request is
 # cancelled before the handler reached ``http.response.start``. This is
 # the nginx convention "Client Closed Request" — not a real IANA HTTP
@@ -73,6 +65,17 @@ _INSTANCE_PREVIEW_MAX_CHARS: Final[int] = FIELD_MAX_CHARS
 # disconnects from inflating operator dashboards keyed on
 # ``status_code >= 500``.
 _CLIENT_CLOSED_REQUEST_STATUS: Final[int] = 499
+
+# ASGI raw header name for the X-Request-ID header. ASGI carries headers
+# as ``(bytes, bytes)`` tuples and lowercases the name per HTTP/1.1
+# case-insensitivity, so the wire-encoded form is the byte literal here
+# (NOT the str ``REQUEST_ID_HEADER`` from wire_constants — that's the
+# response-side spelling, case-irrelevant on HTTP/1.1 but fixed for
+# OpenAPI). Centralized here so the four byte-literal sites in this
+# module (read from inbound scope, write to outbound message, dedupe on
+# response.start, send-with-stamp helper) reference one constant; a
+# future header rename touches one literal instead of four.
+_REQUEST_ID_HEADER_BYTES: Final[bytes] = b"x-request-id"
 
 # Maximum allowed Content-Length on the request body. Larger payloads are
 # rejected before Starlette buffers them, defending against accidental retry
@@ -148,11 +151,13 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     is regex-validated (SCREAMING_SNAKE), not class-bound, so the literal
     satisfies the wire contract.
 
-    ``path`` is truncated symmetric with ``ValidationErrorDetail.field``'s
-    512-char cap so a pathological consumer cannot amplify a single
-    long-URL POST into a multi-KB error body.
+    ``path`` is truncated to ``FIELD_MAX_CHARS`` so a pathological consumer
+    cannot amplify a single long-URL POST into a multi-KB error body —
+    symmetric with ``ValidationErrorDetail.field``'s 512-char cap so a
+    future bump of the wire-field cap propagates here automatically
+    (the documented mechanical link).
     """
-    bounded_path = path[:_INSTANCE_PREVIEW_MAX_CHARS]
+    bounded_path = path[:FIELD_MAX_CHARS]
     problem = ProblemDetails(
         type=ABOUT_BLANK_TYPE,
         title="Payload Too Large",
@@ -175,7 +180,7 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
                 (b"content-type", PROBLEM_JSON_MEDIA_TYPE.encode("ascii")),
                 (b"content-language", CONTENT_LANGUAGE.encode("ascii")),
                 (b"content-length", str(len(body)).encode("ascii")),
-                (b"x-request-id", request_id.encode("ascii")),
+                (_REQUEST_ID_HEADER_BYTES, request_id.encode("ascii")),
             ],
         },
     )
@@ -216,7 +221,7 @@ class RequestIdMiddleware:
         # (bytes, bytes) tuples; building a full dict to fetch one key
         # is per-request waste on the hot path.
         client_id_raw = next(
-            (v for k, v in scope.get("headers", []) if k == b"x-request-id"),
+            (v for k, v in scope.get("headers", []) if k == _REQUEST_ID_HEADER_BYTES),
             b"",
         )
         # ``ascii_safe`` decodes with byte-level replacement and ASCII-cleans
@@ -248,7 +253,7 @@ class RequestIdMiddleware:
         # spoofing status codes). Symmetric with the ``client_id =
         # ascii_safe(client_id_raw)`` bind above and with the
         # ``ascii_safe(request.url.path, ...)`` call in
-        # ``deps.get_app_state`` (the ``app_state_unavailable`` log emit
+        # ``deps.get_app_state`` (the ``app_state_unavailable_5xx_raised`` log emit
         # site, CLAUDE.md log-injection backstop).
         path = ascii_safe(str(scope.get("path", "")), max_chars=INSTANCE_PATH_MAX_CHARS)
 
@@ -333,7 +338,7 @@ class RequestIdMiddleware:
 
         captured_status: int = 0
         start = time.perf_counter()
-        request_id_header = (b"x-request-id", request_id.encode("ascii"))
+        request_id_header = (_REQUEST_ID_HEADER_BYTES, request_id.encode("ascii"))
 
         async def send_with_request_id(message: Message) -> None:
             nonlocal captured_status
@@ -350,7 +355,7 @@ class RequestIdMiddleware:
                 # The walk is one O(n) pass on the response-header tuple
                 # iterable; n is small (a handful of headers per response).
                 existing_headers = [
-                    (k, v) for k, v in message.get("headers", []) if k != b"x-request-id"
+                    (k, v) for k, v in message.get("headers", []) if k != _REQUEST_ID_HEADER_BYTES
                 ]
                 message = {
                     **message,

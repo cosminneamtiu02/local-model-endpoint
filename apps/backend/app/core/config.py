@@ -1,4 +1,17 @@
-"""Application configuration via pydantic-settings."""
+"""Application configuration via pydantic-settings.
+
+``is_private_host(host)`` is co-located here as a module-level helper —
+the Settings clamp is the only consumer, and a separate
+``host_classifier.py`` would split the safety-clamp pair across two
+files. The function is the FIRST published-public name in this module
+(no leading underscore) because the test tier in
+``apps/backend/tests/unit/core/test_config.py`` imports it directly to
+exercise the bracketed-IPv6 / zone-ID / IPv4-mapped-IPv6 contract; the
+Settings model_validator is the runtime-call site. CLAUDE.md's
+"one class per file" rule does not cover module-level helpers, but the
+co-location with Settings is deliberate per this docstring rather than
+incidental.
+"""
 
 import ipaddress
 from pathlib import Path

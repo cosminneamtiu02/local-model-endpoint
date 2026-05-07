@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
 
 from app.api.exception_handler_registry import register_exception_handlers
 from app.api.request_id_middleware import RequestIdMiddleware
@@ -18,6 +19,9 @@ from app.exceptions import (
 )
 from app.schemas import ValidationErrorDetail
 from app.schemas.wire_constants import PROBLEM_JSON_MEDIA_TYPE, REQUEST_ID_HEADER
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 
 def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger routes is the simplest expression
@@ -96,7 +100,14 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
 @pytest.fixture
 def client() -> TestClient:
     """Provide a TestClient that propagates handled responses (no re-raise)."""
-    return TestClient(_create_test_app(), raise_server_exceptions=False)
+    # Route through ``tests._helpers.make_test_client`` so the
+    # ``raise_server_exceptions=False`` rationale is sourced once
+    # (per the helper's docstring) rather than reapplied locally.
+    # Symmetric with the contract-tier ``client`` fixture in
+    # ``tests/contract/conftest.py:25``.
+    from tests._helpers import make_test_client
+
+    return make_test_client(_create_test_app())
 
 
 # ── Domain error path ─────────────────────────────────────────────────────

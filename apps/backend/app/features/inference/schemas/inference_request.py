@@ -5,8 +5,10 @@ from typing import Annotated, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from app.features.inference.model.dos_caps import (
+    MESSAGES_LIST_MAX,
     METADATA_KEY_MAX_CHARS,
     METADATA_NESTED_CARDINALITY_MAX,
+    METADATA_TOP_LEVEL_KEYS_MAX,
     METADATA_VALUE_MAX_CHARS,
     MODEL_NAME_MAX_CHARS,
 )
@@ -101,8 +103,8 @@ class InferenceRequest(BaseModel):
 
     messages: list[Message] = Field(
         min_length=1,
-        max_length=64,
-        description="Ordered chat messages; first must be system or user.",
+        max_length=MESSAGES_LIST_MAX,
+        description="Ordered chat messages.",
     )
     model: str = Field(
         min_length=1,
@@ -133,7 +135,7 @@ class InferenceRequest(BaseModel):
     # per-string-leaf length via the recursive validator).
     metadata: dict[MetadataKey, JsonValue] = Field(
         default_factory=dict,
-        max_length=16,
+        max_length=METADATA_TOP_LEVEL_KEYS_MAX,
         description=(
             "Pass-through per-project metadata; structural bounds enforced "
             "(<=16 keys, key length, recursive string-leaf length), content "

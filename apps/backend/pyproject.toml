@@ -263,8 +263,13 @@ exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
-    # Protocol method bodies + ``...`` stubs.
-    "\\.\\.\\.\\s*$",
+    # Protocol method bodies + ``...`` stubs. Anchored at start (with
+    # optional leading whitespace) so the pattern matches only bare-
+    # ``...``-on-their-own-line and cannot accidentally match a comment
+    # or docstring whose final line ends in three dots followed by
+    # whitespace. Sibling exclusions (``if TYPE_CHECKING:``, ``raise
+    # NotImplementedError``) are already structurally anchored.
+    "^\\s*\\.\\.\\.\\s*$",
     # Module entrypoint guards (re-bites if app/__main__.py is ever de-omitted).
     "if __name__ == .__main__.:",
 ]

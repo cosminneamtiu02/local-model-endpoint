@@ -204,7 +204,7 @@ def _resolve_request_id(request: Request) -> _RequestIdResolution:
     # because the underlying cause is misconfigured middleware — every
     # subsequent request will hit the same path and the wire response
     # will ship a synthesized fallback UUID that no consumer-side log can
-    # correlate against. Sibling diagnostic ``app_state_unavailable`` in
+    # correlate against. Sibling diagnostic ``app_state_unavailable_5xx_raised`` in
     # ``deps.py`` is also at ``error`` for the same "infrastructure
     # layer didn't run" severity; operator paging on level=error catches
     # both diagnostics uniformly.
@@ -214,7 +214,7 @@ def _resolve_request_id(request: Request) -> _RequestIdResolution:
     # from this emit. The explicit literal kwarg keeps the
     # ``select(.phase == "request")`` operator-grep contract greppable
     # even if the bind changes — symmetric with the same pattern in
-    # ``deps.app_state_unavailable``.
+    # ``deps.app_state_unavailable_5xx_raised``.
     logger.error("request_id_missing_in_state", phase="request")
     return _RequestIdResolution(fallback, missed_middleware=True)
 
