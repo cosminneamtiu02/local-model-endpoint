@@ -273,10 +273,19 @@ def _build_problem_payload(  # noqa: PLR0913 — ProblemDetails assembly takes t
             collisions=sorted_collisions,
             original_code=exc.code,
         )
-        error_message = (
-            f"ProblemDetails extras keys collide with typed params: {sorted_collisions!r}"
-        )
-        raise RuntimeError(error_message)
+        # ``raise InternalError() from None`` instead of ``raise
+        # RuntimeError(...)``: typed DomainError raises align with the
+        # discipline applied everywhere else in the codebase, and the
+        # catch-all unhandled-exception path renders the same clean
+        # InternalError problem+json wire body regardless. The
+        # ``from None`` suppresses the implicit ``__cause__`` so the
+        # collision detail does not surface in operator tracebacks
+        # (the actionable signal is the ``problem_details_extras_collision``
+        # log line above with the sorted collision list, NOT the
+        # exception traceback). Wire-body symmetric: both routes
+        # produce a clean InternalError envelope via
+        # ``_handle_unhandled_exception``.
+        raise InternalError from None
     try:
         return ProblemDetails(
             type=exc.type_uri,
@@ -850,6 +859,29 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # compliant clients (curl --retry, requests Retry adapter) cannot
         # discover supported methods on a 405 and a conformance audit
         # flags LIP as non-compliant.
+        #
+        # Defensive log: if app code ever raises a typed
+        # ``HTTPException(405)`` without ``headers={"Allow": ...}``, the
+        # framework-auto-405 path's ``Allow`` guarantee no longer holds
+        # and the wire response would silently violate RFC 9110 §15.5.6.
+        # This emit surfaces the conformance gap so an operator can
+        # trace it back to the offending raise site. Today no app code
+        # raises ``HTTPException(405)`` (typed ``MethodNotAllowedError``
+        # is the project's blessed surface, and Starlette's auto-405 for
+        # method-mismatch always sets ``Allow``), so the warning fires
+        # only on the regression-class.
+        if http_exc.headers is None or "allow" not in {k.lower() for k in http_exc.headers}:
+            # ``method=request.method`` (no ``ascii_safe`` wrap) mirrors
+            # the existing access-log pattern at line 183 / 972 — the
+            # method is one of a closed alphabet (GET/POST/PUT/...) by
+            # the time it reaches the handler chain (Starlette rejects
+            # malformed methods earlier).
+            logger.warning(
+                "http_exception_405_missing_allow_header",
+                phase="request",
+                method=request.method,
+                path=_bounded_instance(request),
+            )
         response = _problem_response(problem, extra_headers=http_exc.headers)
         _stamp_request_id_header_if_missed(response, request_id, missed=missed_middleware)
         return response

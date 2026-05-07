@@ -42,31 +42,10 @@ jobs:
           # dep that might exfiltrate the runner's git config.
           persist-credentials: false
 
-      - name: Read Python version from .python-version
-        # ``.python-version`` at the repo root is the single source of
-        # truth for the Python interpreter version. Piped through
-        # ``$GITHUB_ENV`` so subsequent steps reference
-        # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
-        # read .python-version (it has a ``python-version`` input that
-        # accepts a literal or a python-version-spec string only), so the
-        # explicit read step is the bridge.
-        #
-        # ``working-directory: .`` is REQUIRED here — the job-level
-        # ``defaults: run: working-directory: <subdir>`` puts every other
-        # ``run:`` step in the workspace subdir, but ``.python-version``
-        # only exists at the repo root. Without this override the read
-        # step silently fails ("No such file"), the ``$()`` substitution
-        # swallows the error, and ``PYTHON_VERSION`` ships empty into
-        # setup-uv. ``set -euo pipefail`` + an explicit empty-string check
-        # converts that silent failure into a loud ``::error::``
-        # annotation so a future ``.python-version`` delete is red CI,
-        # not a silent unpinned interpreter.
-        working-directory: .
-        run: |
-          set -euo pipefail
-          v=$(tr -d '[:space:]' < .python-version)
-          [ -n "$v" ] || { echo "::error::.python-version is empty or missing"; exit 1; }
-          echo "PYTHON_VERSION=$v" >> "$GITHUB_ENV"
+      # Composite action — see ``.github/actions/read-python-version/action.yml``
+      # for the rationale block (set -euo pipefail, empty-string check,
+      # working-directory override against job-level defaults).
+      - uses: ./.github/actions/read-python-version
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
@@ -182,31 +161,8 @@ jobs:
           # dep that might exfiltrate the runner's git config.
           persist-credentials: false
 
-      - name: Read Python version from .python-version
-        # ``.python-version`` at the repo root is the single source of
-        # truth for the Python interpreter version. Piped through
-        # ``$GITHUB_ENV`` so subsequent steps reference
-        # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
-        # read .python-version (it has a ``python-version`` input that
-        # accepts a literal or a python-version-spec string only), so the
-        # explicit read step is the bridge.
-        #
-        # ``working-directory: .`` is REQUIRED here — the job-level
-        # ``defaults: run: working-directory: <subdir>`` puts every other
-        # ``run:`` step in the workspace subdir, but ``.python-version``
-        # only exists at the repo root. Without this override the read
-        # step silently fails ("No such file"), the ``$()`` substitution
-        # swallows the error, and ``PYTHON_VERSION`` ships empty into
-        # setup-uv. ``set -euo pipefail`` + an explicit empty-string check
-        # converts that silent failure into a loud ``::error::``
-        # annotation so a future ``.python-version`` delete is red CI,
-        # not a silent unpinned interpreter.
-        working-directory: .
-        run: |
-          set -euo pipefail
-          v=$(tr -d '[:space:]' < .python-version)
-          [ -n "$v" ] || { echo "::error::.python-version is empty or missing"; exit 1; }
-          echo "PYTHON_VERSION=$v" >> "$GITHUB_ENV"
+      # Composite action — see ``.github/actions/read-python-version/action.yml``.
+      - uses: ./.github/actions/read-python-version
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611  # v2.0.0
@@ -282,6 +238,15 @@ jobs:
       - name: detect-secrets version sync
         working-directory: .
         run: task check:detect-secrets-version-sync
+
+      # Cross-workspace dev-tool version sync — pinned in CI so a
+      # Dependabot PR that bumps ``pytest`` / ``pytest-cov`` / ``ruff``
+      # / ``pyright`` / ``pip-audit`` / ``pyyaml`` in only one workspace
+      # produces a loud red CI signal (the drift would otherwise persist
+      # silently across the merge gap between sibling Dependabot PRs).
+      - name: Cross-workspace dev-tool version sync
+        working-directory: .
+        run: task check:dev-tool-version-sync
 
       # Lockfile freshness check for the error-contracts workspace.
       # Without this step, the error-contracts job nominally owns the

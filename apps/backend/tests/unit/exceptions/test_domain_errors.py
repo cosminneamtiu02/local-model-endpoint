@@ -155,6 +155,42 @@ def test_queue_full_rejects_missing_required_param() -> None:
         QueueFullError(max_waiters=4)  # pyright: ignore[reportCallIssue]
 
 
+def test_pydantic_model_name_namespace_does_not_warn() -> None:
+    """``RegistryNotFoundParams.model_name`` does not collide with Pydantic's
+    protected ``model_*`` namespace.
+
+    Pydantic v2 historically reserved the ``model_`` namespace for
+    internal methods (``model_config``, ``model_dump``, ``model_fields``)
+    and emitted a ``UserWarning`` when a field named ``model_*`` was
+    declared. Pydantic 2.10+ relaxed this, but a future Pydantic upgrade
+    that re-asserts the strict namespace policy (or adds a fresh
+    ``model.name`` accessor) would silently flood logs with
+    ``UserWarning`` per request — and the wire body would still ship
+    ``model_name`` because it's bound by the codegen.
+
+    The drift-guard turns the latent fragility into a loud test
+    failure: a future Pydantic that emits namespace warnings on
+    ``RegistryNotFoundError(model_name=...)`` or
+    ``ModelCapabilityNotSupportedError(model_name=...)`` raise sites
+    fails this test loudly under
+    ``filterwarnings = ["error"]``. The corrective action would be
+    either to (a) rename the YAML param ``model_name`` → ``name`` in
+    lockstep with consumer raise sites, or (b) extend the codegen
+    template to emit ``protected_namespaces=()`` on the affected
+    ``*Params`` classes. Today, neither is needed — this test passes
+    cleanly on pydantic ``2.13.3``.
+    """
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        # Both raise sites in errors.yaml that currently use
+        # ``model_name``: REGISTRY_NOT_FOUND and
+        # MODEL_CAPABILITY_NOT_SUPPORTED.
+        RegistryNotFoundError(model_name="phantom-model")
+        ModelCapabilityNotSupportedError(model_name="text-only", requested_capability="audio")
+
+
 def test_domain_error_subclass_missing_classvar_raises_typeerror() -> None:
     """__init_subclass__ enforces that every DomainError declares the 5 required ClassVars."""
     with pytest.raises(TypeError, match="must declare ClassVar"):
