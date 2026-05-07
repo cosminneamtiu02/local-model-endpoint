@@ -70,7 +70,15 @@ updates:
           - "pyright"
           - "import-linter"
           - "pip-audit"
-          - "types-*"
+          # ``types-pyyaml`` is currently the only stub dep. Listing it
+          # explicitly (rather than the broader ``types-*`` glob) keeps
+          # future stub additions out of dev-tools by default — a runtime-
+          # peer-aware future stub (e.g. ``types-redis`` for a
+          # hypothetical ``redis`` runtime dep) belongs grouped WITH its
+          # peer, not with the dev-tools cluster, and an explicit pin
+          # forces the contributor adding the stub to audit which group
+          # to place it in.
+          - "types-pyyaml"
           # ``pyyaml`` (runtime peer of types-pyyaml) co-grouped so a
           # stub-vs-runtime version drift cannot land across two PRs.
           - "pyyaml"
@@ -98,6 +106,10 @@ updates:
         # ``open-pull-requests-limit: 5``. Grouping them prevents a busy
         # release week from saturating the limit and starving the
         # genuinely-grouped fastapi-stack / pydantic / pytest PRs.
+        # Threshold: any runtime dep that ships ~monthly without a
+        # cascade-conflict peer goes here. New runtime deps under that
+        # bar get a solo Dependabot PR (default behavior); any bump-rate
+        # higher than the threshold should join this group.
         patterns:
           - "structlog"
           - "httpx"
@@ -176,6 +188,12 @@ updates:
   # Pre-commit hooks pin upstream by `rev:` SHA; without this ecosystem
   # entry the pinned versions silently age out (ruff and detect-secrets
   # both ship security-relevant fixes that the project would miss).
+  # Limit asymmetry: 1 here vs 5 elsewhere. The cap is deliberate —
+  # daily cadence + single grouped PR + slow human-review window means
+  # capping at 2+ would let yesterday's stale PR double up with today's
+  # regrouping and silently consume two slots against the weekly review
+  # budget while older PRs sit. Do not "match the rest" without
+  # re-reading the rationale below.
   - package-ecosystem: "pre-commit"
     directory: "/"
     target-branch: "main"

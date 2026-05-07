@@ -67,7 +67,8 @@ narrowing of the pre-push stage)
 **Date:** 2026-04-07
 
 Pre-commit: ruff (lint + format), trailing-whitespace, end-of-file-fixer,
-check-yaml/json, large-file guard, detect-secrets, Taskfile syntax check (~5-10s).
+check-yaml/json, large-file guard, detect-secrets, detect-private-key,
+Taskfile syntax check (~5-10s).
 Pre-push: backend unit tests + error-contracts unit tests only.
 CI: all three backend test levels (unit, integration, contract) + type checker +
 import-linter + error-contracts codegen+regen + pip-audit + secret scan.

@@ -29,6 +29,18 @@ Untrusted-extension warning: some fields reflect raw request input.
 echoes user-supplied field names from the failing payload. Downstream
 consumers MUST treat both as untrusted strings — escape on render, never
 interpolate into shells, queries, or HTML without sanitization.
+
+Extras-cap discipline: ``extra='allow'`` admits per-error typed params
+(RFC 7807 §3.2 spread) without a schema-side per-extras length or count
+cap. The wire-cap discipline lives at the codegen contract (every
+DomainError's params are ``BaseModel`` subclasses with bounded ``Field``
+constraints — caps land at the codegen template, not here) and at the
+emit sites (`_build_problem_payload` enforces the typed-params shape
+and the ProblemExtras spread is closed-alphabet). A future call site
+that spreads raw consumer data into this schema would land an unbounded
+extras spread; new emit sites MUST validate caps at the construction
+boundary, not rely on this schema. The codegen-bound contract is the
+load-bearing safeguard, not Pydantic's `extra='allow'` shape.
 """
 
 import re

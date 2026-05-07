@@ -14,7 +14,7 @@ tasks:
 
   # ── Check (run before declaring work done) ───────────────────
   check:
-    desc: Run ALL checks — lint, format, lockfile, types, arch, coverage-gated tests, error contracts, plist, audit, secrets, cross-workspace drift-guards (test-class regex sync, detect-secrets version sync, dev-tool version sync)
+    desc: Run ALL checks — lint, format, lockfile, types, arch, coverage-gated tests, error contracts, plist, audit, secrets, cross-workspace drift-guards (test-class regex sync, detect-secrets version sync, ruff version sync, dev-tool version sync)
     # ``check:lockfile`` runs before the slow test suite so a manifest/lockfile
     # mismatch fails fast (seconds) instead of after ~minutes of test runtime.
     # ``check:coverage`` runs the full pytest suite WITH coverage and enforces
@@ -52,8 +52,14 @@ tasks:
   check:lint:
     desc: Run linter (backend + error-contracts)
     cmds:
-      - task: lint
+      - task: check:lint:backend
       - task: check:lint:errors
+
+  check:lint:backend:
+    desc: Run ruff check on the backend
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - uv run --frozen ruff check app/ tests/
 
   check:lint:errors:
     desc: Run ruff check on the error-contracts package
@@ -112,12 +118,13 @@ tasks:
     cmds:
       - uv run --frozen lint-imports --config architecture/import-linter-contracts.ini
 
-  check:test:
-    desc: Run unit + integration tests
-    cmds:
-      - task: test:unit
-      - task: test:integration
-      - task: test:contract
+  # ``check:test`` was removed (round-26 lane 10.1): the parent ``check:``
+  # node runs ``check:coverage`` (a strict superset that re-runs the same
+  # ``tests/`` collection with ``--cov`` and the ``--cov-fail-under=90``
+  # gate), so the standalone target was orphaned and operators were misled
+  # into running it locally only to fail CI later. Operators wanting to
+  # run all three tiers without coverage can use the existing ``test:``
+  # target below.
 
   check:errors:
     desc: Verify error contracts are up to date
@@ -437,11 +444,15 @@ tasks:
       - uv run --frozen pytest tests/ -v
 
   # ── Linting & Formatting ─────────────────────────────────────
+  # ``lint`` was renamed to ``check:lint:backend`` (round-26 lane 10.2)
+  # for symmetry with the parent-fans-out-to-backend+errors pattern used
+  # by check:format / check:types / check:lockfile / check:audit. The
+  # standalone ``lint`` and ``format`` aliases below preserve operator
+  # muscle memory; they delegate to the canonical sub-targets.
   lint:
-    desc: Run linter
-    dir: "{{.BACKEND_DIR}}"
+    desc: Alias for check:lint:backend (preserved for operator muscle memory)
     cmds:
-      - uv run --frozen ruff check app/ tests/
+      - task: check:lint:backend
 
   format:
     desc: Run formatter
@@ -459,6 +470,14 @@ tasks:
   # ── Ollama launchd agent (one-time per machine; see docs/ollama-launchd.md) ──
   ollama:install:
     desc: Install the Ollama launchd agent (renders plist template + bootstraps under gui/$UID; idempotent on re-run)
+    # ``platforms: [darwin]`` matches ``check:plist``: launchctl is macOS-
+    # only and ``~/Library/LaunchAgents/`` is a Darwin path, so a Linux
+    # contributor running this task would otherwise hit a confusing
+    # ``launchctl: command not found`` AFTER having already mutated
+    # ``~/Library/Logs/ollama/`` and the staged plist file — a half-
+    # installed state. Symmetric guard added to ollama:uninstall and
+    # ollama:status below.
+    platforms: [darwin]
     cmds:
       - mkdir -p ~/Library/Logs/ollama
       - mkdir -p ~/Library/LaunchAgents
@@ -502,6 +521,7 @@ tasks:
 
   ollama:uninstall:
     desc: Remove the Ollama launchd agent (boots out + deletes the installed plist)
+    platforms: [darwin]
     cmds:
       # `bootout` exits non-zero when the agent isn't loaded; tolerate that so
       # the task is idempotent and AC-10 ("exits 0") holds on a clean machine.
@@ -510,5 +530,6 @@ tasks:
 
   ollama:status:
     desc: Report the launchctl state of the Ollama agent in the gui/$UID domain
+    platforms: [darwin]
     cmds:
       - launchctl print gui/$(id -u)/com.lip.ollama

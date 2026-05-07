@@ -161,9 +161,11 @@ Run in well under 10 seconds. Cover:
   `test_domain_errors.py` (per-code construction), `test_registry.py`
   (`ERROR_CLASSES` lookup invariants), plus `test_errors_yaml_drift_guard.py`,
   `test_params_frozen_drift_guard.py`, `test_problem_extras_drift_guard.py`,
-  `test_screaming_snake_pattern_drift_guard.py`, and
+  `test_screaming_snake_pattern_drift_guard.py`,
+  `test_title_max_chars_drift_guard.py`, and
   `test_handwritten_files_drift_guard.py` for codegen, ProblemExtras drift,
-  SCREAMING_SNAKE pattern lockstep, and the "only base.py is hand-written"
+  SCREAMING_SNAKE pattern lockstep, codegen `title:` length cap matching
+  the wire-schema `max_length`, and the "only base.py is hand-written"
   invariant under `app/exceptions/`.
 - **`tests/unit/schemas/`** — `test_health_response.py`, `test_problem_details.py`,
   `test_problem_extras.py`, `test_validation_error_detail.py` (one test file per
@@ -171,6 +173,8 @@ Run in well under 10 seconds. Cover:
 - **`tests/unit/`** (top-level) — `test_filterwarnings_anyio_suppression.py`
   (self-test that the anyio.streams.memory ResourceWarning narrowing in
   `pyproject.toml`'s `filterwarnings` is still effective),
+  `test_filterwarnings_unraisable_suppression.py` (symmetric mirror
+  covering the `PytestUnraisableExceptionWarning` filter),
   `test_no_test_classes_guard.py` (sentinel asserting the
   `pytest_sessionstart` hook + python_classes regex catch a stray
   `class Test...` collection — sacred-rule "Never write a test class"),
@@ -215,7 +219,9 @@ Testcontainers. Covers:
   `OllamaClient` round-trip via `httpx.MockTransport` (no network):
   `chat()` happy path, error mapping, body-shape invariants, and the
   `_request` plumbing canary.
-- `test_main.py` — `create_app` switches OpenAPI exposure on `LIP_APP_ENV`.
+- `test_main.py` — `create_app` environment branching, `redirect_slashes=False`
+  pin, `RequestIdMiddleware` outermost-position pin, lifespan factory wiring,
+  and `audit_lip_env_typos` call-site pin.
 
 ### Contract Tests ([apps/backend/tests/contract/](../apps/backend/tests/contract/))
 `test_openapi_document_validity.py` validates the generated OpenAPI spec shape (one canary
@@ -223,9 +229,11 @@ test that runs before any fuzz attempts to load it).
 `test_problem_details_shape.py` covers the LIP-E004-F004 RFC 7807 wire shape
 (ProblemDetails as a published component, RFC 7807 fields + LIP extensions
 present, `application/problem+json` advertised on the `/health` default
-response). A full Schemathesis fuzz against every endpoint will be wired once
-the LIP feature router (LIP-E001-F002) lands and there are inference operations
-to fuzz.
+response).
+`test_health_route_publication.py` pins per-route OpenAPI publication for
+`/health` (operation_id, response shape, default-error advertisement).
+A full Schemathesis fuzz against every endpoint will be wired once the LIP
+feature router (LIP-E001-F002) lands and there are inference operations to fuzz.
 
 ---
 
@@ -263,8 +271,8 @@ individually; ruff lint/format, errors generation/check, pip-audit, and
 detect-secrets are exposed as standalone targets too.
 
 ### Pre-commit Hooks ([.pre-commit-config.yaml](../.pre-commit-config.yaml))
-Pre-commit: detect-secrets, trailing-whitespace, end-of-file-fixer,
-check-yaml/json, check-added-large-files, ruff (lint, no auto-fix) +
+Pre-commit: detect-secrets, detect-private-key, trailing-whitespace,
+end-of-file-fixer, check-yaml/json, check-added-large-files, ruff (lint, no auto-fix) +
 ruff-format, and a Taskfile-syntax local hook.
 Pre-push: backend unit tests + error-contracts unit tests only (per
 ADR-009 + lane 10.6; the slower pyright/import-linter/integration/

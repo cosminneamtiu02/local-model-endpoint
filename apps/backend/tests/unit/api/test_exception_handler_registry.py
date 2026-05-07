@@ -11,6 +11,7 @@ from app.api.exception_handler_registry import register_exception_handlers
 from app.api.request_id_middleware import RequestIdMiddleware
 from app.exceptions import (
     AdapterConnectionFailureError,
+    ConflictError,
     InferenceTimeoutError,
     ModelCapabilityNotSupportedError,
     QueueFullError,
@@ -52,6 +53,13 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
     @test_app.get("/trigger-capability-missing")
     async def trigger_capability_missing() -> dict[str, str]:
         raise ModelCapabilityNotSupportedError(model_name="text-only", requested_capability="audio")
+
+    @test_app.get("/trigger-conflict")
+    async def trigger_conflict() -> dict[str, str]:
+        # Pin the wire-shape contract for ``ConflictError`` (lane 8.1):
+        # parameterless typed raise — the no-parens form per the
+        # ``raise InternalError`` discipline at ``deps.py``.
+        raise ConflictError
 
     @test_app.get("/trigger-validation")
     async def trigger_validation(required_param: int) -> dict[str, int]:  # noqa: ARG001 — FastAPI signature drives validation; body unused
@@ -209,6 +217,24 @@ def test_model_capability_not_supported_maps_to_422(client: TestClient) -> None:
     assert body["code"] == "MODEL_CAPABILITY_NOT_SUPPORTED"
     assert body["model_name"] == "text-only"
     assert body["requested_capability"] == "audio"
+
+
+def test_conflict_maps_to_409(client: TestClient) -> None:
+    """ConflictError surfaces as 409 with the canonical wire shape.
+
+    Closes the "every error code has at least one wire-shape test"
+    coverage invariant (lane 8.1). Without this test, a YAML edit
+    changing CONFLICT.title / type_uri / detail_template surfaces only
+    via the registry-shape test (which only asserts the dict mapping),
+    not a wire-body assertion. Mirror of the sibling ``maps_to_*`` tests.
+    """
+    response = client.get("/trigger-conflict")
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "CONFLICT"
+    assert body["type"] == "urn:lip:error:conflict"
+    assert body["title"] == "Conflict"
+    assert body["status"] == 409
 
 
 def test_rate_limited_still_works_under_rfc7807(client: TestClient) -> None:

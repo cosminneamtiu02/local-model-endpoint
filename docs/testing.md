@@ -71,7 +71,7 @@ order, payload, error mapping) without any real Ollama process running.
 
 | Layer | What runs | Speed |
 |---|---|---|
-| Pre-commit | ruff (lint + format), trailing-whitespace, end-of-file-fixer, check-yaml/json, large-file guard, detect-secrets, Taskfile syntax check (per ADR-009) | ~5-10s |
+| Pre-commit | ruff (lint + format), trailing-whitespace, end-of-file-fixer, check-yaml/json, large-file guard, detect-secrets, detect-private-key, Taskfile syntax check (per ADR-009) | ~5-10s |
 | Pre-push | backend unit tests + error-contracts unit tests (per ADR-009; pyright/import-linter/integration/contract live in CI only — see lane 10.6 in `.pre-commit-config.yaml`) | ~5-10s |
 | CI | All three backend test levels + type checker + import-linter + error-contracts regen check + pip-audit + secret scan | Full |
 

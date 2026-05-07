@@ -16,7 +16,9 @@ and FastAPI dependency injection for settings ([app/api/deps.py](../apps/backend
 ([app/api/request_id_middleware.py](../apps/backend/app/api/request_id_middleware.py)).
 Security headers and CORS were stripped during project-bootstrap because the service is
 local-network-only. The access log emits a single `request_completed` JSON line per
-request (method, path, status_code, duration_ms, request_id, client_ip, client_port); see
+request (method, path, status_code, duration_ms, request_id, client_ip,
+client_port, plus `request_id_source` and `had_rejected_client_id` when a
+malformed `X-Request-ID` was rejected); see
 [docs/runbook.md](runbook.md) for the operator triage shape.
 
 **Error handling** is fully implemented via the code-generated system. Error codes live
@@ -108,7 +110,9 @@ external systems that are out of v1 scope.
 
 *In scope and shipped:* in-process `structlog` configuration, the per-request
 `request_completed` JSON access log (method, path, status_code, duration_ms, request_id,
-client_ip, client_port), and the lifespan event family (`app_startup_started` /
+client_ip, client_port, plus `request_id_source` and `had_rejected_client_id`
+when a malformed `X-Request-ID` was rejected), and the lifespan event family
+(`app_startup_started` /
 `app_startup_completed` / `app_shutdown_started` /
 `app_shutdown_completed` / `*_cancelled` / `*_failed`). See
 [runbook.md](runbook.md) "Logs & triage" for the full event taxonomy. The
