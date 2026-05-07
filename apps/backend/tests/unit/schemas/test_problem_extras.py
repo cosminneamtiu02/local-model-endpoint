@@ -1,49 +1,41 @@
 """Unit tests for the ProblemExtras typed-extension declaration.
 
-ProblemExtras is the TypedDict (or BaseModel post-migration) that lists
-the typed extension keys the exception handler is allowed to spread on top
-of a ProblemDetails body. The set of keys must be in lockstep with the
-codegen's RESERVED_PARAM_NAMES (see ``test_problem_extras_drift_guard.py``).
+ProblemExtras is the BaseModel that lists the typed extension keys the
+exception handler is allowed to spread on top of a ProblemDetails body.
+The set of keys must be in lockstep with the codegen's RESERVED_PARAM_NAMES
+(see ``test_problem_extras_drift_guard.py``).
 """
 
+from types import NoneType, UnionType
 from typing import get_args, get_origin
 
 from app.schemas import ProblemExtras, ValidationErrorDetail
 
 
 def test_problem_extras_validation_errors_key_is_typed_as_list_of_validation_error_detail() -> None:
-    """ProblemExtras carries ``validation_errors`` typed as ``list[ValidationErrorDetail]``.
+    """ProblemExtras.validation_errors is typed as ``list[ValidationErrorDetail] | None``.
 
-    Inspects the annotation directly rather than asserting on the literal
-    we just constructed (which would have been tautological). The runtime
-    inspection covers both the TypedDict shape and (post AGENT-SCHEMAS
-    migration) the BaseModel shape — both expose ``__annotations__`` with
-    the same string-form annotation.
-
-    ``get_type_hints`` handles forward references (``ValidationErrorDetail``
-    is imported under TYPE_CHECKING in problem_extras.py); fall back to
-    raw ``__annotations__`` repr for the TypedDict case where
-    ``include_extras=True`` may still leave a ForwardRef.
+    The field is Optional (``= None`` default) so the runtime annotation
+    is ``list[X] | None``. We unwrap the union arm, then assert the list
+    element type points at ``ValidationErrorDetail``. Inspects the
+    annotation directly rather than asserting on the literal we just
+    constructed (which would have been tautological).
     """
     annotations = ProblemExtras.__annotations__
     assert "validation_errors" in annotations
     annotation = annotations["validation_errors"]
-    # If the annotation evaluated to a real type, get_origin returns ``list``;
-    # otherwise (still a string from TYPE_CHECKING) the repr carries the names.
-    origin = get_origin(annotation)
-    if origin is list:
-        args = get_args(annotation)
-        assert len(args) == 1
-        # The arg is either a class (post-migration) or a ForwardRef pointing
-        # at ValidationErrorDetail.
-        arg = args[0]
-        if isinstance(arg, type):
-            assert arg is ValidationErrorDetail
-        else:
-            assert "ValidationErrorDetail" in repr(arg)
+    # The field is ``list[ValidationErrorDetail] | None``; the union
+    # origin is ``types.UnionType`` (PEP 604 syntax). Find the list arm.
+    assert get_origin(annotation) is UnionType
+    union_args = get_args(annotation)
+    list_arms = [a for a in union_args if get_origin(a) is list]
+    assert NoneType in union_args
+    assert len(list_arms) == 1
+    list_args = get_args(list_arms[0])
+    assert len(list_args) == 1
+    elem = list_args[0]
+    if isinstance(elem, type):
+        assert elem is ValidationErrorDetail
     else:
-        # TypedDict path: the annotation is still a string under
-        # ``from __future__ import annotations`` semantics.
-        annotation_repr = str(annotation)
-        assert "list[" in annotation_repr
-        assert "ValidationErrorDetail" in annotation_repr
+        # ForwardRef path (TYPE_CHECKING-imported symbol): repr carries the name.
+        assert "ValidationErrorDetail" in repr(elem)

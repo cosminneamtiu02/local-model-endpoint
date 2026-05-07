@@ -16,9 +16,16 @@ class TextContent(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
-    type: Literal["text"] = "text"
+    type: Literal["text"] = Field(
+        default="text",
+        description="Discriminator value 'text' selecting the text variant of ContentPart.",
+    )
     # ``TEXT_PART_MAX_CHARS`` (128 KiB) bounds the per-part DoS surface;
     # see app.features.inference.model.dos_caps for the rationale.
     # str_strip_whitespace prevents min_length=1 from being bypassed with
     # whitespace-only input.
-    text: str = Field(min_length=1, max_length=TEXT_PART_MAX_CHARS)
+    text: str = Field(
+        min_length=1,
+        max_length=TEXT_PART_MAX_CHARS,
+        description="Text content of this multimodal message part.",
+    )

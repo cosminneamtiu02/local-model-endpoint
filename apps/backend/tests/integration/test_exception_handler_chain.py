@@ -13,7 +13,6 @@ hit.
 # walks the function's module globals; under deferred annotations the local
 # Pydantic class names are unresolvable and FastAPI falls back to treating
 # the body params as missing query params (yielding 422 on every request).
-# Round-24 lane-1 sweep verified this is the only test file with the pattern.
 from collections.abc import AsyncGenerator
 from typing import Any
 

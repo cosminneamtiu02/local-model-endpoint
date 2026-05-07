@@ -1,9 +1,9 @@
 # Dependabot configuration for the LIP project.
 #
 # Scope: pip × 2 (apps/backend + packages/error-contracts) plus
-# github-actions. The npm × 2 ecosystems and the terraform ecosystem
-# were stripped during project-bootstrap with the rest of the frontend
-# and IaC tooling.
+# github-actions plus pre-commit. The npm × 2 ecosystems and the
+# terraform ecosystem were stripped during project-bootstrap with the
+# rest of the frontend and IaC tooling.
 #
 # Groups batch interlocking package updates into atomic PRs:
 # - fastapi-stack: fastapi + starlette + uvicorn share ASGI contract
@@ -15,8 +15,10 @@
 #   pydantic-settings's range pinned against pydantic's minor.
 # - pytest: pytest + plugins ship aligned releases; mismatched plugins
 #   cause first-CI-run failures after a pytest bump.
-# - dev-tools: ruff + pyright + import-linter + schemathesis frequently
-#   bump together; grouping prevents cascading manifest conflicts.
+# - dev-tools: ruff + pyright + import-linter frequently bump together;
+#   grouping prevents cascading manifest conflicts. (schemathesis joins
+#   on LIP-E001-F002 — pre-feature scaffolding is forbidden by ADR-011,
+#   so the group is armed but doesn't list it today.)
 #
 # See docs/automerge.md for the wider auto-merge architecture this
 # pairs with, and docs/decisions.md ADR-010 for the manual-Squash-button

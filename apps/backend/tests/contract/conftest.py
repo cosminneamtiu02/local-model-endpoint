@@ -22,6 +22,7 @@ fuzz through the same wire path keeps both contracts in lockstep.
 """
 
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -36,3 +37,17 @@ def client() -> Iterator[TestClient]:
     application = create_app()
     with make_test_client(application) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def openapi_spec(client: TestClient) -> dict[str, Any]:
+    """Fetch and return the OpenAPI document as a parsed JSON dict.
+
+    Single source of truth for the ``/openapi.json`` path so contract
+    tests don't each restate the magic path string. Function-scoped (not
+    module) because ``client`` is function-scoped and the spec is cheap
+    to fetch — moving to module scope would require a module-scoped
+    ``client`` and would couple sibling tests to one app instance.
+    """
+    response = client.get("/openapi.json")
+    return response.json()

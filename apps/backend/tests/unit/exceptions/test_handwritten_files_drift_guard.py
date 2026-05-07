@@ -16,17 +16,20 @@ an ADR explaining why the new surface needs to live outside ``errors.yaml``.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 # Locked here so a future move of the exceptions/ package surfaces as one
 # constant edit rather than scattered hardcoded paths.
-_EXCEPTIONS_DIR = Path(__file__).parents[3] / "app" / "exceptions"
+_EXCEPTIONS_DIR: Final[Path] = Path(__file__).parents[3] / "app" / "exceptions"
 
 # The exact set of allowed entries directly under ``app/exceptions/``.
 # Both files (``__init__.py``, ``base.py``) and one subdirectory
 # (``_generated/``) are the entire load-bearing hand-written surface.
 # ``__pycache__`` is a runtime artifact, filtered explicitly so the
 # assertion stays deterministic across cold/warm test runs.
-_ALLOWED_EXCEPTIONS_ENTRIES = frozenset({"__init__.py", "base.py", "_generated"})
+_ALLOWED_EXCEPTIONS_ENTRIES: Final[frozenset[str]] = frozenset(
+    {"__init__.py", "base.py", "_generated"}
+)
 
 
 def test_exceptions_dir_contains_only_allowed_entries() -> None:

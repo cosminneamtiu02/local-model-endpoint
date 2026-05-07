@@ -13,6 +13,19 @@ def _valid_metadata(kwargs: dict[str, object]) -> ResponseMetadata:
     return ResponseMetadata.model_validate(kwargs)
 
 
+def test_inference_response_str_strip_whitespace_is_disabled_by_omission() -> None:
+    """Pin the deliberate omission of ``str_strip_whitespace`` on the model_config.
+
+    Symmetric with the OllamaChatResult canary — the
+    ``InferenceResponse.content`` field preserves trailing newlines on
+    model output (fenced code blocks). Pydantic's default for
+    ``str_strip_whitespace`` is ``False``; omitting the kwarg is the
+    opt-out. A regression flipping it to ``True`` would silently truncate
+    trailing-newline content.
+    """
+    assert InferenceResponse.model_config.get("str_strip_whitespace", False) is False
+
+
 def test_inference_response_constructs_with_content_and_metadata(
     valid_response_metadata_kwargs: dict[str, object],
 ) -> None:

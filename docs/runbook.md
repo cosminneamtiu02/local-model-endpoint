@@ -99,8 +99,11 @@ task format
 
 Production runs `LIP_APP_ENV=production` and emits one JSON line per log
 event. Operator triage is jq-based: every event name is snake_case and
-every line carries a `request_id` (from `RequestIdMiddleware`) so a
-single request can be correlated across handler + adapter + access log.
+every per-request and lifespan-window line carries a `request_id` (from
+`RequestIdMiddleware`) so a single request can be correlated across
+handler + adapter + access log. `pre_lifespan` lines (env-typo audit,
+app-version resolution) fire before any request scope exists; they are
+correlated by `phase="pre_lifespan"` instead of `request_id`.
 
 ### Standard fields on every line
 
@@ -110,7 +113,7 @@ single request can be correlated across handler + adapter + access log.
 | `level` | `debug` / `info` / `warning` / `error` / `critical` (lowercase wire form per `structlog.stdlib.add_log_level`) |
 | `timestamp` | ISO 8601 UTC |
 | `logger` | dotted module path |
-| `request_id` | UUID set by `RequestIdMiddleware` (or by `_resolve_request_id`'s fallback if the middleware was misconfigured) |
+| `request_id` | UUID set by `RequestIdMiddleware` (or by `_resolve_request_id`'s fallback if the middleware was misconfigured); absent on `phase="pre_lifespan"` lines |
 | `phase` | `lifespan` / `pre_lifespan` / `request` (set on every line via contextvars; `pre_lifespan` lines emit before `configure_logging` runs and so ride the unconfigured chain — env-typo audit, app-version resolution) |
 
 Per-request lines additionally carry `method`, `path`,
@@ -129,11 +132,11 @@ jq filters should `select(.status_code == 500)` rather than
 | Event | When it fires | Level |
 |---|---|---|
 | `app_startup_started` | First line of `lifespan` after `configure_logging` | `info` |
-| `app_startup_completed` | After all lifespan resources are constructed and `application.state.context` is bound (mirrors `app_shutdown_completed` on the teardown half) | `info` |
+| `app_startup_completed` | After all lifespan resources are constructed and `application.state.context` is bound (carries `duration_ms` with `scope="construction"`; mirrors `app_shutdown_completed` on the teardown half) | `info` |
 | `app_shutdown_started` | Inner `finally` of lifespan (carries `reason="clean"|"cancelled"|"exception"` and `duration_ms` with `scope="uptime"`) | `info` |
 | `app_shutdown_completed` | Outer `finally` after `lifespan_resources` exits (carries `duration_ms` with `scope="teardown"`) | `info` |
-| `app_startup_cancelled` / `app_shutdown_cancelled` | `CancelledError` arm (SIGTERM, Ctrl-C) | `info` |
-| `app_startup_failed` / `app_shutdown_failed` | Resource construction or teardown failure | `critical` |
+| `app_startup_cancelled` / `app_shutdown_cancelled` | `CancelledError` arm (SIGTERM, Ctrl-C) — carries `duration_ms` with `scope="construction"` or `scope="uptime"` depending on which arm fired | `info` |
+| `app_startup_failed` / `app_shutdown_failed` | Resource construction or teardown failure (carries `duration_ms` with `scope="construction"` or `scope="teardown"`) | `critical` |
 
 Operator paging keys on `level=critical`. The two `*_failed` events
 above are the ONLY allowed `critical` sites in the codebase.
@@ -159,9 +162,10 @@ Find every 5xx in a window:
 jq 'select(.event | endswith("_5xx_raised"))' < /var/log/lip.jsonl
 ```
 
-The `*_5xx_raised` infix is uniform across the typed-domain-error and
-catch-all branches (`domain_error_5xx_raised`, `internal_error_5xx_raised`,
-`http_exception_5xx_raised`).
+The `*_5xx_raised` infix is uniform across the typed-domain-error,
+catch-all, framework-HTTPException, and misconfigured-app branches
+(`domain_error_5xx_raised`, `internal_error_5xx_raised`,
+`http_exception_5xx_raised`, `app_state_unavailable_5xx_raised`).
 
 Find startup-vs-teardown duration windows:
 

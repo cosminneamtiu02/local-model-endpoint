@@ -21,7 +21,7 @@ the integration tier's hermeticity policy.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -44,3 +44,50 @@ def test_openapi_spec_is_valid(client: TestClient) -> None:
     # The LIP feature router will add inference paths under /v1/
     # when LIP-E001-F002 lands during feature-dev. Pre-feature-dev,
     # /v1/ has no operations and is not present in the spec.
+
+
+def test_openapi_info_publishes_version_contact_and_license(
+    openapi_spec: dict[str, Any],
+) -> None:
+    """The OpenAPI ``info`` block carries version, contact, and license metadata.
+
+    SDK codegen tools (openapi-typescript, openapi-generator) read these
+    fields to stamp generated client packages. ``app/main.py`` deliberately
+    wires them via the elaborate ``_AppVersionResolution`` subsystem +
+    explicit constructor kwargs; without this canary, a regression
+    dropping ``_APP_VERSION`` (e.g. an accidental ``version="0.1.0"``
+    literal) would only show up downstream in consumer SDK regen.
+    """
+    from app.main import _APP_VERSION
+
+    info = openapi_spec["info"]
+    assert info["version"] == _APP_VERSION, (
+        f"OpenAPI info.version must reflect the resolved app version "
+        f"(_APP_VERSION); got info.version={info['version']!r}, "
+        f"_APP_VERSION={_APP_VERSION!r}"
+    )
+    assert info["contact"] == {"name": "Cosmin Neamtiu"}, (
+        f"OpenAPI info.contact must match app/main.py's contact pin; got {info.get('contact')!r}"
+    )
+    assert info["license"] == {"name": "MIT", "identifier": "MIT"}, (
+        f"OpenAPI info.license must match app/main.py's license_info pin; "
+        f"got {info.get('license')!r}"
+    )
+
+
+def test_openapi_components_publishes_problem_details_and_health_response(
+    openapi_spec: dict[str, Any],
+) -> None:
+    """``components.schemas`` carries the project's two wire-shape components.
+
+    A regression that mis-published either component (a ``response_model=``
+    swap, a typo in a per-route ``responses=`` map) would show up as an
+    SDK-codegen warning downstream; the canary catches it at PR time.
+    """
+    schemas = openapi_spec.get("components", {}).get("schemas", {})
+    assert "ProblemDetails" in schemas, (
+        f"ProblemDetails must be in components.schemas; got: {sorted(schemas.keys())}"
+    )
+    assert "HealthResponse" in schemas, (
+        f"HealthResponse must be in components.schemas; got: {sorted(schemas.keys())}"
+    )

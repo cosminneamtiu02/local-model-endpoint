@@ -6,6 +6,8 @@ test request_id so the three sibling test modules
 don't drift their factories independently.
 """
 
+from typing import Final
+
 import pytest
 
 # Canonical UUID-shaped fixture id for inference-feature unit tests.
@@ -14,8 +16,9 @@ import pytest
 # rather than an inline test function in this conftest, since pytest
 # collects tests from ``test_*.py`` files by convention — embedding a
 # test in conftest is undiscoverable to the standard ``find tests
-# -name 'test_*.py'`` audit).
-VALID_REQUEST_ID = "00000000-0000-4000-8000-000000000abc"
+# -name 'test_*.py'`` audit). ``Final[str]`` mirrors the discipline in
+# ``apps/backend/app/core/config.py`` and ``tests/_helpers.py``.
+VALID_REQUEST_ID: Final[str] = "00000000-0000-4000-8000-000000000abc"
 
 
 @pytest.fixture

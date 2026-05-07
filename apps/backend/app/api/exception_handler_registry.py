@@ -102,8 +102,11 @@ abnormal-empty-errors fallback) stay in lockstep."""
 
 _DISCRIMINATOR_PREVIEW_MAX_CHARS: Final[int] = 64
 """Cap on each Pydantic error-discriminator string in the abnormal-empty-errors
-warning. Symmetric with ``EXC_MESSAGE_PREVIEW_MAX_CHARS`` — keeps a single log
-line bounded even if Pydantic ever produces multi-KB ``type`` values."""
+warning. Bounded-cap discipline analogous to ``EXC_MESSAGE_PREVIEW_MAX_CHARS``
+(separate value, same intent — keeps a single log line bounded even if Pydantic
+ever produces multi-KB ``type`` values). The two caps are NOT lockstep-paired:
+``EXC_MESSAGE_PREVIEW_MAX_CHARS=200`` covers exception-string previews, this one
+caps individual discriminators where 64 chars is plenty."""
 
 _DISCRIMINATOR_LOG_LIMIT: Final[int] = 5
 """Max number of Pydantic error-discriminators to emit in the
@@ -142,7 +145,7 @@ def _bound_instance(request: Request) -> str:
 class _RequestIdResolution(NamedTuple):
     """Output of :func:`_resolve_request_id` — id + middleware-missed flag.
 
-    NamedTuple (rather than a bare ``tuple[str, bool]``) so the five
+    NamedTuple (rather than a bare ``tuple[str, bool]``) so the four
     handler call sites read ``.request_id`` / ``.missed_middleware``
     when they prefer name-access; positional destructure still works
     (``request_id, missed_middleware = _resolve_request_id(request)``)
@@ -779,10 +782,13 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
     # repr (which contains the original non-error status code) and would
     # double-resolve the request_id.
     if status_code < HTTPStatus.BAD_REQUEST:
-        # ``error`` (not ``warning``): the wire response is a synthesized 500
-        # InternalError, identical in severity to ``http_exception_5xx_raised``
-        # below. Operators paging on ``level >= ERROR`` for 5xx misconfiguration
-        # would otherwise miss this branch.
+        # ``logger.exception`` (not ``logger.error``): Starlette dispatches this
+        # handler from inside its own ``except`` clause in
+        # ``ExceptionMiddleware._handle``, so ``sys.exc_info()`` IS populated
+        # here — same rationale as ``http_exception_5xx_raised`` below.
+        # Without it, the synthesized-500 path would silently drop the
+        # raise-site traceback that the operator triaging "who raised
+        # HTTPException(<400)?" needs.
         # ``ascii_safe`` truncates AND scrubs control characters so a future
         # framework-internal ``HTTPException(detail=...)`` carrying a control
         # char (e.g. mid-stream consumer-supplied content-type with raw
@@ -795,8 +801,17 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
             if http_exc.detail
             else None
         )
-        logger.error(
+        # ``code=initial_code`` for field-set parity with the peer error
+        # events (``http_exception_5xx_raised``, ``domain_error_5xx_raised``,
+        # ``app_state_unavailable_5xx_raised``). The contextvar bind at
+        # ``error_code=initial_code`` already merges in via
+        # ``merge_contextvars``, but the explicit-literal pattern is the
+        # defense-in-depth pattern used at every other error-event emit:
+        # a future contextvar-lifetime narrowing wouldn't silently drop
+        # the field from this event.
+        logger.exception(
             "http_exception_invalid_status_raised",
+            code=initial_code,
             status_code=status_code,
             detail=truncated_detail,
         )
@@ -1000,7 +1015,7 @@ async def _handle_unhandled_exception(request: Request, exc: Exception) -> Respo
     # catch-all inside the user stack would change this — flip the
     # ``missed=True`` literal below to ``missed=missed_middleware`` in
     # that PR.
-    request_id, _missed = _resolve_request_id(request)
+    request_id, _ = _resolve_request_id(request)
     # ``internal_error_5xx_raised`` so operator queries align with the
     # typed-domain-error pattern: every 5xx event in the codebase now
     # reads ``*_5xx_raised`` (cf. ``http_exception_5xx_raised``,

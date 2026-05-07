@@ -143,6 +143,25 @@ def test_message_accepts_string_content_at_max_length() -> None:
     assert len(msg.content) == TEXT_PART_MAX_CHARS
 
 
+def test_message_union_mode_left_to_right_resolves_string_as_str_not_list() -> None:
+    """Pin the ``union_mode='left_to_right'`` invariant on Message.content.
+
+    The Message.content Annotated wraps a ``str | list[ContentPart]`` union
+    with an outer ``Field(union_mode='left_to_right')``. Pydantic v2's
+    smart-union default would otherwise probabilistically route a plain
+    string as the ``list`` arm under certain edge cases; left-to-right
+    ordering makes string-first deterministic. A future Pydantic
+    upgrade flipping smart-union semantics around ``str | list`` would
+    silently regress this without a canary, so this test pins the
+    contract — the comment in ``message.py`` describing the ordering
+    is now load-bearing-mechanically, not just trust-based.
+    """
+    msg_str = Message(role="user", content="hello")
+    assert isinstance(msg_str.content, str)
+    msg_list = Message(role="user", content=[TextContent(text="hi")])
+    assert isinstance(msg_list.content, list)
+
+
 def test_message_accepts_content_list_at_max_size() -> None:
     """Boundary-inclusive: 32 parts is the largest legal multimodal content list."""
     parts: list[TextContent | ImageContent] = [

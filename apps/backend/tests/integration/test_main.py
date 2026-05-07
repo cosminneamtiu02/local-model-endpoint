@@ -65,6 +65,34 @@ def test_app_redirect_slashes_disabled_at_runtime(monkeypatch: pytest.MonkeyPatc
     )
 
 
+def test_trailing_slash_on_health_returns_404_problem_json_not_307(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``GET /health/`` (trailing slash) returns 404 problem+json, not 307.
+
+    Companion wire-side pin to ``test_app_redirect_slashes_disabled_at_runtime``:
+    the static-introspection test verifies the constructor-arg-to-attribute
+    plumbing (``app.router.redirect_slashes is False``); this one verifies
+    the actual wire behavior consumers depend on. A regression where
+    Starlette's redirect-slash semantics drift while preserving the
+    attribute name would land silently without a wire test.
+    """
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("LIP_APP_ENV", "development")
+    from app.main import create_app
+
+    app = create_app()
+    with TestClient(app, follow_redirects=False) as client:
+        response = client.get("/health/")
+    assert response.status_code == 404, (
+        f"GET /health/ must 404 (not 307) per redirect_slashes=False; got {response.status_code}"
+    )
+    assert response.headers.get("content-type", "").startswith("application/problem+json"), (
+        f"404 must ship as problem+json; got content-type={response.headers.get('content-type')!r}"
+    )
+
+
 def test_request_id_middleware_is_outermost_user_middleware(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -86,17 +114,25 @@ def test_request_id_middleware_is_outermost_user_middleware(
 
     app = create_app()
     assert app.user_middleware, "expected at least one user middleware"
-    # ``user_middleware[-1]`` is the LAST-ADDED entry — Starlette's LIFO
-    # ordering makes that the OUTERMOST wrapper at request time.
+    # ``user_middleware[0]`` is the OUTERMOST entry — ``add_middleware``
+    # PREPENDS so the most recently added middleware lives at index 0
+    # and wraps every later-added one. With only one middleware today
+    # the index ``[0]`` and ``[-1]`` are equivalent; the moment a second
+    # middleware lands BEFORE the request_id line per the in-source
+    # docstring's instruction, the new middleware lands at ``[0]`` and
+    # this assertion (now correctly anchored at the outermost slot)
+    # turns red — exactly the regression class the assertion exists to
+    # catch.
     # ``getattr(m.cls, "__name__", repr(m.cls))`` — Starlette types
     # ``Middleware.cls`` as ``_MiddlewareFactory[P]`` (a Callable alias),
     # not ``type[...]``, so ``m.cls.__name__`` fails pyright strict.
     # The runtime value IS the actual middleware class so the access
     # works; the ``getattr`` fallback satisfies the static type without
     # losing the assertion-message affordance.
-    assert app.user_middleware[-1].cls is RequestIdMiddleware, (
-        "RequestIdMiddleware must be last-added (outermost) so request_id "
-        f"contextvar binding wraps every nested middleware; got user_middleware="
+    assert app.user_middleware[0].cls is RequestIdMiddleware, (
+        "RequestIdMiddleware must be the outermost user middleware (index 0 "
+        "after add_middleware's LIFO prepend) so request_id contextvar "
+        f"binding wraps every nested middleware; got user_middleware="
         f"{[getattr(m.cls, '__name__', repr(m.cls)) for m in app.user_middleware]!r}"
     )
 

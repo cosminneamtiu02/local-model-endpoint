@@ -102,8 +102,9 @@ jobs:
       # in seconds (vs after the slow test suite) and the actionable
       # error appears at the top of the workflow log. ``check:plist``
       # is intentionally omitted — it is darwin-only (validates the
-      # launchd plist with ``plutil``) and the runner is ``ubuntu-latest``;
-      # the ``darwin-checks`` job below covers it.
+      # launchd plist with ``plutil``) and the runner is pinned to
+      # ``ubuntu-24.04`` (round-22 hardening); the ``darwin-checks`` job
+      # below covers it.
       - name: Lockfile freshness check
         working-directory: .
         run: task check:lockfile
@@ -133,12 +134,12 @@ jobs:
         working-directory: .
         run: task check:coverage
 
-      # Dependency CVE scan. Lane 16.6: ``continue-on-error`` is now
-      # ``false`` per user mandate ("fix everything, strict option"). A
-      # real CVE on a pinned production dep fails CI; the operator must
-      # bump or pin around it before merging. pip-audit's editable-skip
-      # warning is not a CVE finding (it exits 0), so the only failure
-      # mode here is an actual advisory.
+      # Dependency CVE scan. Lane 16.6: ``continue-on-error`` is left
+      # unset (default ``false``) per user mandate ("fix everything,
+      # strict option"). A real CVE on a pinned production dep fails
+      # CI; the operator must bump or pin around it before merging.
+      # pip-audit's editable-skip warning is not a CVE finding (it
+      # exits 0), so the only failure mode here is an actual advisory.
       - name: Dependency CVE scan
         working-directory: .
         run: task check:audit:backend
@@ -285,12 +286,14 @@ jobs:
         working-directory: .
         run: task check:audit:errors
 
-  # Darwin-only check for the launchd plist. ``ubuntu-latest`` cannot run
-  # ``plutil``, so plist syntax regressions would otherwise only be caught
-  # locally on the maintainer's Mac Mini — exactly the operational surface
-  # this repo targets. ~30 sec of macos-runner minutes per PR closes that
-  # gap. The job has no ``Install dependencies`` step because ``check:plist``
-  # only invokes ``plutil``, which ships in the macOS runner image.
+  # Darwin-only check for the launchd plist. The other jobs run on
+  # ``ubuntu-24.04`` (pinned per round-22 hardening) which doesn't ship
+  # ``plutil``, so plist syntax regressions would otherwise only be
+  # caught locally on the maintainer's Mac Mini — exactly the
+  # operational surface this repo targets. ~30 sec of macos-runner
+  # minutes per PR closes that gap. The job has no ``Install
+  # dependencies`` step because ``check:plist`` only invokes ``plutil``,
+  # which ships in the macOS runner image.
   darwin-checks:
     # Pin to the current major rather than ``macos-latest`` so a GitHub
     # auto-bump to a future major doesn't silently shift the runner image

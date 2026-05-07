@@ -2,8 +2,10 @@
 
 This module is the SOLE approved location in the codebase for
 ``logging.getLogger``. There are FOUR carve-out call sites at the
-bottom of ``configure_logging``: one binds the JSON handler to the
-root logger, and three silence the noisy uvicorn loggers
+bottom of ``configure_logging``: one binds the formatter-wrapped
+handler to the root logger (the formatter is JSON-mode or
+ConsoleRenderer-mode driven by ``json_output``; the handler itself
+is mode-agnostic), and three silence the noisy uvicorn loggers
 (``uvicorn.access`` — duplicates the ``request_completed`` line
 emitted by ``RequestIdMiddleware``; ``uvicorn.error`` and
 ``uvicorn.asgi`` — emit startup / lifespan banners that duplicate
@@ -88,6 +90,13 @@ def ascii_safe(value: str | bytes, *, max_chars: int = EXC_MESSAGE_PREVIEW_MAX_C
     return text.encode("ascii", errors="replace").decode("ascii")[:max_chars]
 
 
+_REDACTED_SENTINEL: Final[str] = "<redacted>"
+"""Wire-visible sentinel substituted into the event dict for blocklisted
+keys. Centralized here so a future change of the sentinel format (e.g.
+``"[REDACTED]"`` or ``"***"``) is a single-constant edit instead of two
+literal sites (this module + the test that asserts the substitution)."""
+
+
 _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
     {
         "messages",
@@ -96,6 +105,16 @@ _REDACTION_BLOCKLIST: Final[frozenset[str]] = frozenset(
         "tool_calls",
         "audios",
         "images",
+        # ``metadata`` is a defense-in-depth backstop: the
+        # ``InferenceRequest.metadata`` field is consumer-supplied opaque
+        # attribution data (per-project trace IDs, session tokens) and a
+        # future log site doing ``logger.info("inference_received",
+        # metadata=request.metadata)`` would surface another consumer's
+        # attribution into shared LIP logs. Intentionally distinguishes
+        # from the ``importlib.metadata.version(...)`` library-name —
+        # this redactor inspects ONLY top-level keys, and no log site
+        # binds the library payload under the bare ``metadata`` key.
+        "metadata",
         # Each entry below is a wire-shape concept present in the Ollama
         # /api/chat request or response. The CLAUDE.md ban (never log message
         # content / prompt text / model output / tool-call arguments) is the
@@ -222,7 +241,7 @@ def _redact_sensitive_keys(
     # future contributor adding key DELETION instead of value replacement
     # would hit ``RuntimeError: dictionary changed size during iteration``.
     for key in event_dict.keys() & _REDACTION_BLOCKLIST:
-        event_dict[key] = "<redacted>"
+        event_dict[key] = _REDACTED_SENTINEL
     return event_dict
 
 
@@ -301,6 +320,14 @@ def configure_logging(*, log_level: str = "info", json_output: bool = False) -> 
                 structlog.tracebacks.ExceptionDictTransformer(show_locals=False),
             ),
         )
+    # ``UnicodeDecoder`` decodes ``bytes`` event-dict values to UTF-8
+    # strings before the renderer sees them. Necessary because
+    # ``ascii_safe(value: str | bytes, ...)`` upstream call sites can
+    # leave ``bytes`` values in the event dict; without this processor,
+    # ``JSONRenderer`` would emit ``b'...'`` literals (or fail on
+    # non-utf-8 bytes), and ``ConsoleRenderer`` would write Python's
+    # bytes-repr. Placed AFTER ``_redact_sensitive_keys`` so the
+    # redactor's ``<redacted>`` sentinel (already a str) is unaffected.
     shared_processors.append(structlog.processors.UnicodeDecoder())
 
     if json_output:

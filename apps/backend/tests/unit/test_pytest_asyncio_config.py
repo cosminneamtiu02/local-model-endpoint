@@ -19,7 +19,7 @@ would silently drift one off ``session`` while the other stays — the
 suite stays green until the first session-scoped async fixture lands,
 which then surfaces as a confusing ScopeMismatch at unrelated PR time.
 
-Pin all three invariants mechanically via ``tomllib`` so a drift fires
+Pin all the invariants mechanically via ``tomllib`` so a drift fires
 loudly at test time, attributing the regression to the pyproject
 change directly.
 """
@@ -28,22 +28,36 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 
-def test_asyncio_default_loop_scopes_in_lockstep() -> None:
+@pytest.fixture(scope="module")
+def pytest_options() -> dict[str, Any]:
+    """Parse ``apps/backend/pyproject.toml`` once per module.
+
+    Six tests in this module each previously re-opened and re-parsed
+    the same TOML file; mirrors the precedent at
+    ``tests/unit/exceptions/test_errors_yaml_drift_guard.py:errors_data``.
+    Module scope is intentional — every test in this module reads the
+    same parsed dict, parse-once-share-across-tests.
+    """
+    # ``parents[2]`` from ``tests/unit/test_pytest_asyncio_config.py`` is
+    # ``apps/backend/`` (the workspace root that owns the pyproject).
+    workspace_root = Path(__file__).resolve().parents[2]
+    with (workspace_root / "pyproject.toml").open("rb") as f:
+        config = tomllib.load(f)
+    return config["tool"]["pytest"]["ini_options"]
+
+
+def test_asyncio_default_loop_scopes_in_lockstep(pytest_options: dict[str, Any]) -> None:
     """``asyncio_default_fixture_loop_scope`` and
     ``asyncio_default_test_loop_scope`` MUST share the same value.
 
     See ``apps/backend/pyproject.toml`` lines around the
     ``asyncio_default_*`` settings for the upstream rationale.
     """
-    # ``parents[2]`` from ``tests/unit/test_pytest_asyncio_config.py`` is
-    # ``apps/backend/`` (the workspace root that owns the pyproject).
-    workspace_root = Path(__file__).resolve().parents[2]
-    pyproject = workspace_root / "pyproject.toml"
-    with pyproject.open("rb") as f:
-        config = tomllib.load(f)
-    pytest_options = config["tool"]["pytest"]["ini_options"]
     fixture_scope = pytest_options.get("asyncio_default_fixture_loop_scope")
     test_scope = pytest_options.get("asyncio_default_test_loop_scope")
     assert fixture_scope == test_scope, (
@@ -61,7 +75,7 @@ def test_asyncio_default_loop_scopes_in_lockstep() -> None:
     )
 
 
-def test_asyncio_mode_is_auto() -> None:
+def test_asyncio_mode_is_auto(pytest_options: dict[str, Any]) -> None:
     """``asyncio_mode = "auto"`` is what auto-decorates every async test.
 
     pytest-asyncio's default is ``"strict"`` — a flip would silently
@@ -74,11 +88,6 @@ def test_asyncio_mode_is_auto() -> None:
     async-as-sync tests, so this drift-guard is the canonical mechanical
     pin.
     """
-    workspace_root = Path(__file__).resolve().parents[2]
-    pyproject = workspace_root / "pyproject.toml"
-    with pyproject.open("rb") as f:
-        config = tomllib.load(f)
-    pytest_options = config["tool"]["pytest"]["ini_options"]
     asyncio_mode = pytest_options.get("asyncio_mode")
     assert asyncio_mode == "auto", (
         f"``asyncio_mode`` must be ``'auto'`` so async tests auto-decorate; "
@@ -87,7 +96,7 @@ def test_asyncio_mode_is_auto() -> None:
     )
 
 
-def test_python_classes_sentinel_is_no_test_classes_allowed() -> None:
+def test_python_classes_sentinel_is_no_test_classes_allowed(pytest_options: dict[str, Any]) -> None:
     """``python_classes = ["NoTestClassesAllowed"]`` is the silent-suppression
     backstop for CLAUDE.md sacred rule "no test classes".
 
@@ -99,11 +108,6 @@ def test_python_classes_sentinel_is_no_test_classes_allowed() -> None:
     A flip back to the pytest default ``["Test*"]`` would silently re-enable
     class-based collection and defeat the no-test-class rule mechanically.
     """
-    workspace_root = Path(__file__).resolve().parents[2]
-    pyproject = workspace_root / "pyproject.toml"
-    with pyproject.open("rb") as f:
-        config = tomllib.load(f)
-    pytest_options = config["tool"]["pytest"]["ini_options"]
     python_classes = pytest_options.get("python_classes")
     assert python_classes == ["NoTestClassesAllowed"], (
         f"``python_classes`` must be ``['NoTestClassesAllowed']`` so the "
@@ -114,33 +118,32 @@ def test_python_classes_sentinel_is_no_test_classes_allowed() -> None:
     )
 
 
-def test_python_files_pattern_locks_naming_convention() -> None:
-    """``python_files = ["test_*.py"]`` locks CLAUDE.md's
-    ``test_<unit>_<scenario>_<expected>`` naming convention at the
-    collector layer.
+def test_python_files_pin_locks_filename_pattern(pytest_options: dict[str, Any]) -> None:
+    """``python_files = ["test_*.py"]`` locks CLAUDE.md's filename naming.
 
     Default pytest also picks up ``*_test.py``, which would let a contributor
     land a misnamed file silently; pinning explicitly locks the convention
     mechanically so a flip would surface in CI.
     """
-    workspace_root = Path(__file__).resolve().parents[2]
-    pyproject = workspace_root / "pyproject.toml"
-    with pyproject.open("rb") as f:
-        config = tomllib.load(f)
-    pytest_options = config["tool"]["pytest"]["ini_options"]
     python_files = pytest_options.get("python_files")
-    python_functions = pytest_options.get("python_functions")
     assert python_files == ["test_*.py"], (
         f"``python_files`` must be ``['test_*.py']`` per CLAUDE.md naming "
         f"convention; got {python_files!r}."
     )
+
+
+def test_python_functions_pin_locks_function_name_pattern(pytest_options: dict[str, Any]) -> None:
+    """``python_functions = ["test_*"]`` locks CLAUDE.md's
+    ``test_<unit>_<scenario>_<expected>`` function naming at the collector layer.
+    """
+    python_functions = pytest_options.get("python_functions")
     assert python_functions == ["test_*"], (
         f"``python_functions`` must be ``['test_*']`` per CLAUDE.md naming "
         f"convention; got {python_functions!r}."
     )
 
 
-def test_addopts_contains_strict_markers_and_strict_config() -> None:
+def test_addopts_contains_strict_markers_and_strict_config(pytest_options: dict[str, Any]) -> None:
     """``--strict-markers`` + ``--strict-config`` MUST be in ``addopts``.
 
     Without these flags, a typo in a pytest marker (``@pytest.mark.solw``
@@ -149,11 +152,6 @@ def test_addopts_contains_strict_markers_and_strict_config() -> None:
     instead of ``asyncio_mode``) is silently ignored. Both classes of
     typo are exactly the regressions ``--strict-*`` is designed to catch.
     """
-    workspace_root = Path(__file__).resolve().parents[2]
-    pyproject = workspace_root / "pyproject.toml"
-    with pyproject.open("rb") as f:
-        config = tomllib.load(f)
-    pytest_options = config["tool"]["pytest"]["ini_options"]
     addopts = pytest_options.get("addopts", [])
     assert "--strict-markers" in addopts, (
         f"``--strict-markers`` must be in ``addopts`` so unknown markers "
@@ -165,7 +163,7 @@ def test_addopts_contains_strict_markers_and_strict_config() -> None:
     )
 
 
-def test_xfail_strict_is_true() -> None:
+def test_xfail_strict_is_true(pytest_options: dict[str, Any]) -> None:
     """``xfail_strict = true`` MUST be set so unexpectedly-passing xfails
     fail the run (forces the author to remove the marker rather than
     leaving stale xfails in the suite).
@@ -175,11 +173,6 @@ def test_xfail_strict_is_true() -> None:
     Without this guard, a flip back to the pytest default of ``False``
     would silently re-enable the stale-xfail antipattern.
     """
-    workspace_root = Path(__file__).resolve().parents[2]
-    pyproject = workspace_root / "pyproject.toml"
-    with pyproject.open("rb") as f:
-        config = tomllib.load(f)
-    pytest_options = config["tool"]["pytest"]["ini_options"]
     xfail_strict = pytest_options.get("xfail_strict")
     assert xfail_strict is True, (
         f"``xfail_strict`` must be ``True`` so unexpectedly-passing xfails "

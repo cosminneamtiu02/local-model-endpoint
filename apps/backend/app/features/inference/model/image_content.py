@@ -23,7 +23,10 @@ class ImageContent(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
-    type: Literal["image"] = "image"
+    type: Literal["image"] = Field(
+        default="image",
+        description="Discriminator value 'image' selecting the image variant of ContentPart.",
+    )
     # ``AnyHttpUrl`` clamps the scheme to http/https and rejects ``file://``,
     # ``javascript:``, etc. — defense-in-depth vs SSRF / scheme-confusion when
     # the URL-fetching adapter path lands. ``UrlConstraints(max_length=...)``
@@ -40,8 +43,22 @@ class ImageContent(BaseModel):
     # hosts here so a request body cannot trick LIP into bouncing onto
     # 169.254.169.254, 127.0.0.1:11434 (Ollama itself), etc. Land the
     # clamp in the same PR as the URL-fetch wiring.
-    url: Annotated[AnyHttpUrl, UrlConstraints(max_length=URL_MAX_CHARS)] | None = None
-    base64: str | None = Field(default=None, min_length=1, max_length=BASE64_MEDIA_MAX_CHARS)
+    url: (
+        Annotated[
+            AnyHttpUrl,
+            UrlConstraints(max_length=URL_MAX_CHARS),
+            Field(
+                description="Public http/https URL of the image. Mutually exclusive with base64.",
+            ),
+        ]
+        | None
+    ) = None
+    base64: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=BASE64_MEDIA_MAX_CHARS,
+        description="Base64-encoded image bytes. Mutually exclusive with url.",
+    )
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> Self:

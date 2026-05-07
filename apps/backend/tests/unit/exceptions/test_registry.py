@@ -22,14 +22,15 @@ from app.exceptions import (
 def test_registry_contains_all_canonical_error_codes() -> None:
     """ERROR_CLASSES dict maps every code in errors.yaml to its class.
 
-    Five generic codes (NOT_FOUND, CONFLICT, VALIDATION_FAILED, INTERNAL_ERROR,
-    RATE_LIMITED) plus five LIP-specific codes added by LIP-E004-F004
-    (QUEUE_FULL, INFERENCE_TIMEOUT, ADAPTER_CONNECTION_FAILURE,
-    REGISTRY_NOT_FOUND, MODEL_CAPABILITY_NOT_SUPPORTED) plus one HTTP-status
-    code added for ``_handle_http_exception`` source-of-truth alignment
-    (METHOD_NOT_ALLOWED). The wire ``code: "HTTP_ERROR"`` ships from a
-    string literal in ``_get_http_code_for_status`` for the generic-4xx
-    framework path; there is no DomainError class for it.
+    Six generic codes (NOT_FOUND, CONFLICT, VALIDATION_FAILED, INTERNAL_ERROR,
+    METHOD_NOT_ALLOWED, RATE_LIMITED) plus five LIP-specific codes added by
+    LIP-E004-F004 (QUEUE_FULL, INFERENCE_TIMEOUT, ADAPTER_CONNECTION_FAILURE,
+    REGISTRY_NOT_FOUND, MODEL_CAPABILITY_NOT_SUPPORTED). Grouping mirrors
+    errors.yaml's ``# ── Generic codes`` / ``# ── LIP-specific codes``
+    comment headers — the YAML is the single source of truth. The wire
+    ``code: "HTTP_ERROR"`` ships from a string literal in
+    ``_get_http_code_for_status`` for the generic-4xx framework path; there
+    is no DomainError class for it.
     """
     expected = {
         "NOT_FOUND": NotFoundError,

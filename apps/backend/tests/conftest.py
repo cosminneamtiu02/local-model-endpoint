@@ -19,8 +19,12 @@ if TYPE_CHECKING:
 # convention, and pytest skips them anyway under the ``Test`` prefix
 # rule). MUST stay in lockstep with the same regex in
 # ``packages/error-contracts/tests/conftest.py``; cross-workspace import
-# isn't installable so the duplication is intentional and the cross-
-# reference comment is the only enforcement.
+# isn't installable so the duplication is intentional, and the
+# ``check:test-class-regex-sync`` Taskfile target greps the literal
+# ``_TEST_CLASS_PATTERN = re.compile`` substring for byte-equality —
+# which is why this constant is intentionally NOT annotated with
+# ``Final[re.Pattern[str]]`` (the annotation would change the grep
+# substring and silently break the lockstep gate).
 _TEST_CLASS_PATTERN = re.compile(r"^class Test[A-Za-z_]", re.MULTILINE)
 
 
