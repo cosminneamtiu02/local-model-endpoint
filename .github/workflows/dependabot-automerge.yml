@@ -76,9 +76,14 @@ jobs:
   automerge:
     runs-on: ubuntu-latest
     # ``gh pr merge --auto`` is a single GitHub API call that resolves in
-    # ~1 second. 2 minutes leaves headroom for runner cold-start without
-    # masking a hung API call as a long-running step.
-    timeout-minutes: 2
+    # ~1 second. 5 minutes leaves headroom for ubuntu-latest cold-start
+    # variance during peak-hours runner congestion (cold ``Set up job``
+    # provisioning has been observed at 90s+ in worst case) without
+    # masking a hung API call as a long-running step. The widening
+    # absorbs cold-start variance with ~5x headroom over the 1s API
+    # call so a transient cancellation no longer silently leaves a
+    # Dependabot PR in not-yet-set state pending the next ``synchronize``.
+    timeout-minutes: 5
     permissions:
       # Job-level scopes are minted only when the job's ``if:`` evaluates
       # true, so flipping ``DEPENDABOT_AUTOMERGE_ENABLED`` to ``"false"``

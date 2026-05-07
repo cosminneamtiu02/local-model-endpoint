@@ -11,7 +11,7 @@ and [graphs/LIP/](graphs/LIP/) for the Project + Epic + Feature tree.
 
 - **Backend**: Python 3.13, FastAPI, Pydantic v2, pydantic-settings, asyncio, httpx, structlog
 - **Inference backend**: Ollama running natively on macOS (Gemma 4 E2B in v1)
-- **Testing**: pytest + pytest-asyncio (Schemathesis lands with LIP-E001-F002 per [ADR-011](docs/decisions.md#adr-011-per-layer-scaffolding-deferred-until-feature-lands))
+- **Testing**: pytest + pytest-asyncio (Schemathesis fuzz lands with LIP-E001-F002 per the lazy-scaffolding discipline of [ADR-011](docs/decisions.md#adr-011-per-layer-scaffolding-deferred-until-feature-lands) — no inference operation to fuzz before the feature lands)
 - **Tooling**: Taskfile, Ruff, Pyright, import-linter, uv, pre-commit, pytest-cov, pip-audit, detect-secrets
 
 ## Quick Start

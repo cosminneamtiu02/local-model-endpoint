@@ -268,9 +268,10 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        precommit_pin=$(grep -E '^\s+rev:\s+v[0-9]' .pre-commit-config.yaml | grep -A 0 'detect-secrets' || true)
-        # Re-anchor the search if the rev: line precedes the repo: line in the YAML order
-        # (the ``-B 1`` form is portable across BSD/GNU grep).
+        # awk re-anchors at the detect-secrets repo block (since the
+        # rev: line and the repo: line can appear in either order under
+        # YAML rules) then captures the next rev: line — robust against
+        # re-ordered hooks; portable across BSD/GNU awk.
         precommit_rev=$(awk '/repo:.*detect-secrets/{found=1; next} found && /rev:/ {print $2; exit}' .pre-commit-config.yaml)
         taskfile_rev=$(grep -oE 'detect-secrets==[0-9.]+' Taskfile.yml | head -1 | cut -d= -f3)
         # Strip the leading ``v`` from the pre-commit pin (tag style) so

@@ -62,8 +62,10 @@ Each feature owns its wire schemas in `features/<name>/schemas/`. Common file ro
 - `<entity>_request.py` — fields the consumer sends.
 - `<entity>_response.py` — fields the service returns.
 
-Schemas may import value-objects from `model/` (Message, ModelParams, ContentPart,
-OllamaChatResult; ModelInfo lands with LIP-E002-F001) — `model/` in LIP holds project
+Schemas may import value-objects from `model/` (Message, ModelParams,
+TextContent / ImageContent / AudioContent, OllamaChatResult; ContentPart is a
+discriminated-union type alias over the three content variants — NOT a Pydantic
+class itself; ModelInfo lands with LIP-E002-F001) — `model/` in LIP holds project
 value-objects, not ORM types, since the service has no database. Models never import schemas; that direction
 stays strict. See the Layer Rules in [CLAUDE.md](../CLAUDE.md) for the authoritative
 statement.

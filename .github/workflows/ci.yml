@@ -271,6 +271,30 @@ jobs:
         working-directory: .
         run: task check:test-class-regex-sync
 
+      # detect-secrets version sync between .pre-commit-config.yaml and
+      # the Taskfile invocation — pinned in CI (not just local
+      # ``task check``) so a Dependabot PR that bumps the pre-commit hook
+      # without bumping the Taskfile pin (or vice versa) silently differs
+      # which detection rules fire locally vs in CI. Symmetric with the
+      # ``check:test-class-regex-sync`` step above; both are cross-file
+      # version-drift guards that CLAUDE.md's pre-commit ↔ CI symmetry
+      # rule depends on.
+      - name: detect-secrets version sync
+        working-directory: .
+        run: task check:detect-secrets-version-sync
+
+      # Lockfile freshness check for the error-contracts workspace.
+      # Without this step, the error-contracts job nominally owns the
+      # workspace's correctness gates but does NOT enforce its own
+      # lockfile freshness — coverage previously came as a side-effect
+      # of the ``backend-checks`` job's ``task check:lockfile`` (which
+      # fans out to BOTH workspaces). A future refactor that dropped
+      # or split the backend-side fan-out would silently lose
+      # ``packages/error-contracts/uv.lock`` freshness coverage from CI.
+      - name: Lockfile freshness check (errors)
+        working-directory: .
+        run: task check:lockfile:errors
+
       # Lane 16.6: strict CVE gate, mirror of the backend job's policy.
       - name: Dependency CVE scan
         working-directory: .

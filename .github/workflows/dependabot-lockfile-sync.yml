@@ -305,6 +305,16 @@ jobs:
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          # Pin the C locale for the git-push subprocess so the
+          # ``non-fast-forward|stale info`` discriminator (lane 10.10
+          # rationale block ~50 lines below) lands the literal English
+          # error message regardless of runner-image LANG defaults.
+          # A future runner image that defaults to a non-English locale
+          # would otherwise localize the error and silently re-introduce
+          # the credential-error-as-success bug the discriminator was
+          # added to fix.
+          LANG: C
+          LC_ALL: C
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"

@@ -107,7 +107,7 @@ single request can be correlated across handler + adapter + access log.
 | Field | Meaning |
 |---|---|
 | `event` | snake_case event name (see taxonomy below) |
-| `level` | `debug` / `info` / `warning` / `error` / `critical` |
+| `level` | `debug` / `info` / `warning` / `error` / `critical` (lowercase wire form per `structlog.stdlib.add_log_level`) |
 | `timestamp` | ISO 8601 UTC |
 | `logger` | dotted module path |
 | `request_id` | UUID set by `RequestIdMiddleware` (or by `_resolve_request_id`'s fallback if the middleware was misconfigured) |
@@ -118,7 +118,11 @@ Per-request lines additionally carry `method`, `path`,
 `X-Request-ID`, `generated` if LIP minted one, `fallback` if the
 middleware was missing), `had_rejected_client_id=True` when a malformed
 `X-Request-ID` header was rejected, `error_code` (when an error fired),
-and `duration_ms` on the trailing `request_completed` line.
+`client_ip`, `client_port`, and `duration_ms` + `status_code` on the
+trailing `request_completed` line. Note: the trailing access-log field
+is `status_code` (the integer HTTP status), not `status` — operator
+jq filters should `select(.status_code == 500)` rather than
+`select(.status == 500)`.
 
 ### Lifecycle event taxonomy
 

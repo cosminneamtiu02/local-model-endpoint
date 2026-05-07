@@ -2,12 +2,14 @@
 
 Every capability in the LIP scaffold, with a short description.
 
-The features documented below describe what exists *right now*. Five LIP feature
-nodes have already landed in code: LIP-E001-F001 inference envelopes, LIP-E003-F001
-lifespan OllamaClient, LIP-E003-F002 envelope↔Ollama translation, LIP-E004-F004
-RFC 7807 problem+json, and LIP-E005-F003 Ollama launchd agent. Of those, three
-carry `status: implemented` in [graphs/LIP/](../graphs/LIP/) (E001-F001, E003-F001,
-E005-F003); the other two carry `status: verifiable`. `service/` and `router/`
+The features documented below describe what exists *right now*. The current
+`status:` field on every LIP feature graph is the source of truth — run
+`grep -n '^status:' graphs/LIP/LIP-*.md` to enumerate the live state. Today
+five LIP feature nodes have landed in code (LIP-E001-F001, LIP-E003-F001,
+LIP-E003-F002, LIP-E004-F004, LIP-E005-F003); the per-node `status:` values
+indicate whether each is `implemented` (code + tests + green `task check`)
+or `verifiable` (code present but graph-status not yet hand-bumped per the
+[conventions.md](conventions.md) workflow). `service/` and `router/` slices
 arrive with LIP-E001-F002 per ADR-011 lazy scaffolding.
 
 `★ Insight ─────────────────────────────────────`
@@ -179,7 +181,8 @@ Run in well under 10 seconds. Cover:
 - **`tests/unit/features/inference/`** — mirrors `app/features/inference/`,
   plus `test_request_id_fixture_drift_guard.py` at the top level
   (pins the shared `VALID_REQUEST_ID` fixture used across the feature's
-  unit + integration tests):
+  unit tests; the drift-guard module's own docstring confirms the
+  unit-only scope):
   - `model/` — `test_message.py`, `test_model_params.py`, `test_content_part.py`,
     `test_text_content.py`, `test_image_content.py`, `test_audio_content.py`,
     `test_ollama_chat_result.py`, `test_ollama_translation.py`,

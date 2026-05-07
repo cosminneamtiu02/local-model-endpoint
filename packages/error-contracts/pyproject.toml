@@ -19,7 +19,16 @@ dependencies = []
 [dependency-groups]
 dev = [
     "pytest==9.0.3",
-    # pytest-asyncio not needed — codegen tests are sync.
+    # pytest-asyncio not needed — codegen tests are sync. If a future
+    # contributor adds the FIRST async test to this workspace, also pin
+    # ``pytest-asyncio==<same-version-as-apps/backend>`` here AND set
+    # ``asyncio_mode = "auto"`` in [tool.pytest.ini_options] below in
+    # lockstep with the apps/backend pin. The cross-workspace version
+    # alignment is the contract; the
+    # ``test_pytest_config_drift_guard.py`` self-test in this
+    # workspace's tests pins the deliberate omission so the contributor
+    # adding async tests sees a red bar guiding the lockstep edit.
+
     "ruff==0.15.12",
     "pyright==1.1.409",
     # pip-audit mirrors the backend's CVE scan via ``task check:audit:errors``
