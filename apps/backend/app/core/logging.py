@@ -31,6 +31,26 @@ ollama_client.py and any future call site reuse one constant rather than
 hand-rolling 200/256/500 caps.
 """
 
+PACKAGE_NAME: Final[str] = "lip-backend"
+"""LIP backend package name. Single source of truth for the literal that
+appears in (a) ``importlib.metadata.version("lip-backend")`` lookups in
+``app/main.py`` and ``app/features/inference/repository/ollama_client.py``,
+(b) ``package_name=`` log kwargs on app-version-resolution failure events,
+and (c) the User-Agent prefix in ``OllamaClient._build_user_agent``. A
+future ``pyproject.toml`` ``[project] name`` rename touches only this
+constant + the manifest + the lockfile, instead of five separate
+literal-string sites."""
+
+VERSION_FALLBACK: Final[str] = "unknown"
+"""Fallback version-string when ``importlib.metadata.version("lip-backend")``
+raises ``PackageNotFoundError`` or any other unexpected error at module-
+import time. Wire surfaces (OpenAPI ``info.version``, User-Agent header,
+``app_version_resolve_*`` log lines) all use this constant so the
+fallback discriminator is one literal, not three. Distinct from
+``_UNKNOWN_FIELD_SENTINEL`` (validation handler) and ``"unknown"`` as a
+``failure_category`` (OllamaClient.chat) — those carry different semantic
+roles even though the literal value coincidentally matches."""
+
 _MS_PER_SECOND: Final[int] = 1000
 
 

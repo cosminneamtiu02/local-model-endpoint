@@ -25,17 +25,23 @@ import yaml
 # — load_and_validate is the gatekeeper that establishes the invariant via
 # explicit isinstance checks and a final cast. Helpers below accept the
 # narrowed types so pyright strict can verify the call graph.
-_ParamsMap = dict[str, str]
-_ErrorSpec = dict[str, Any]
-_ErrorsFile = dict[str, Any]
+# PEP 695 ``type`` keyword form — symmetric with backend type aliases
+# (``HttpMethod``, ``MetadataKey``, ``StopToken``, ``ContentPart``,
+# ``FinishReason``) under CLAUDE.md sacred rule "no paradigm drift". The
+# previously-declared ``_ErrorSpec`` alias was dead code (zero references
+# after the declaration) and has been removed; if a future ``errors[code]``
+# loop needs the typed-dict shape, re-introduce it as ``type _ErrorSpec
+# = dict[str, Any]`` in lockstep with the consumer signature.
+type _ParamsMap = dict[str, str]
+type _ErrorsFile = dict[str, Any]
 
 # Module-level constants are ``Final`` to mirror the discipline in
 # ``apps/backend/app/api/request_id_middleware.py``, ``exception_handler_registry.py``,
 # and ``ollama_translation.py``: the rebind-immutable annotation lets pyright
 # catch accidental reassignment and keeps the codegen package idiomatically
 # consistent with the backend it generates into.
-VALID_PARAM_TYPES: Final[frozenset[str]] = frozenset({"string", "integer", "number", "boolean"})
-PARAM_TYPE_TO_PYTHON: Final[Mapping[str, str]] = MappingProxyType(
+_VALID_PARAM_TYPES: Final[frozenset[str]] = frozenset({"string", "integer", "number", "boolean"})
+_PARAM_TYPE_TO_PYTHON: Final[Mapping[str, str]] = MappingProxyType(
     {
         "string": "str",
         "integer": "int",
@@ -74,24 +80,24 @@ RESERVED_PARAM_NAMES: Final[frozenset[str]] = frozenset(
 # parenthesized continuation form ruff format produces, so the codegen is
 # idempotent under ``ruff format`` and ``task check:errors``' drift guard
 # remains stable across regenerations.
-RUFF_LINE_LENGTH: Final[int] = 100
+_RUFF_LINE_LENGTH: Final[int] = 100
 
 # HTTP status range — codes outside [400, 599] are not error responses per
-# RFC 9110 §15.5/§15.6 and have no place in errors.yaml. ``HTTP_5XX_FLOOR``
+# RFC 9110 §15.5/§15.6 and have no place in errors.yaml. ``_HTTP_5XX_MIN``
 # is the boundary the codegen uses to gate the PII-safe-allowlist check
 # at codegen time; the wider 400-599 range is the YAML-validation gate.
-HTTP_ERROR_STATUS_MIN: Final[int] = 400
-HTTP_ERROR_STATUS_MAX: Final[int] = 599
-HTTP_5XX_FLOOR: Final[int] = 500
+_HTTP_ERROR_STATUS_MIN: Final[int] = 400
+_HTTP_ERROR_STATUS_MAX: Final[int] = 599
+_HTTP_5XX_MIN: Final[int] = 500
 
-# Control character boundaries — symmetric with the ``_C0_CONTROL_UPPER`` /
+# Control character boundaries — symmetric with the ``_C0_CONTROL_UPPER_EXCLUSIVE`` /
 # ``_DEL_CHAR`` constants in ``apps/backend/app/api/request_id_middleware.py``
 # (the runtime ASCII-clean discipline pattern). Codes < 0x20 are the C0
 # control range (\\x00-\\x1f, ASCII control chars); 0x7f is DEL. Used by the
 # detail_template control-char rejector so a YAML author with a misbehaving
 # editor cannot inject raw control bytes that would ride into wire-body
 # ``ProblemDetails.detail`` and dev-mode ConsoleRenderer log lines.
-_C0_CONTROL_UPPER: Final[int] = 0x20
+_C0_CONTROL_UPPER_EXCLUSIVE: Final[int] = 0x20
 # DEL (0x7F) is the lone codepoint above the C0 range that ``ascii_safe``
 # (the runtime peer in ``app/core/logging.py``) also flags. Hoisting it to
 # a named constant keeps the codegen control-char rejector and the runtime
@@ -190,7 +196,7 @@ def _detect_duplicate_keys(raw_text: str) -> None:
                         msg = f"Duplicate error code: {code}"
                         raise ValueError(msg)
                     seen_codes.add(code)
-            elif stripped and not stripped.startswith(" ") and not stripped.startswith("#"):
+            elif stripped and not stripped.startswith((" ", "#")):
                 in_errors = False
                 error_indent = None
 
@@ -205,7 +211,7 @@ def _derive_type_uri(code: str) -> str:
     return f"urn:lip:error:{code.lower().replace('_', '-')}"
 
 
-def _wrap_import_if_too_long(import_line: str, *, line_length: int = RUFF_LINE_LENGTH) -> str:
+def _wrap_import_if_too_long(import_line: str, *, line_length: int = _RUFF_LINE_LENGTH) -> str:
     """Wrap a ``from X import Y`` line in parens when single-line form exceeds line_length.
 
     Matches what ruff format would produce, so the generator output is
@@ -256,17 +262,17 @@ def _validate_detail_template(code: str, template: str, params: _ParamsMap) -> N
     so multi-line templates remain legal.
     """
     allowed_control_chars = frozenset({"\t", "\n"})
-    # Single set-comprehension over ``_C0_CONTROL_UPPER`` AND ``_DEL_CHAR``
+    # Single set-comprehension over ``_C0_CONTROL_UPPER_EXCLUSIVE`` AND ``_DEL_CHAR``
     # — symmetric with the walrus-memoised peer in
     # ``apps/backend/app/api/request_id_middleware.py`` (``(o := ord(c)) <
-    # _C0_CONTROL_UPPER or o == _DEL_CHAR``). The previous ``set`` union
+    # _C0_CONTROL_UPPER_EXCLUSIVE or o == _DEL_CHAR``). The previous ``set`` union
     # form computed the DEL branch via a literal ``"\x7f"`` and split the
     # codepoint check across two expressions, which broke the asserted
     # symmetry with the middleware's named-bound spelling.
     bad = sorted(
         ch
         for ch in template
-        if ((o := ord(ch)) < _C0_CONTROL_UPPER or o == _DEL_CHAR)
+        if ((o := ord(ch)) < _C0_CONTROL_UPPER_EXCLUSIVE or o == _DEL_CHAR)
         and ch not in allowed_control_chars
     )
     if bad:
@@ -329,7 +335,7 @@ def _validate_params(code: str, params: _ParamsMap) -> None:
     """Validate param types, reserved-name collisions, and identifier safety.
 
     Three independent checks per param:
-    1. Type is one of VALID_PARAM_TYPES.
+    1. Type is one of _VALID_PARAM_TYPES.
     2. Name does not collide with a reserved RFC 7807 / LIP envelope key
        (response handler crashes on kwargs collision otherwise).
     3. Name is a valid Python identifier and not a reserved keyword (the
@@ -337,10 +343,10 @@ def _validate_params(code: str, params: _ParamsMap) -> None:
        name produces invalid Python at class-definition time).
     """
     for param_name, param_type in params.items():
-        if param_type not in VALID_PARAM_TYPES:
+        if param_type not in _VALID_PARAM_TYPES:
             msg = (
                 f"Invalid param type '{param_type}' for {code}.{param_name}. "
-                f"Must be one of: {', '.join(sorted(VALID_PARAM_TYPES))}"
+                f"Must be one of: {', '.join(sorted(_VALID_PARAM_TYPES))}"
             )
             raise ValueError(msg)
         if param_name in RESERVED_PARAM_NAMES:
@@ -359,7 +365,7 @@ def _validate_params(code: str, params: _ParamsMap) -> None:
             raise ValueError(msg)
 
 
-SUPPORTED_SCHEMA_VERSION: Final[int] = 1
+_SUPPORTED_SCHEMA_VERSION: Final[int] = 1
 
 
 _DESCRIPTION_MAX_CHARS: Final[int] = 512
@@ -457,7 +463,7 @@ def _validate_no_5xx_string_params(code: str, http_status: int, params: _ParamsM
     *specific* error code. New 5xx string params MUST extend that
     allowlist with explicit justification.
     """
-    if http_status < HTTP_5XX_FLOOR:
+    if http_status < _HTTP_5XX_MIN:
         return
     forbidden = [
         name
@@ -485,7 +491,7 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
 
     raw_data = yaml.safe_load(raw_text)
     # The top-level ``version`` field is part of the error-contracts schema and
-    # must match SUPPORTED_SCHEMA_VERSION. A future bump means the generator
+    # must match _SUPPORTED_SCHEMA_VERSION. A future bump means the generator
     # interprets the YAML differently — we want a loud failure on rev mismatch
     # rather than silent partial-regeneration of stale code. Validate the YAML
     # is a dict (not a list / scalar / null) before we trust the cast below.
@@ -494,11 +500,11 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
         raise TypeError(msg)
     data = cast("_ErrorsFile", raw_data)
     declared_version = data.get("version")
-    if declared_version != SUPPORTED_SCHEMA_VERSION:
+    if declared_version != _SUPPORTED_SCHEMA_VERSION:
         msg = (
             f"errors.yaml declares version {declared_version!r}; "
-            f"this generator only supports version {SUPPORTED_SCHEMA_VERSION}. "
-            "Bump SUPPORTED_SCHEMA_VERSION in lockstep with any schema change."
+            f"this generator only supports version {_SUPPORTED_SCHEMA_VERSION}. "
+            "Bump _SUPPORTED_SCHEMA_VERSION in lockstep with any schema change."
         )
         raise ValueError(msg)
     errors = data.get("errors", {})
@@ -525,7 +531,7 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
         # Validate http_status
         status = spec.get("http_status")
         if not isinstance(status, int) or not (
-            HTTP_ERROR_STATUS_MIN <= status <= HTTP_ERROR_STATUS_MAX
+            _HTTP_ERROR_STATUS_MIN <= status <= _HTTP_ERROR_STATUS_MAX
         ):
             msg = f"Invalid HTTP status {status} for {code}. Must be 400-599."
             raise ValueError(msg)
@@ -614,21 +620,21 @@ def _render_params_module(
     if description is not None:
         description = _normalized_docstring_description(description)
     fields = "\n".join(
-        f"    {name}: {PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
+        f"    {name}: {_PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
     )
     # ``description`` is validated upstream against ``"""``, backslash, and
     # newline so the simple triple-quoted form below stays intact. Any
     # unsafe char would have raised at YAML-load time.
     #
     # Line-length discipline: the single-line ``"""Parameters for X: <desc>"""``
-    # form is preferred when it fits in ``RUFF_LINE_LENGTH - 4`` (4 = the
+    # form is preferred when it fits in ``_RUFF_LINE_LENGTH - 4`` (4 = the
     # 4-space indent at column 0 -> column 4). For long descriptions, fall
     # back to the canonical PEP 257 multi-line form so ruff's docstring
     # rules cannot reject the generated file once the project ever opts into
     # ``D`` enforcement on ``_generated/``.
     if description:
         single_line = f'"""Parameters for {code} error: {description}"""'
-        if len(single_line) <= RUFF_LINE_LENGTH - 4:
+        if len(single_line) <= _RUFF_LINE_LENGTH - 4:
             docstring = single_line
         else:
             docstring = f'"""Parameters for {code} error.\n\n    {description}\n    """'
@@ -652,7 +658,7 @@ def _render_detail_template_decl(detail_template: str) -> str:
     """Render the ``detail_template: ClassVar[str] = "..."`` line, wrapped if long."""
     literal = _python_string_literal(detail_template)
     single_line = f"    detail_template: ClassVar[str] = {literal}"
-    if len(single_line) <= RUFF_LINE_LENGTH:
+    if len(single_line) <= _RUFF_LINE_LENGTH:
         return single_line
     return f"    detail_template: ClassVar[str] = (\n        {literal}\n    )"
 
@@ -661,7 +667,7 @@ def _render_super_block(params_class_name: str, params: _ParamsMap) -> str:
     """Render the ``super().__init__(params=...)`` block, wrapped if long."""
     pieces = [f"{name}={name}" for name in params]
     super_line = f"        super().__init__(params={params_class_name}({', '.join(pieces)}))"
-    if len(super_line) <= RUFF_LINE_LENGTH:
+    if len(super_line) <= _RUFF_LINE_LENGTH:
         return super_line + "\n"
     return (
         "        super().__init__(\n"
@@ -708,7 +714,7 @@ def _render_error_module(  # noqa: PLR0913 — codegen template assembly is inte
             f"from app.exceptions._generated.{params_file_stem} import {params_class_name}"
         )
         kw_args = ", ".join(
-            f"{name}: {PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
+            f"{name}: {_PARAM_TYPE_TO_PYTHON[ptype]}" for name, ptype in params.items()
         )
         # ``@override`` (PEP 698, Python 3.12+) on the generated ``__init__``
         # and ``detail`` makes a future rename of the base method a static

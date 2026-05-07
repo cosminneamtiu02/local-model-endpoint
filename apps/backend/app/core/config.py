@@ -39,7 +39,7 @@ def is_private_host(host: str) -> bool:
     # link-local rather than triggering ipaddress's ValueError. The zone-ID
     # is interface-local routing metadata, not part of the address itself,
     # so dropping it is the correct classification semantics.
-    classifiable = classifiable.split("%", 1)[0]
+    classifiable = classifiable.partition("%")[0]
     try:
         ip = ipaddress.ip_address(classifiable)
     except ValueError:

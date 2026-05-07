@@ -48,7 +48,7 @@ _ACCESS_LOG_SUPPRESSED_PATHS: Final[frozenset[str]] = frozenset({"/health"})
 
 # C0 control characters and DEL — anything in this range injected into
 # X-Request-ID would forge log lines under non-JSON renderers.
-_C0_CONTROL_UPPER: Final[int] = 0x20
+_C0_CONTROL_UPPER_EXCLUSIVE: Final[int] = 0x20
 _DEL_CHAR: Final[int] = 0x7F
 
 # Truncation cap on the rejected client-supplied X-Request-ID preview in
@@ -228,7 +228,7 @@ class RequestIdMiddleware:
         client_id = ascii_safe(client_id_raw)
         # Walrus memoizes ``ord(c)`` across the two-arm comparison so the per-
         # char hot path on every request resolves with one ``ord()`` call.
-        if any((o := ord(c)) < _C0_CONTROL_UPPER or o == _DEL_CHAR for c in client_id):
+        if any((o := ord(c)) < _C0_CONTROL_UPPER_EXCLUSIVE or o == _DEL_CHAR for c in client_id):
             client_id = "<non-printable>"
         # ``UUID_REGEX.match("")`` returns None, so the regex alone handles
         # the empty-string case — symmetric with the resolver in

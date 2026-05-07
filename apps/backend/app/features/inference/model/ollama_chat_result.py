@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.features.inference.model.dos_caps import CONTENT_MAX_LENGTH, TOKEN_COUNT_MAX
+from app.features.inference.model.dos_caps import CONTENT_MAX_CHARS, TOKEN_COUNT_MAX
 from app.features.inference.model.finish_reason import FinishReason
 
 
@@ -36,7 +36,7 @@ class OllamaChatResult(BaseModel):
         # absent ``minLength`` which OpenAPI consumers cannot distinguish
         # from "unset, may change").
         min_length=0,
-        max_length=CONTENT_MAX_LENGTH,
+        max_length=CONTENT_MAX_CHARS,
         description=(
             "Raw model-generated assistant text from Ollama's `/api/chat` "
             "response. Empty string is a legitimate output (length-cap with a "

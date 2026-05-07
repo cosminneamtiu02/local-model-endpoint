@@ -17,6 +17,8 @@ from app.api.request_id_middleware import configure_middleware
 from app.api.router_registry import register_routers
 from app.core.logging import (
     EXC_MESSAGE_PREVIEW_MAX_CHARS,
+    PACKAGE_NAME,
+    VERSION_FALLBACK,
     ascii_safe,
     configure_logging,
     elapsed_ms,
@@ -66,16 +68,16 @@ def _resolve_app_version() -> _AppVersionResolution:
     a paired emit in lockstep.
     """
     try:
-        return _AppVersionResolution(_metadata.version("lip-backend"), None)
+        return _AppVersionResolution(_metadata.version(PACKAGE_NAME), None)
     except _metadata.PackageNotFoundError as exc:
-        return _AppVersionResolution("unknown", exc)
+        return _AppVersionResolution(VERSION_FALLBACK, exc)
     except Exception as exc:  # noqa: BLE001 — defense-in-depth at module-singleton boot
         # A corrupted dist-info under editable-install layouts can raise
         # non-PackageNotFoundError (KeyError / ValueError from
         # importlib.metadata internals). Returning the exception keeps the
         # failure visible without crashing module import; the caller emits
         # the structured warning after structlog is configured.
-        return _AppVersionResolution("unknown", exc)
+        return _AppVersionResolution(VERSION_FALLBACK, exc)
 
 
 _APP_VERSION_RESOLUTION: Final[_AppVersionResolution] = _resolve_app_version()
@@ -110,8 +112,8 @@ def _emit_app_version_resolve_failure() -> None:
         # vs ``app_shutdown_cancelled`` discrimination pattern.
         logger.warning(
             "app_version_resolve_missing",
-            package_name="lip-backend",
-            fallback_version="unknown",
+            package_name=PACKAGE_NAME,
+            fallback_version=VERSION_FALLBACK,
             phase="pre_lifespan",
         )
         return

@@ -6,9 +6,9 @@ import pytest
 from pydantic import ValidationError
 
 from app.features.inference.model.dos_caps import (
-    METADATA_KEY_MAX_LENGTH,
+    METADATA_KEY_MAX_CHARS,
     METADATA_NESTED_CARDINALITY_MAX,
-    METADATA_VALUE_MAX_LENGTH,
+    METADATA_VALUE_MAX_CHARS,
 )
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
@@ -90,10 +90,10 @@ def test_inference_request_rejects_metadata_with_oversized_nested_dict_key() -> 
 
     Defense against the documented bypass surface: ``metadata={"safe":
     {"<long-key>": "v"}}`` would otherwise sneak past the top-level
-    ``METADATA_KEY_MAX_LENGTH`` Annotated cap (which only binds top-level
+    ``METADATA_KEY_MAX_CHARS`` Annotated cap (which only binds top-level
     keys).
     """
-    overlong_key = "x" * (METADATA_KEY_MAX_LENGTH + 1)
+    overlong_key = "x" * (METADATA_KEY_MAX_CHARS + 1)
     with pytest.raises(ValidationError, match="nested key"):
         InferenceRequest(
             messages=[Message(role="user", content="hi")],
@@ -138,8 +138,8 @@ def test_inference_request_rejects_metadata_with_oversized_nested_dict() -> None
 
 
 def test_inference_request_rejects_metadata_with_oversized_string_value() -> None:
-    """A nested string value over METADATA_VALUE_MAX_LENGTH must be rejected."""
-    overlong = "x" * (METADATA_VALUE_MAX_LENGTH + 1)
+    """A nested string value over METADATA_VALUE_MAX_CHARS must be rejected."""
+    overlong = "x" * (METADATA_VALUE_MAX_CHARS + 1)
     with pytest.raises(ValidationError, match="string value exceeds"):
         InferenceRequest(
             messages=[Message(role="user", content="hi")],
@@ -150,7 +150,7 @@ def test_inference_request_rejects_metadata_with_oversized_string_value() -> Non
 
 def test_inference_request_recurses_into_nested_list_strings() -> None:
     """The recursive walk must check string elements inside nested lists."""
-    overlong = "x" * (METADATA_VALUE_MAX_LENGTH + 1)
+    overlong = "x" * (METADATA_VALUE_MAX_CHARS + 1)
     with pytest.raises(ValidationError, match="string value exceeds"):
         InferenceRequest(
             messages=[Message(role="user", content="hi")],

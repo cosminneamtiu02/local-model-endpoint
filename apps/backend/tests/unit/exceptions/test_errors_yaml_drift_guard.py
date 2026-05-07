@@ -101,8 +101,8 @@ def test_errors_yaml_every_code_has_non_empty_description(
         assert description.strip(), f"{code} description must be non-empty"
 
 
-_HTTP_STATUS_FLOOR = 400
-_HTTP_STATUS_CEILING = 599
+_HTTP_STATUS_MIN = 400
+_HTTP_STATUS_MAX = 599
 
 
 def test_errors_yaml_every_http_status_is_in_error_range(
@@ -117,6 +117,6 @@ def test_errors_yaml_every_http_status_is_in_error_range(
         assert isinstance(spec, dict)
         status = spec.get("http_status")
         assert isinstance(status, int), f"{code} http_status must be an int"
-        assert _HTTP_STATUS_FLOOR <= status <= _HTTP_STATUS_CEILING, (
+        assert _HTTP_STATUS_MIN <= status <= _HTTP_STATUS_MAX, (
             f"{code} http_status {status} out of error range"
         )
