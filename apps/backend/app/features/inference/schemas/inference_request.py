@@ -48,7 +48,7 @@ def _validate_nested_metadata_key(inner_key: str, key_path: str) -> None:
         raise ValueError(msg)
 
 
-def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
+def _validate_bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
     """Recursively assert every str leaf is within the per-string cap.
 
     Walks dict values and list elements so the cap holds against deeply
@@ -71,7 +71,7 @@ def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
             )
             raise ValueError(msg)
         for index, element in enumerate(value):
-            _bounded_strings_in_metadata(element, f"{key_path}[{index}]")
+            _validate_bounded_strings_in_metadata(element, f"{key_path}[{index}]")
         return
     if isinstance(value, dict):
         if len(value) > METADATA_NESTED_CARDINALITY_MAX:
@@ -82,7 +82,7 @@ def _bounded_strings_in_metadata(value: JsonValue, key_path: str) -> None:
             raise ValueError(msg)
         for inner_key, inner_value in value.items():
             _validate_nested_metadata_key(inner_key, key_path)
-            _bounded_strings_in_metadata(inner_value, f"{key_path}.{inner_key}")
+            _validate_bounded_strings_in_metadata(inner_value, f"{key_path}.{inner_key}")
         return
     # Other JsonValue branches (int, float, bool, None) are unbounded by
     # type — no per-leaf cap to enforce. The ``max_length`` on the outer
@@ -129,7 +129,7 @@ class InferenceRequest(BaseModel):
     # ship a non-JSON value (e.g. a datetime) that would deserialize fine on
     # input and fail downstream at JSON encoding. The Annotated key type
     # bounds the third orthogonal DoS axis (key length); the
-    # ``_bound_metadata_values`` validator below bounds string-value leaves
+    # ``_check_metadata_invariants`` validator below bounds string-value leaves
     # recursively — together they pin all three metadata-DoS surfaces
     # (key count via ``max_length``, key length via the key Annotated cap,
     # per-string-leaf length via the recursive validator).
@@ -144,7 +144,7 @@ class InferenceRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _bound_metadata_values(self) -> Self:
+    def _check_metadata_invariants(self) -> Self:
         for key, value in self.metadata.items():
             # Defense-in-depth: the dict-key Annotated cap above already
             # bounds key length, but a future schema rebuild that drops
@@ -154,5 +154,5 @@ class InferenceRequest(BaseModel):
             if len(key) > METADATA_KEY_MAX_CHARS:
                 msg = f"metadata key {key!r} exceeds the {METADATA_KEY_MAX_CHARS}-character cap."
                 raise ValueError(msg)
-            _bounded_strings_in_metadata(value, repr(key))
+            _validate_bounded_strings_in_metadata(value, repr(key))
         return self

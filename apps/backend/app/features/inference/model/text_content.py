@@ -10,8 +10,8 @@ from app.features.inference.model.dos_caps import TEXT_PART_MAX_CHARS
 class TextContent(BaseModel):
     """Text content part of a Message.
 
-    Discriminator value `"text"` routes the parent Message's
-    `content: list[ContentPart]` field to this variant.
+    Discriminator value ``"text"`` routes the parent Message's
+    ``content: list[ContentPart]`` field to this variant.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)

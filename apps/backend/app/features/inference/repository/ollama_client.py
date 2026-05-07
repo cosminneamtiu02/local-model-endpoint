@@ -67,6 +67,18 @@ DEFAULT_LIMITS: Final[httpx.Limits] = httpx.Limits(
     keepalive_expiry=30.0,
 )
 
+# Bound the User-Agent product-version segment (``lip-backend/<ver>``).
+# RFC 7231 §5.5.3 caps a product-token at "an opaque sequence of bytes"
+# but real-world dispatch (httpcore's h11 layer, reverse proxies, log
+# pipelines) gets surly past ~80 chars; 64 leaves headroom for PEP 440
+# local-version segments while staying below proxy-set ceilings. Hoisted
+# from the literal-at-call-site shape so the cap is named once and the
+# rationale is greppable, matching the existing
+# ``EXC_MESSAGE_PREVIEW_MAX_CHARS`` / ``INSTANCE_PATH_MAX_CHARS`` /
+# ``FIELD_MAX_CHARS`` / ``REASON_MAX_CHARS`` constants applied at every
+# other ``ascii_safe(...)`` consumer in the codebase.
+_USER_AGENT_VERSION_MAX_CHARS: Final[int] = 64
+
 # HTTP verbs the adapter actually uses against Ollama. Narrowed at the
 # `_request` boundary so a typo (`"PSOT"`) is a static error, not a 405
 # at runtime. Add a verb here only when a new adapter method needs it.
@@ -98,20 +110,21 @@ def _decode_ollama_json(response: httpx.Response) -> dict[str, Any]:
     helper, or the non-JSON / decode-error arms below will leak a
     streaming connection slot until GC.
     """
-    # RFC 7231 §3.1.1.1: media-type names are case-insensitive.
-    # Strip OWS (RFC 7231 §3.2.4 allows surrounding whitespace on field
-    # values) and lowercase before compare so a future reverse proxy that
-    # normalizes to ``  Application/JSON `` does not silently bypass this
-    # guard and re-bucket a real Ollama response as malformed-frame.
-    content_type = response.headers.get("content-type", "").strip().lower()
-    # Tighter than ``startswith("application/json")``: that prefix would
-    # admit ``application/json-seq`` (streaming-JSON sequences),
-    # ``application/jsonp`` (browser bridge formats), and any future
+    # RFC 7231 §3.1.1.1 ABNF: ``media-type = type "/" subtype *( OWS ";"
+    # OWS parameter )``. The optional whitespace AROUND the ``;``
+    # separator is legal — partition first, strip the media-type half,
+    # then case-fold for compare. The earlier shape (``.strip().lower()``
+    # then ``startswith("application/json;")``) silently rejected
+    # ``application/json ;charset=utf-8`` (a single OWS before ``;``)
+    # because the OWS landed inside the literal-string compare. Tighter
+    # than ``startswith("application/json")``: that prefix would admit
+    # ``application/json-seq`` / ``application/jsonp`` / any future
     # ``application/json*`` family member with surprise framing.
-    # Accept only the bare media-type or media-type-with-parameters form
-    # (``application/json`` exact, or ``application/json;charset=utf-8``).
-    if content_type != "application/json" and not content_type.startswith("application/json;"):
-        msg = f"Ollama returned non-JSON content-type {content_type!r}."
+    raw_content_type = response.headers.get("content-type", "")
+    media_type, _, _params = raw_content_type.partition(";")
+    media_type_norm = media_type.strip().lower()
+    if media_type_norm != "application/json":
+        msg = f"Ollama returned non-JSON content-type {raw_content_type!r}."
         raise ValueError(msg)
     try:
         payload: Any = response.json()
@@ -337,7 +350,7 @@ class OllamaClient:
         # malformed pyproject version cannot crash AsyncClient construction.
         # Symmetric with the ``ascii_safe`` discipline at every other
         # consumer-derived header / log site in the file.
-        clean_version = ascii_safe(lip_version, max_chars=64)
+        clean_version = ascii_safe(lip_version, max_chars=_USER_AGENT_VERSION_MAX_CHARS)
         return f"lip-backend/{clean_version} httpx/{httpx.__version__}"
 
     async def close(self) -> None:
@@ -353,7 +366,19 @@ class OllamaClient:
         await self._client.aclose()
 
     async def __aenter__(self) -> Self:
-        """Enter async context manager."""
+        """Enter async context manager.
+
+        ``async`` is required by the async-context-manager protocol; the
+        body intentionally does no ``await`` — ``__init__`` already built
+        the underlying ``httpx.AsyncClient`` (httpx allocates the pool
+        lazily on first request, so construction is cheap) and this
+        method is the lifecycle-marker seam, not the acquisition site.
+        ``RUF029`` (unused-async) is preview-only in ruff 0.15 and
+        currently disabled; if a future ruff version promotes it to
+        stable AND the project enables it, replace this docstring note
+        with a paired ``# noqa: RUF029`` rather than rewriting the
+        method (the protocol requires ``async``).
+        """
         # Surface the timeout/limits config at the lifecycle-entry seam so an
         # operator triaging a future ``PoolTimeout`` / read-timeout has the
         # client-build config recorded in logs without spelunking source.
@@ -369,14 +394,12 @@ class OllamaClient:
         # lifecycle event uniformly. Track ``_lifecycle_entered_at`` so
         # ``__aexit__`` can compute ``duration_ms`` for the close event.
         self._lifecycle_entered_at = time.perf_counter()
-        # ``ollama_client_started`` (not the previous
-        # ``ollama_client_lifecycle_entered``) keeps the verb-tense
-        # uniform with the per-call ``ollama_call_started`` family
-        # AND the lifespan ``app_startup_started`` family — a single
-        # operator filter ``select(.event | endswith("_started"))``
-        # finds every operation-start event uniformly across the
-        # codebase. Sibling pair: ``ollama_client_completed`` /
-        # ``ollama_client_failed`` below.
+        # ``ollama_client_started`` keeps the verb-tense uniform with the
+        # per-call ``ollama_call_started`` family AND the lifespan
+        # ``app_startup_started`` family — a single operator filter
+        # ``select(.event | endswith("_started"))`` finds every
+        # operation-start event uniformly across the codebase. Sibling
+        # pair: ``ollama_client_completed`` / ``ollama_client_failed`` below.
         logger.info(
             "ollama_client_started",
             base_url=self._loggable_base_url,
@@ -640,7 +663,7 @@ class OllamaClient:
             body["stream"] = False
             response = await self._request("POST", CHAT_ENDPOINT, json=body)
             response.raise_for_status()
-            # FORWARD (lane 14.5 / streaming sibling): Ollama's
+            # FORWARD (LIP-E001-F002 envelope work): Ollama's
             # ``/api/chat`` non-stream response is a single JSON object
             # bounded in practice by the model's ``num_predict`` cap
             # (under 1 MiB on Gemma 4 E2B), and the LAN-local trusted-

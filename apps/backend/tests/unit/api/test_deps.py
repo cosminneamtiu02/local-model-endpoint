@@ -176,7 +176,8 @@ def test_audit_lip_env_typos_no_ops_when_env_prefix_empty(
 
     The empty-prefix short-circuit at ``deps.py`` is the lockstep partner
     of a future ADR removing the ``LIP_`` prefix entirely. Without this
-    test the branch is uncovered (line 57 in coverage gap) and a refactor
+    test the branch is uncovered (the empty-prefix early-return in
+    ``audit_lip_env_typos`` lacks coverage) and a refactor
     that drops the early-return would silently surface ``PATH``, ``HOME``,
     and every other shell variable as a typo'd LIP env var.
     """
@@ -211,6 +212,13 @@ def test_audit_lip_env_typos_de_dups_case_variants(
     # Exactly ONE entry in the env_vars list (the upper-cased form),
     # not two.
     assert warnings[0]["env_vars"].count("LIP_BOGUS_TYPO_VAR") == 1
+    # ``env_var_count`` ships in lockstep with the deduped list (see the
+    # paired comment at ``deps.py``). A regression that broke the dedup
+    # half-way (e.g. switched ``actual`` to a list while keeping the list-
+    # render via ``sorted(set(...))``) could produce ``env_var_count=2``
+    # while ``env_vars`` stays deduped — silently doubling operator-side
+    # log-volume metrics keyed on the count.
+    assert warnings[0]["env_var_count"] == 1
 
 
 def test_get_settings_construction_no_longer_emits_warnings(

@@ -1,3 +1,14 @@
+# No [build-system] block — this workspace has no installable target
+# (see ``description`` below). Codegen is invoked via
+# ``uv run python -m scripts.generate``; nothing imports
+# ``error-contracts`` as a library, so PEP 517's setuptools-legacy
+# fallback for missing [build-system] is harmless here. If a future
+# refactor turns this workspace into an installable package, add a
+# ``[build-system]`` block in lockstep with the consumers — Dependabot's
+# pip ecosystem can only audit ``[build-system].requires`` when it's
+# pinned, so adding a backend without a pin would re-introduce the
+# silent-fallback surface the apps/backend ``hatchling==1.29.0`` pin
+# defends against.
 [project]
 name = "error-contracts"
 version = "0.1.0"
@@ -41,6 +52,8 @@ dev = [
     "pytest-cov==7.1.0",
     # pyyaml is dev-only here: the codegen and the YAML-invariants tests
     # are the ONLY consumers; this workspace has no runtime surface.
+    # Last verified: 2026-05-07 — PyPI tip; pyyaml ships ~annually so a
+    # ~7-month-old pin is current-tip, not stale-by-design.
     "pyyaml==6.0.3",
 ]
 

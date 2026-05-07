@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_ollama_client
 
 # OllamaClient is referenced at runtime by FastAPI's dependency-injection
-# introspection (the route at line 75 declares
+# introspection (the ``/test-deps`` route below declares
 # ``Annotated[OllamaClient, Depends(get_ollama_client)]``). Under
 # ``from __future__ import annotations`` the annotation is a string,
 # but FastAPI's ``get_type_hints()`` resolution needs the symbol at the

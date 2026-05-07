@@ -30,7 +30,7 @@ apps/backend/
 │   ├── core/               -- config.py, logging.py. Cross-cutting infrastructure.
 │   ├── api/                -- request_id middleware (request-id propagation + per-request access log), exception handler registry, health router, lifespan resources factory + AppState dataclass (app_state.py per ADR-012 + lifespan_resources.py), router registry, shared deps factories.
 │   ├── exceptions/         -- DomainError base (base.py) + generated subclasses (_generated/).
-│   ├── schemas/            -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants. Shared response shapes (RFC 7807 problem+json + liveness); wire_constants centralizes the UUID regex, request-id length, instance-path cap, RFC 7807 about:blank type URI, X-Request-ID header spelling, and the application/problem+json media-type / Content-Language values shared across api and schemas — see the module docstring for rationale.
+│   ├── schemas/            -- ProblemDetails, ProblemExtras, ValidationErrorDetail, HealthResponse, wire_constants. Shared response shapes (RFC 7807 problem+json + liveness); wire_constants centralizes the UUID regex, request-id length, instance-path cap, RFC 7807 about:blank type URI, X-Request-ID and Content-Language header spellings, and the application/problem+json media-type / Content-Language values shared across api and schemas — see the module docstring for rationale.
 │   └── features/
 │       └── <feature>/      -- One folder per feature. Self-contained vertical slice.
 │           ├── model/          -- Pydantic value-objects (Message, ModelParams, ContentPart, OllamaChatResult; ModelInfo lands with LIP-E002-F001)
@@ -101,11 +101,13 @@ Consumer receives a structured error envelope it can program against
 ## Lifecycle (on-demand)
 
 LIP's FastAPI service is on-demand, not always-on (G6 from
-[docs/disambiguated-idea.md](disambiguated-idea.md)). A consumer's first request
-through the local network triggers `task dev`-style wake-up; the service warms
-the model with a dummy inference (LIP-E005-F001) and starts serving. Once
-serving, an idle-shutdown timer (LIP-E005-F002) tears the FastAPI process down
-after 10 minutes without inbound requests, freeing RAM for desktop work.
+[docs/disambiguated-idea.md](disambiguated-idea.md)). A consumer-issued explicit
+wake call — separate from the first inference, per G6 — brings the FastAPI
+service up; the wake handler warms the model with a dummy inference
+(LIP-E005-F001) and starts serving so the cold-start cost is paid during wake,
+not during the first user-facing inference call. Once serving, an idle-
+shutdown timer (LIP-E005-F002) tears the FastAPI process down after 10 minutes
+without inbound requests, freeing RAM for desktop work.
 Ollama itself is the always-on substrate underneath — it stays bootstrapped
 through the user-scope `launchd` agent and unloads the model from RAM 5 min
 after the last request via `OLLAMA_KEEP_ALIVE=300s`. See

@@ -108,7 +108,7 @@ def _resolve_access_log_status(captured_status: int, unhandled_exc: BaseExceptio
     return int(HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
-def _content_length_from_scope(scope: Scope) -> int | None:
+def _resolve_content_length(scope: Scope) -> int | None:
     """Read Content-Length from ASGI scope headers; None if absent, unparseable, or negative."""
     raw = next(
         (v for k, v in scope.get("headers", []) if k == b"content-length"),
@@ -169,9 +169,20 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     )
     # No ``exclude_none=False`` — that's the Pydantic v2 default; passing it
     # explicitly drifts from the bare ``model_dump_json()`` shape used at
-    # ``exception_handler_registry._problem_response``. The 413 path has no
-    # ProblemExtras / typed-params spread that would need ``None`` preservation.
+    # ``exception_handler_registry._build_problem_response``. The 413 path has
+    # no ProblemExtras / typed-params spread that would need ``None``
+    # preservation.
     body = problem.model_dump_json().encode("utf-8")
+    # The 413 short-circuit emits a fixed header set independent of any
+    # future GZip / compression middleware mounted INSIDE this wrapper.
+    # The bypass is intentional: a body-too-large signal must reach the
+    # consumer before per-route compression deciders run, and the
+    # response's plain-text body never gets a compression layer applied.
+    # If a future reverse proxy upstream of uvicorn injects
+    # ``Content-Encoding`` based on consumer ``Accept-Encoding``, the
+    # 413 body would be served without a matching encoding signal —
+    # acceptable on the LAN-local trust model where consumers are known
+    # to accept plain-text problem+json.
     await send(
         {
             "type": "http.response.start",
@@ -374,7 +385,7 @@ class RequestIdMiddleware:
             # uploads without a length header are not a current LIP
             # profile (LAN-local backend clients send fixed-size JSON),
             # so absence is permitted.
-            content_length = _content_length_from_scope(scope)
+            content_length = _resolve_content_length(scope)
             if content_length is not None and content_length > _MAX_REQUEST_BODY_BYTES:
                 logger.warning(
                     "request_body_too_large",

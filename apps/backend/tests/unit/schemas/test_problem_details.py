@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas import ProblemDetails
+from tests._helpers import CANONICAL_UUID_FIXTURE
 
 
 class _BaseKwargs(TypedDict):
@@ -38,8 +39,10 @@ def _base_kwargs() -> _BaseKwargs:
         code="QUEUE_FULL",
         # UUID-shaped to match the schema's defense-in-depth pattern; the
         # handler always populates this field from the middleware's
-        # generated UUID, so test fixtures should mirror the real wire shape.
-        request_id="12345678-1234-1234-1234-123456789012",
+        # generated UUID, so test fixtures should mirror the real wire
+        # shape. ``CANONICAL_UUID_FIXTURE`` is hoisted to ``tests/_helpers``
+        # so a future UUID-regex tightening lands as one edit, not three.
+        request_id=CANONICAL_UUID_FIXTURE,
     )
 
 
@@ -52,7 +55,7 @@ def test_problem_details_accepts_canonical_rfc7807_fields() -> None:
     assert pd.detail.startswith("Inference queue")
     assert pd.instance == "/api/v1/inference"
     assert pd.code == "QUEUE_FULL"
-    assert pd.request_id == "12345678-1234-1234-1234-123456789012"
+    assert pd.request_id == CANONICAL_UUID_FIXTURE
 
 
 def test_problem_details_allows_arbitrary_extension_fields() -> None:
@@ -85,19 +88,35 @@ def test_problem_details_accepts_validation_errors_extension_list() -> None:
     assert dumped["validation_errors"][1]["reason"] == "field required"
 
 
-def test_problem_details_rejects_missing_status() -> None:
-    """status is required (RFC 7807 §3.1)."""
-    kwargs: dict[str, object] = dict(_base_kwargs())
-    del kwargs["status"]
-    with pytest.raises(ValidationError, match="status"):
-        ProblemDetails.model_validate(kwargs)
+_MISSING_FIELD = object()
+"""Sentinel for the ``mutation_value`` parametrize: ``del kwargs[key]``
+instead of ``kwargs[key] = value``. Distinct identity (not None / not
+"") so a future ``None`` test value cannot collide with the missing-
+field branch."""
 
 
-def test_problem_details_rejects_status_out_of_range() -> None:
-    """status must be 400-599 — non-error responses are not problems."""
+@pytest.mark.parametrize(
+    ("mutation_key", "mutation_value", "expected_match"),
+    [
+        pytest.param("status", _MISSING_FIELD, "status", id="missing-status"),
+        pytest.param("status", 200, "status", id="status-out-of-range-2xx"),
+    ],
+)
+def test_problem_details_rejects_invalid_status(
+    mutation_key: str, mutation_value: object, expected_match: str
+) -> None:
+    """``status`` is required (RFC 7807 §3.1) AND must be 400-599.
+
+    Per-id labels (``missing-status`` / ``status-out-of-range-2xx``)
+    surface the specific mutation at failure-time without the per-test
+    docstrings drifting from the parametrize ids.
+    """
     kwargs: dict[str, object] = dict(_base_kwargs())
-    kwargs["status"] = 200
-    with pytest.raises(ValidationError, match="status"):
+    if mutation_value is _MISSING_FIELD:
+        del kwargs[mutation_key]
+    else:
+        kwargs[mutation_key] = mutation_value
+    with pytest.raises(ValidationError, match=expected_match):
         ProblemDetails.model_validate(kwargs)
 
 

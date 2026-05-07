@@ -11,7 +11,7 @@ from app.features.inference.model.dos_caps import BASE64_MEDIA_MAX_CHARS, URL_MA
 class AudioContent(BaseModel):
     """Audio content part of a Message.
 
-    Carries either a public `url` reference or a base64-encoded `base64`
+    Carries either a public ``url`` reference or a base64-encoded ``base64``
     blob. Exactly one must be set; the adapter layer translates whichever
     form is present into Ollama's wire format. Field-level shape and caps
     are symmetric with :class:`ImageContent` so a parametrized contract

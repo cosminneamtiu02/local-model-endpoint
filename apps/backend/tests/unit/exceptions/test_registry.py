@@ -28,7 +28,7 @@ def test_registry_contains_all_canonical_error_codes() -> None:
     REGISTRY_NOT_FOUND, MODEL_CAPABILITY_NOT_SUPPORTED) plus one HTTP-status
     code added for ``_handle_http_exception`` source-of-truth alignment
     (METHOD_NOT_ALLOWED). The wire ``code: "HTTP_ERROR"`` ships from a
-    string literal in ``_http_code_for_status`` for the generic-4xx
+    string literal in ``_get_http_code_for_status`` for the generic-4xx
     framework path; there is no DomainError class for it.
     """
     expected = {
@@ -56,7 +56,7 @@ def test_registry_classes_are_domain_error_subclasses() -> None:
 def test_registry_lookup_for_unknown_code_returns_none() -> None:
     """``ERROR_CLASSES.get(unknown_code)`` returns None — the documented
     contract for the consumer-fallback pattern. Pinning the contract so a
-    future maintainer who consolidates ``_http_code_for_status`` against
+    future maintainer who consolidates ``_get_http_code_for_status`` against
     this lookup has a stable behavior to lean on."""
     assert ERROR_CLASSES.get("NEVER_DECLARED_CODE") is None
     assert ERROR_CLASSES.get("") is None

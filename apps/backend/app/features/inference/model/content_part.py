@@ -1,11 +1,11 @@
 """Discriminated-union type alias over the three multimodal content variants.
 
-`ContentPart` is the union Pydantic uses to route a `Message.content`
-list element to its concrete variant by inspecting the `type` field.
+``ContentPart`` is the union Pydantic uses to route a ``Message.content``
+list element to its concrete variant by inspecting the ``type`` field.
 
-Note: `ContentPart` is a type alias, not a runtime class. `isinstance`
-checks must target the concrete variants (`TextContent`, `ImageContent`,
-`AudioContent`), not this alias.
+Note: ``ContentPart`` is a type alias, not a runtime class. ``isinstance``
+checks must target the concrete variants (``TextContent``, ``ImageContent``,
+``AudioContent``), not this alias.
 """
 
 from typing import Annotated

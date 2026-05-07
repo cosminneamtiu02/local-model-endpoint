@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -198,6 +200,42 @@ def test_settings_env_prefix_is_lip() -> None:
     assert Settings.model_config.get("env_prefix") == "LIP_"
 
 
+def test_settings_env_file_resolves_to_apps_backend_dotenv() -> None:
+    """``env_file`` resolves to ``apps/backend/.env`` invariant of cwd.
+
+    The Settings docstring claims this path-resolution invariant load-
+    bearingly (process-cwd-independent ``.env`` discovery). Without an
+    introspection test, a future refactor that moves ``config.py`` and
+    forgets to update the ``parents[2]`` index would silently resolve
+    ``env_file`` to a wrong path; pydantic-settings then misses the
+    file (no error, just defaults). Symmetric with the existing
+    ``test_settings_env_prefix_is_lip`` flag-introspection discipline.
+    """
+    env_file_value = Settings.model_config.get("env_file")
+    assert isinstance(env_file_value, str)
+    env_file_path = Path(env_file_value).resolve()
+    assert env_file_path.name == ".env"
+    # ``parents[3]`` here = ``apps/backend/`` from this test file at
+    # ``apps/backend/tests/unit/core/test_config.py`` (test_config -> core -> unit -> tests -> apps/backend).
+    assert env_file_path.parent == Path(__file__).resolve().parents[3]
+
+
+def test_settings_is_production_centralizes_app_env_check() -> None:
+    """``is_production`` @computed_field is the single source of truth.
+
+    The boolean is consumed at four sites in ``app/main.py`` (one
+    derivation, four uses). Without a centralized predicate, each
+    consumer would re-derive the literal, fragmenting the source of
+    truth and making a future ``Literal["production"]`` rename a
+    cascading edit. Pin the truthy/falsy contract here so the
+    @computed_field's behavior cannot drift quietly.
+    """
+    assert Settings.model_validate({"app_env": "production"}).is_production is True
+    assert Settings.model_validate({"app_env": "development"}).is_production is False
+    # Default app_env is "development" → is_production False.
+    assert Settings.model_validate({}).is_production is False
+
+
 def test_settings_env_ignore_empty_is_true(monkeypatch: pytest.MonkeyPatch) -> None:
     """``env_ignore_empty=True`` means an empty ``LIP_BIND_HOST=`` falls back
     to the default rather than reaching ``_check_safety_invariants`` with
@@ -370,14 +408,16 @@ def test_settings_bind_host_accepts_bracketed_ipv6_loopback(
     """Bracketed IPv6 forms (``[::1]``, ``[::ffff:127.0.0.1]``) must
     construct cleanly with no ``LIP_ALLOW_PUBLIC_BIND``.
 
-    The bracket-strip branch in ``is_private_host`` (config.py:36)
+    The bracket-strip branch in ``is_private_host`` (the
+    ``host.startswith("[") and host.endswith("]")`` clause)
     carries an in-source comment justifying its existence specifically
     as defense-in-depth for ``LIP_BIND_HOST`` (the comment notes
     "could legitimately carry brackets (e.g. LIP_BIND_HOST=[::]")"). The
-    test surface previously only exercised bracketed forms on
+    sibling tests in this file exercise bracketed forms on
     ``ollama_host`` where ``AnyHttpUrl`` strips brackets pre-classifier;
-    the ``bind_host`` direct-input path was uncovered, so a future
-    refactor dropping the bracket-strip would silently break only the
+    this test is the dedicated coverage site for the ``bind_host``
+    direct-input path so a future refactor dropping the bracket-strip
+    surfaces here loudly rather than silently breaking only the
     ``bind_host`` half of the documented contract.
     """
     monkeypatch.setenv("LIP_BIND_HOST", bracketed_loopback)
@@ -566,35 +606,42 @@ def test_settings_ollama_host_accepts_bare_host_with_optional_trailing_slash(
     assert str(settings.ollama_host).startswith("http://127.0.0.1:11434")
 
 
-def test_is_private_host_classifier_covers_ipv6_and_ula() -> None:
-    """The ipaddress-backed classifier catches IPv6 link-local + ULA cases.
-
-    Note: ``ipaddress.is_private`` treats RFC 3849 documentation range
-    (``2001:db8::/32``) as private, so we use a real public IPv6 (Cloudflare
-    DNS ``2606:4700:4700::1111``) for the negative case.
-    """
-    # Strict-form predicate assertions (``is True`` / ``is False``) match
-    # the dialect already used at test_config.py:167 / :177 / :219 — the
-    # CLAUDE.md predicate carve-out names ``is_*`` functions but expects
-    # boolean returns specifically; a future regression returning ``0`` /
-    # ``1`` / ``None`` / a truthy custom object would silently pass bare
-    # ``assert is_private_host(...)`` truthiness checks.
-    assert is_private_host("127.0.0.1") is True
-    assert is_private_host("::1") is True
-    assert is_private_host("fe80::1") is True  # link-local
-    assert is_private_host("fd00::1") is True  # ULA
-    assert is_private_host("localhost") is True
-    assert is_private_host("gemma.local") is True
-    # IPv4-mapped IPv6 forms unwrap to their v4 classification — without
-    # the ``ipv4_mapped`` re-classification in ``is_private_host`` an
-    # operator who wrote the loopback as ``::ffff:127.0.0.1`` would fail
-    # the SSRF clamp despite literally pointing at loopback.
-    assert is_private_host("::ffff:127.0.0.1") is True
-    assert is_private_host("::ffff:10.0.0.1") is True
-    assert is_private_host("::ffff:8.8.8.8") is False
-    assert is_private_host("8.8.8.8") is False
-    assert is_private_host("2606:4700:4700::1111") is False  # public IPv6
-    assert is_private_host("") is False
+# Each row is (host, expected) with a per-id label so a failure points
+# at the specific predicate case rather than a generic "case 7 of 11".
+# Strict-form ``is True`` / ``is False`` assertions match the dialect
+# elsewhere in this file: the CLAUDE.md predicate carve-out names
+# ``is_*`` functions but expects boolean returns specifically; a
+# regression returning ``0`` / ``1`` / ``None`` / a truthy custom
+# object would silently pass a bare ``assert is_private_host(...)``
+# truthiness check.
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        pytest.param("127.0.0.1", True, id="ipv4-loopback"),
+        pytest.param("::1", True, id="ipv6-loopback"),
+        pytest.param("fe80::1", True, id="ipv6-link-local"),
+        pytest.param("fd00::1", True, id="ipv6-ula"),
+        pytest.param("localhost", True, id="hostname-localhost"),
+        pytest.param("gemma.local", True, id="hostname-mdns-local"),
+        # IPv4-mapped IPv6 forms unwrap to their v4 classification —
+        # without the ``ipv4_mapped`` re-classification in
+        # ``is_private_host`` an operator who wrote the loopback as
+        # ``::ffff:127.0.0.1`` would fail the SSRF clamp despite literally
+        # pointing at loopback.
+        pytest.param("::ffff:127.0.0.1", True, id="ipv4-mapped-loopback"),
+        pytest.param("::ffff:10.0.0.1", True, id="ipv4-mapped-rfc1918"),
+        pytest.param("::ffff:8.8.8.8", False, id="ipv4-mapped-public"),
+        pytest.param("8.8.8.8", False, id="ipv4-public"),
+        # ``ipaddress.is_private`` treats the RFC 3849 documentation range
+        # (``2001:db8::/32``) as private, so we use a real public IPv6
+        # (Cloudflare DNS ``2606:4700:4700::1111``) for the negative case.
+        pytest.param("2606:4700:4700::1111", False, id="ipv6-public"),
+        pytest.param("", False, id="empty-string"),
+    ],
+)
+def test_is_private_host_classifier_covers_ipv6_and_ula(*, host: str, expected: bool) -> None:
+    """The ipaddress-backed classifier catches IPv6 link-local + ULA cases."""
+    assert is_private_host(host) is expected
 
 
 # ── lru_cache singleton ──────────────────────────────────────────────

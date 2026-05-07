@@ -28,41 +28,91 @@ from app.features.inference.repository.ollama_client import (
 )
 
 
-def test_default_timeout_constants_match_documented_v1_backstop() -> None:
-    """``DEFAULT_TIMEOUT`` is the v1 backstop until LIP-E004-F003 lands.
+# ``DEFAULT_TIMEOUT`` is the v1 backstop until LIP-E004-F003 lands. The
+# per-field parametrize (lane 5.8) gives each invariant its own subtest
+# id so a regression on ``read`` doesn't hide regressions on ``pool`` —
+# bundling all four into one test body silently masks N-1 fields when
+# the first asserts fail.
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        # Ollama is local, so a stalled connect is a real failure — 5s
+        # is the loud-fail threshold.
+        pytest.param("connect", 5.0, id="connect"),
+        # Generous enough not to interrupt long-running thinking-mode
+        # inference under Gemma 4, but bounded so a hung daemon does
+        # not hold the single semaphore slot indefinitely.
+        pytest.param("read", 600.0, id="read"),
+        # Unbounded — the request body is small relative to Ollama's
+        # response.
+        pytest.param("write", None, id="write"),
+        # With the LIP-E004-F001 semaphore at 1 in-flight, pool
+        # starvation should be unreachable; a finite ceiling converts
+        # a future regression (sibling adapter holding a slot) into a
+        # loud ``httpx.PoolTimeout`` rather than a silent hang.
+        pytest.param("pool", 5.0, id="pool"),
+    ],
+)
+def test_default_timeout_constants_match_documented_v1_backstop(
+    field: str, expected: float | None
+) -> None:
+    """``DEFAULT_TIMEOUT.<field>`` matches the documented v1 value."""
+    assert getattr(DEFAULT_TIMEOUT, field) == expected
 
-    Connect is 5s (Ollama is local, so a stalled connect is a real failure).
-    Read is 600s — generous enough not to interrupt long-running thinking-mode
-    inference under Gemma 4, but bounded so a hung daemon does not hold the
-    single semaphore slot indefinitely (which would be a self-inflicted DoS).
-    Write stays unbounded — the request body is small relative to Ollama's
-    response. Pool is 5s: with the LIP-E004-F001 semaphore set to 1
-    in-flight, pool starvation should be unreachable today, but a finite
-    ceiling converts a future regression (a sibling adapter call holding
-    a slot) into a loud ``httpx.PoolTimeout`` rather than a silent hang.
+
+# Per-field parametrize for ``DEFAULT_LIMITS`` symmetric with the
+# timeout test above (lane 5.8). The three fields are individually
+# load-bearing: ``max_connections=1`` / ``max_keepalive_connections=1``
+# match the LIP-E004-F001 semaphore (one-in-flight) — a flip to a
+# larger value silently breaks the "pool starvation is loud" invariant.
+# ``keepalive_expiry=30.0`` is the documented log-churn knob for any
+# future idle-shutdown coordinator.
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        pytest.param("max_connections", 1, id="max_connections"),
+        pytest.param("max_keepalive_connections", 1, id="max_keepalive_connections"),
+        pytest.param("keepalive_expiry", 30.0, id="keepalive_expiry"),
+    ],
+)
+def test_default_limits_constants_match_documented_pool_sizing(field: str, expected: float) -> None:
+    """``DEFAULT_LIMITS.<field>`` matches the documented LIP-E004-F001 sizing."""
+    assert getattr(DEFAULT_LIMITS, field) == expected
+
+
+def test_default_timeout_remains_stable_across_client_instances() -> None:
+    """Module-level ``DEFAULT_TIMEOUT`` field values stay constant across
+    multiple ``OllamaClient`` constructions.
+
+    httpx 0.28.1's ``Timeout`` is a plain Python object without slots —
+    a future caller mutating ``DEFAULT_TIMEOUT.connect = 1.0`` would
+    silently affect every subsequent client. The module-level comment
+    pins the no-mutation invariant; this test mechanically verifies
+    that the module-level constants survive multi-instance construction.
     """
-    assert DEFAULT_TIMEOUT.connect == 5.0
-    assert DEFAULT_TIMEOUT.read == 600.0
-    assert DEFAULT_TIMEOUT.write is None
-    assert DEFAULT_TIMEOUT.pool == 5.0
-
-
-def test_default_limits_constants_match_documented_pool_sizing() -> None:
-    """``DEFAULT_LIMITS`` mirrors the documented LIP-E004-F001 pool sizing.
-
-    Symmetric with ``test_default_timeout_constants_match_documented_v1_backstop``
-    above. The three fields are individually load-bearing:
-    ``max_connections=1`` and ``max_keepalive_connections=1`` match the
-    LIP-E004-F001 semaphore (one-in-flight); a regression flipping either
-    to a larger value silently breaks the invariant that pool starvation
-    is a loud signal of a broken semaphore. ``keepalive_expiry=30.0`` is
-    the documented log-churn knob for any future idle-shutdown
-    coordinator. Field-by-field assertions catch a structural-equality
-    drift on ``httpx.Limits`` the same way the timeout test does.
-    """
-    assert DEFAULT_LIMITS.max_connections == 1
-    assert DEFAULT_LIMITS.max_keepalive_connections == 1
-    assert DEFAULT_LIMITS.keepalive_expiry == 30.0
+    snapshot = (
+        DEFAULT_TIMEOUT.connect,
+        DEFAULT_TIMEOUT.read,
+        DEFAULT_TIMEOUT.write,
+        DEFAULT_TIMEOUT.pool,
+        DEFAULT_LIMITS.max_connections,
+        DEFAULT_LIMITS.max_keepalive_connections,
+        DEFAULT_LIMITS.keepalive_expiry,
+    )
+    for _ in range(3):
+        # Construct without using ``async with`` — ``__init__`` is the
+        # only relevant path here (no need for ``__aenter__`` /
+        # ``__aexit__`` lifecycle on a constants-stability check).
+        OllamaClient(base_url="http://example.invalid")
+    assert (
+        DEFAULT_TIMEOUT.connect,
+        DEFAULT_TIMEOUT.read,
+        DEFAULT_TIMEOUT.write,
+        DEFAULT_TIMEOUT.pool,
+        DEFAULT_LIMITS.max_connections,
+        DEFAULT_LIMITS.max_keepalive_connections,
+        DEFAULT_LIMITS.keepalive_expiry,
+    ) == snapshot
 
 
 async def test_constructor_sets_base_url_on_internal_httpx_client() -> None:
@@ -219,6 +269,24 @@ def test_decode_ollama_json_rejects_non_json_content_type() -> None:
         _decode_ollama_json(response)
 
 
+def test_decode_ollama_json_accepts_ows_before_semicolon_in_content_type() -> None:
+    """RFC 7231 §3.1.1.1 OWS before ``;`` must not bucket as malformed-frame.
+
+    The ABNF ``media-type = type "/" subtype *( OWS ";" OWS parameter )``
+    allows whitespace AROUND the parameter separator. A reverse proxy or a
+    future Ollama version emitting ``application/json ;charset=utf-8``
+    (one space before ``;``) is RFC-legal; an earlier guard shape that
+    string-matched ``"application/json;"`` would silently re-bucket the
+    real Ollama response as malformed-frame.
+    """
+    response = httpx.Response(
+        200,
+        headers={"content-type": "application/json ;charset=utf-8"},
+        json={"ok": True},
+    )
+    assert _decode_ollama_json(response) == {"ok": True}
+
+
 def test_decode_ollama_json_rejects_malformed_json_body() -> None:
     """A malformed JSON body surfaces as ValueError chaining the decoder cause."""
     response = httpx.Response(
@@ -299,11 +367,11 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
     async def slow_handler(_request: httpx.Request) -> httpx.Response:
         # Park the request long enough for the surrounding task to be
         # cancelled before the response materializes. 0.5s is well above
-        # the event-loop tick we wait for below; the prior 10s value risked
-        # a multi-second session-loop hang on a future cancellation-
-        # propagation regression (which would surface as "task never sees
-        # cancel()" — we'd wait the full sleep before the test bottoms out).
-        # Sub-second keeps regressions loud-but-fast.
+        # the event-loop tick we wait for below, and bounded enough that
+        # a future cancellation-propagation regression (where the task
+        # never sees ``cancel()``) hangs the suite for at most half a
+        # second before bottoming out. Sub-second keeps regressions
+        # loud-but-fast.
         await asyncio.sleep(0.5)
         return httpx.Response(200, json={"message": {"content": "x"}, "done_reason": "stop"})
 
@@ -320,7 +388,14 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
             # Yield control so the task starts and parks on the slow handler.
             await asyncio.sleep(0)
             task.cancel()
-            with pytest.raises(asyncio.CancelledError):
+            # ``match="^$"`` keeps the project dialect ("every
+            # pytest.raises carries match=") consistent — CancelledError
+            # is constructed without a message in the cancellation
+            # pathway, so the empty-string anchor pins the no-message
+            # contract. ``match=""`` would warn ("matching against an
+            # empty string will *always* pass"); ``"^$"`` is the
+            # pytest-recommended form for "exactly empty message".
+            with pytest.raises(asyncio.CancelledError, match=r"^$"):
                 await task
 
         cancelled_events = [e for e in captured if e.get("event") == "ollama_call_cancelled"]
