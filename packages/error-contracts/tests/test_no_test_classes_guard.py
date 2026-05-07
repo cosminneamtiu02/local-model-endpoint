@@ -27,10 +27,16 @@ from tests.conftest import _TEST_CLASS_PATTERN
 @pytest.mark.parametrize(
     "source",
     [
-        "class TestFoo:\n    pass",
-        "class TestFoo(unittest.TestCase):\n    pass",
-        "class TestBar:\n    def test_x(self): ...",
-        "class Test_Bar:\n    pass",
+        # Mirror of the backend dialect — see
+        # ``apps/backend/tests/unit/test_no_test_classes_guard.py`` for the
+        # pinned ID rationale (multi-line source as the auto-ID is hostile
+        # for CI log + ``-k`` filter readability).
+        pytest.param("class TestFoo:\n    pass", id="plain-class-test-foo"),
+        pytest.param(
+            "class TestFoo(unittest.TestCase):\n    pass", id="unittest-testcase-subclass"
+        ),
+        pytest.param("class TestBar:\n    def test_x(self): ...", id="class-with-test-method"),
+        pytest.param("class Test_Bar:\n    pass", id="underscore-continuation"),
     ],
 )
 def test_no_classes_guard_matches_offending_class(source: str) -> None:
@@ -46,11 +52,13 @@ def test_no_classes_guard_documents_digit_after_test_is_not_matched() -> None:
 @pytest.mark.parametrize(
     "source",
     [
-        "class _TestFoo:\n    pass",
-        "class testfoo:\n    pass",
-        "    class TestFoo:\n        pass",
-        "class Foo:\n    pass",
-        "def test_foo() -> None:\n    pass",
+        # Mirror of the backend dialect — see
+        # ``apps/backend/tests/unit/test_no_test_classes_guard.py``.
+        pytest.param("class _TestFoo:\n    pass", id="leading-underscore-private"),
+        pytest.param("class testfoo:\n    pass", id="lowercase-prefix"),
+        pytest.param("    class TestFoo:\n        pass", id="indented-inner-class"),
+        pytest.param("class Foo:\n    pass", id="non-test-class-name"),
+        pytest.param("def test_foo() -> None:\n    pass", id="function-form"),
     ],
 )
 def test_no_classes_guard_rejects_non_offending_source(source: str) -> None:

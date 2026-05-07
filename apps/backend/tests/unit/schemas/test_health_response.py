@@ -1,5 +1,7 @@
 """Unit tests for the HealthResponse liveness schema."""
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 

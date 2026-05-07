@@ -19,7 +19,12 @@ so each test sees a freshly-built FastAPI instance with the autouse
 Settings-env scrub applied.
 """
 
-from fastapi.testclient import TestClient
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 
 def test_health_route_declares_problem_details_default_response(client: TestClient) -> None:

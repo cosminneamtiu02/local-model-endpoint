@@ -1,5 +1,7 @@
 """Unit tests for the RFC 7807 ProblemDetails schema."""
 
+from __future__ import annotations
+
 import json
 from typing import TypedDict
 
@@ -132,13 +134,18 @@ def test_problem_details_model_dump_json_produces_valid_json() -> None:
 @pytest.mark.parametrize(
     "bad_code",
     [
-        "",  # rejected by min_length=1
-        "queue-full",  # kebab-case
-        "QueueFull",  # PascalCase
-        "QUEUE__FULL",  # double underscore
-        "_QUEUE_FULL",  # leading underscore
-        "QUEUE_FULL_",  # trailing underscore
-        "42_FOO",  # leading digit
+        # Auto-generated IDs are hostile here: the empty-string case
+        # would render as the bare ID ``[]`` in pytest --collect-only and
+        # in CI logs (``-k`` filters break too). Each ``pytest.param`` pins
+        # a stable, copy-pasteable ID matching the dialect already used in
+        # ``tests/unit/features/inference/model/test_model_params.py``.
+        pytest.param("", id="empty-string"),
+        pytest.param("queue-full", id="kebab-case"),
+        pytest.param("QueueFull", id="pascal-case"),
+        pytest.param("QUEUE__FULL", id="double-underscore"),
+        pytest.param("_QUEUE_FULL", id="leading-underscore"),
+        pytest.param("QUEUE_FULL_", id="trailing-underscore"),
+        pytest.param("42_FOO", id="leading-digit"),
     ],
 )
 def test_problem_details_rejects_malformed_code(bad_code: str) -> None:

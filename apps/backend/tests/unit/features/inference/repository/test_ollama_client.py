@@ -9,6 +9,8 @@ Covers acceptance criteria from LIP-E003-F001 unit-test scenarios:
 - cancellation logging contract
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 
@@ -19,6 +21,7 @@ from structlog.testing import capture_logs
 from app.features.inference.model.message import Message
 from app.features.inference.model.model_params import ModelParams
 from app.features.inference.repository.ollama_client import (
+    DEFAULT_LIMITS,
     DEFAULT_TIMEOUT,
     OllamaClient,
     _decode_ollama_json,
@@ -42,6 +45,24 @@ def test_default_timeout_constants_match_documented_v1_backstop() -> None:
     assert DEFAULT_TIMEOUT.read == 600.0
     assert DEFAULT_TIMEOUT.write is None
     assert DEFAULT_TIMEOUT.pool == 5.0
+
+
+def test_default_limits_constants_match_documented_pool_sizing() -> None:
+    """``DEFAULT_LIMITS`` mirrors the documented LIP-E004-F001 pool sizing.
+
+    Symmetric with ``test_default_timeout_constants_match_documented_v1_backstop``
+    above. The three fields are individually load-bearing:
+    ``max_connections=1`` and ``max_keepalive_connections=1`` match the
+    LIP-E004-F001 semaphore (one-in-flight); a regression flipping either
+    to a larger value silently breaks the invariant that pool starvation
+    is a loud signal of a broken semaphore. ``keepalive_expiry=30.0`` is
+    the documented log-churn knob for any future idle-shutdown
+    coordinator. Field-by-field assertions catch a structural-equality
+    drift on ``httpx.Limits`` the same way the timeout test does.
+    """
+    assert DEFAULT_LIMITS.max_connections == 1
+    assert DEFAULT_LIMITS.max_keepalive_connections == 1
+    assert DEFAULT_LIMITS.keepalive_expiry == 30.0
 
 
 async def test_constructor_sets_base_url_on_internal_httpx_client() -> None:
@@ -442,3 +463,42 @@ async def test_aexit_without_aenter_emits_misuse_warning() -> None:
     closed = [e for e in captured if e.get("event") == "ollama_client_completed"]
     assert len(closed) == 1, captured
     assert closed[0]["duration_ms"] is None
+
+
+async def test_double_aenter_overwrites_lifecycle_entered_at() -> None:
+    """A second ``__aenter__`` against the same instance overwrites the
+    lifecycle timestamp; the first close wins (idempotent).
+
+    Production today never re-enters a single ``OllamaClient`` (lifespan
+    pairs aenter/aexit 1:1 via AsyncExitStack), but pinning the contract
+    documents that nested ``async with same_client:`` is observable as a
+    timestamp overwrite rather than a hard error. If a future contributor
+    adopts the structured-concurrency anti-pattern of nesting on the
+    same instance, the first close still releases the underlying httpx
+    pool (idempotent ``close()``); this test pins the second-aenter
+    survives without raising and the second-aexit's idempotent close is
+    a no-op.
+    """
+    transport = httpx.MockTransport(lambda _r: httpx.Response(200, json={}))
+    client = OllamaClient(base_url="http://ollama.test", transport=transport)
+    async with client:
+        first_entered = client._lifecycle_entered_at
+        assert first_entered is not None
+        # Yield briefly so the second ``__aenter__`` lands on a strictly
+        # later ``time.perf_counter()`` reading; perf_counter is
+        # monotonic but not guaranteed to advance on consecutive calls
+        # within the same event-loop tick.
+        await asyncio.sleep(0)
+        # Re-entering the same instance — second aenter overwrites the
+        # timestamp; no exception is raised on this anti-pattern today.
+        async with client:
+            second_entered = client._lifecycle_entered_at
+            assert second_entered is not None
+            # Either strictly later OR identical (perf_counter precision
+            # bound). Both are acceptable; the contract is "no exception
+            # raised, second value present".
+            assert second_entered >= first_entered
+        # After inner aexit the underlying httpx client IS closed
+        # (idempotent close runs once); the outer aexit's close is a
+        # no-op via ``self._client.is_closed`` guard.
+        assert client._client.is_closed is True

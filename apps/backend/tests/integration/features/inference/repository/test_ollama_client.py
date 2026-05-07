@@ -203,6 +203,23 @@ async def test_chat_emits_body_keys_in_spec_order() -> None:
     assert list(body.keys()) == ["model", "messages", "options", "stream"]
 
 
+async def test_chat_bare_options_emits_body_keys_in_three_key_spec_order() -> None:
+    """Bare ``ModelParams()`` shape (no options key) emits keys in
+    (model, messages, stream) spec order — the second documented order
+    from ``OllamaClient.chat``'s body-construction comment block.
+
+    Without this test, a future contributor reordering
+    ``body["stream"] = False`` before the ``if options:`` branch would
+    silently produce ``[model, messages, stream, options]`` for the
+    options-present shape (still spec-compatible, but contradicting the
+    documented invariant) and the existing ``test_chat_emits_body_keys_in_spec_order``
+    above wouldn't catch the reorder on the bare shape because
+    ``body.keys()`` isn't list-equality-asserted on it.
+    """
+    body, _, _ = await _send_and_capture(params=ModelParams())
+    assert list(body.keys()) == ["model", "messages", "stream"]
+
+
 # The five canonical ModelParams shapes the wire-invariant tests sweep over.
 # Extracted to a module-level constant so ``test_chat_always_sets_stream_false``
 # and ``test_chat_never_sends_tools_keep_alive_or_format_keys`` parametrize

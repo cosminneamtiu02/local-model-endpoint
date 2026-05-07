@@ -1,5 +1,7 @@
 """Unit tests for TextContent (LIP-E001-F001)."""
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 

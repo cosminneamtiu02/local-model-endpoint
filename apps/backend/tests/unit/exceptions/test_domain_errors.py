@@ -1,5 +1,7 @@
 """Tests for generated domain error classes."""
 
+from __future__ import annotations
+
 from typing import ClassVar
 
 import pytest
@@ -140,8 +142,16 @@ def test_method_not_allowed_constructs_with_default_detail() -> None:
 
 
 def test_queue_full_rejects_missing_required_param() -> None:
-    """Required params are positional-keyword on __init__; missing them is a TypeError."""
-    with pytest.raises(TypeError):
+    """Required params are positional-keyword on __init__; missing them is a TypeError.
+
+    The ``match=`` pin binds the assertion to the specific
+    "missing required keyword-only argument" failure mode rather than any
+    ``TypeError`` (e.g. a future ``__init_subclass__`` regression or
+    metaclass typo that raised ``TypeError`` at instantiation would
+    otherwise pass this test silently). Mirrors the dialect of the sibling
+    ``test_domain_error_subclass_missing_classvar_raises_typeerror``.
+    """
+    with pytest.raises(TypeError, match="current_waiters"):
         QueueFullError(max_waiters=4)  # pyright: ignore[reportCallIssue]
 
 

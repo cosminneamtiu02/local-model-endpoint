@@ -1,5 +1,7 @@
 """Verifies the generated _registry.ERROR_CLASSES exposes every error code."""
 
+from __future__ import annotations
+
 from app.exceptions import (
     ERROR_CLASSES,
     AdapterConnectionFailureError,

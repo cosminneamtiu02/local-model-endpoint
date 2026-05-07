@@ -163,3 +163,26 @@ def test_addopts_contains_strict_markers_and_strict_config() -> None:
         f"``--strict-config`` must be in ``addopts`` so unknown config "
         f"keys fail the run; got {addopts!r}."
     )
+
+
+def test_xfail_strict_is_true() -> None:
+    """``xfail_strict = true`` MUST be set so unexpectedly-passing xfails
+    fail the run (forces the author to remove the marker rather than
+    leaving stale xfails in the suite).
+
+    Symmetric pin with the equivalent test in the error-contracts
+    workspace at ``packages/error-contracts/tests/test_pytest_config_drift_guard.py``.
+    Without this guard, a flip back to the pytest default of ``False``
+    would silently re-enable the stale-xfail antipattern.
+    """
+    workspace_root = Path(__file__).resolve().parents[2]
+    pyproject = workspace_root / "pyproject.toml"
+    with pyproject.open("rb") as f:
+        config = tomllib.load(f)
+    pytest_options = config["tool"]["pytest"]["ini_options"]
+    xfail_strict = pytest_options.get("xfail_strict")
+    assert xfail_strict is True, (
+        f"``xfail_strict`` must be ``True`` so unexpectedly-passing xfails "
+        f"fail the run; got {xfail_strict!r}. See "
+        "``apps/backend/pyproject.toml:xfail_strict``."
+    )

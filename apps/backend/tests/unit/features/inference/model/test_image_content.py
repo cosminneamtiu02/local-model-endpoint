@@ -7,6 +7,8 @@ validator enforces that invariant at the schema boundary. The field
 name `base64` matches the wire vocabulary the adapter feature consumes.
 """
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 

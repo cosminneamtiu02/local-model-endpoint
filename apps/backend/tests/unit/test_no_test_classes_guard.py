@@ -29,12 +29,19 @@ from tests.conftest import _TEST_CLASS_PATTERN
 @pytest.mark.parametrize(
     "source",
     [
-        "class TestFoo:\n    pass",
-        "class TestFoo(unittest.TestCase):\n    pass",
-        "class TestBar:\n    def test_x(self): ...",
+        # Without ``id=``, pytest auto-generates IDs from the literal
+        # multi-line source, producing IDs like
+        # ``[class TestFoo:\n    pass]`` that hurt CI log readability and
+        # ``-k`` filter ergonomics. Each ``pytest.param`` pins a stable,
+        # one-line semantic ID instead.
+        pytest.param("class TestFoo:\n    pass", id="plain-class-test-foo"),
+        pytest.param(
+            "class TestFoo(unittest.TestCase):\n    pass", id="unittest-testcase-subclass"
+        ),
+        pytest.param("class TestBar:\n    def test_x(self): ...", id="class-with-test-method"),
         # Underscore continuation — ``class Test_Foo`` is rare but valid
         # Python; the regex's ``[A-Za-z_]`` accepts it.
-        "class Test_Bar:\n    pass",
+        pytest.param("class Test_Bar:\n    pass", id="underscore-continuation"),
     ],
 )
 def test_no_classes_guard_matches_offending_class(source: str) -> None:
@@ -59,21 +66,21 @@ def test_no_classes_guard_documents_digit_after_test_is_not_matched() -> None:
     "source",
     [
         # Leading underscore — private class, not a test container.
-        "class _TestFoo:\n    pass",
+        pytest.param("class _TestFoo:\n    pass", id="leading-underscore-private"),
         # Lower-case ``test`` prefix — fails CLAUDE.md naming, but the
         # discovery layer (python_classes pin) is what enforces that;
         # the regex is anchored on the canonical TitleCase ``Test`` form.
-        "class testfoo:\n    pass",
+        pytest.param("class testfoo:\n    pass", id="lowercase-prefix"),
         # Indented (inner class) — pytest doesn't discover inner classes
         # anyway, and the regex's ``^`` anchor with re.MULTILINE excludes
         # them.
-        "    class TestFoo:\n        pass",
+        pytest.param("    class TestFoo:\n        pass", id="indented-inner-class"),
         # Adjacent name (``TestableFoo`` is not a test container — pytest
         # discovers only ``Test`` followed by an upper or non-letter; the
         # regex's character class ``[A-Za-z_]`` restricts to that form).
-        "class Foo:\n    pass",
+        pytest.param("class Foo:\n    pass", id="non-test-class-name"),
         # Functions (the canonical CLAUDE.md form) must NOT match.
-        "def test_foo() -> None:\n    pass",
+        pytest.param("def test_foo() -> None:\n    pass", id="function-form"),
     ],
 )
 def test_no_classes_guard_rejects_non_offending_source(source: str) -> None:

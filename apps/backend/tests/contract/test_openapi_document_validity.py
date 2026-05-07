@@ -19,7 +19,12 @@ Settings-env scrub in the root conftest takes effect — symmetric with
 the integration tier's hermeticity policy.
 """
 
-from fastapi.testclient import TestClient
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 
 def test_openapi_spec_is_valid(client: TestClient) -> None:

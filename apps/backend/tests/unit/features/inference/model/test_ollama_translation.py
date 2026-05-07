@@ -8,6 +8,8 @@ The single most fragile mapping is `max_tokens -> num_predict`: a
 dedicated test guards against silent regression of that rename.
 """
 
+from __future__ import annotations
+
 import pytest
 
 from app.features.inference.model.audio_content import AudioContent

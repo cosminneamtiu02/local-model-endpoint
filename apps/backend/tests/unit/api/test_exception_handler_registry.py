@@ -1,5 +1,7 @@
 """Tests for the RFC 7807 exception handler chain."""
 
+from __future__ import annotations
+
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient

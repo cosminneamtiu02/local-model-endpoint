@@ -8,6 +8,8 @@ under ``tests/integration/api/``, alongside ``test_health_router.py`` and
 ``tests/integration/features/inference/repository/test_ollama_client.py``.
 """
 
+from __future__ import annotations
+
 from typing import Annotated
 
 import pytest
@@ -15,7 +17,16 @@ from fastapi import Depends
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_ollama_client
-from app.features.inference import OllamaClient
+
+# OllamaClient is referenced at runtime by FastAPI's dependency-injection
+# introspection (the route at line 75 declares
+# ``Annotated[OllamaClient, Depends(get_ollama_client)]``). Under
+# ``from __future__ import annotations`` the annotation is a string,
+# but FastAPI's ``get_type_hints()`` resolution needs the symbol at the
+# module's runtime namespace, not in a TYPE_CHECKING block. The
+# ruff-TC001 fix that suggests moving this import is unsafe for FastAPI
+# DI signatures specifically — keep at module top.
+from app.features.inference import OllamaClient  # noqa: TC001
 
 
 def test_lifespan_constructs_and_closes_client_exactly_once(
