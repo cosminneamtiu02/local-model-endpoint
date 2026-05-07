@@ -81,11 +81,12 @@ def _id_for_value_object(pair: object) -> str:
 @pytest.mark.parametrize(
     ("name", "model_cls"),
     _value_object_classes(),
-    # ``ids=_id_for_value_object`` evaluates ``_value_object_classes()`` once;
-    # the prior list-comp form (``ids=[name for name, _ in
-    # _value_object_classes()]``) called the discovery function a second time
-    # at collection, risking ID/argvalue mismatch if the function ever became
-    # order-sensitive. Mirrors the single-eval dialect of the sibling
+    # ``ids=_id_for_value_object`` evaluates ``_value_object_classes()``
+    # exactly once. A list-comp form (``ids=[name for name, _ in
+    # _value_object_classes()]``) would call the discovery function a
+    # second time at collection, risking ID/argvalue mismatch if the
+    # function ever became order-sensitive. Mirrors the single-eval
+    # dialect of the sibling
     # ``tests/unit/exceptions/test_params_frozen_drift_guard.py``.
     ids=_id_for_value_object,
 )

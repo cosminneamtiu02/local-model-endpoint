@@ -169,9 +169,20 @@ async def _send_413_problem_json(send: Send, request_id: str, path: str) -> None
     )
     # No ``exclude_none=False`` — that's the Pydantic v2 default; passing it
     # explicitly drifts from the bare ``model_dump_json()`` shape used at
-    # ``exception_handler_registry._problem_response``. The 413 path has no
-    # ProblemExtras / typed-params spread that would need ``None`` preservation.
+    # ``exception_handler_registry._build_problem_response``. The 413 path has
+    # no ProblemExtras / typed-params spread that would need ``None``
+    # preservation.
     body = problem.model_dump_json().encode("utf-8")
+    # The 413 short-circuit emits a fixed header set independent of any
+    # future GZip / compression middleware mounted INSIDE this wrapper.
+    # The bypass is intentional: a body-too-large signal must reach the
+    # consumer before per-route compression deciders run, and the
+    # response's plain-text body never gets a compression layer applied.
+    # If a future reverse proxy upstream of uvicorn injects
+    # ``Content-Encoding`` based on consumer ``Accept-Encoding``, the
+    # 413 body would be served without a matching encoding signal —
+    # acceptable on the LAN-local trust model where consumers are known
+    # to accept plain-text problem+json.
     await send(
         {
             "type": "http.response.start",

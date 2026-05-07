@@ -398,7 +398,11 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
-    is_prod = settings.app_env == "production"
+    # Read the centralized ``Settings.is_production`` @computed_field
+    # rather than re-deriving the literal — single source of truth for
+    # the prod-discriminator boolean. Bind to a local for the four
+    # downstream uses below to keep the FastAPI() kwargs readable.
+    is_prod = settings.is_production
 
     configure_logging(log_level=settings.log_level, json_output=is_prod)
     # Both warnings below MUST emit AFTER ``configure_logging`` so the
@@ -428,7 +432,7 @@ def create_app() -> FastAPI:
         # discovery tools (Snyk, FOSSA, GitHub's license API) read it as
         # the canonical signal.
         license_info={"name": "MIT", "identifier": "MIT"},
-        # FORWARD (LIP-E001-F002 / lane 11.5): when the inference router
+        # FORWARD (LIP-E001-F002): when the inference router
         # lands and a second tag joins ``health``, declare
         # ``openapi_tags=[{"name": "health", "description": "Liveness
         # and readiness probes."}, {"name": "inference", "description":
@@ -438,7 +442,7 @@ def create_app() -> FastAPI:
         # entry today would land scaffolding ADR-011 forbids; the
         # ``health`` tag on ``health_router`` already carries the
         # routing affordance.
-        # FORWARD (LIP-E001-F002 / lane 11.1): consider
+        # FORWARD (LIP-E001-F002): consider
         # ``default_response_class=ProblemJSONResponse`` (subclass of
         # JSONResponse with ``media_type=PROBLEM_JSON_MEDIA_TYPE``) so
         # per-route ``responses=`` declarations stop manually

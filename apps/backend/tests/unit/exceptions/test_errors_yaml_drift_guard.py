@@ -38,6 +38,13 @@ _MIN_CODE_COUNT = 11
 def errors_data() -> dict[str, object]:
     """Parse errors.yaml directly (the codegen package isn't a backend dep).
 
+    ``scope="module"`` is intentional: every test in this module reads
+    the same parsed YAML, and the parse cost (~ms-tier on a 50-entry
+    file) accumulated across the module's tests is the one place where
+    ``scope="module"`` pays off relative to function-scope. Sync fixture
+    against the session-scoped event loop is safe — pytest-asyncio
+    binds only async fixtures to its loop scope.
+
     The full validator path (description-safety, 5xx PII guard,
     duplicate-code detection) runs in ``packages/error-contracts/tests/``.
     This test focuses on the structural floor that protects the

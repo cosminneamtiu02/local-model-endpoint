@@ -59,13 +59,20 @@ def _repo_root() -> Path:
     raise RuntimeError(msg)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def repo_root() -> Path:
+    """Function-scoped: ``_repo_root()`` is sub-microsecond Path arithmetic
+    with no I/O cost worth caching, so ``scope="module"`` would only obscure
+    the default-scope discipline applied to ``parsed_plist`` below.
+    """
     return _repo_root()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def plist_path(repo_root: Path) -> Path:
+    """Function-scoped for the same rationale as ``repo_root``: a literal
+    ``Path`` join is free, and the consistent function-scope keeps the
+    fixture-scope discipline uniform across this test module."""
     return repo_root / "infra" / "launchd" / "com.lip.ollama.plist.tmpl"
 
 

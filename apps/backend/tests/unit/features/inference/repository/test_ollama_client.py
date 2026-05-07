@@ -65,6 +65,41 @@ def test_default_limits_constants_match_documented_pool_sizing() -> None:
     assert DEFAULT_LIMITS.keepalive_expiry == 30.0
 
 
+def test_default_timeout_remains_stable_across_client_instances() -> None:
+    """Module-level ``DEFAULT_TIMEOUT`` field values stay constant across
+    multiple ``OllamaClient`` constructions.
+
+    httpx 0.28.1's ``Timeout`` is a plain Python object without slots —
+    a future caller mutating ``DEFAULT_TIMEOUT.connect = 1.0`` would
+    silently affect every subsequent client. The module-level comment
+    pins the no-mutation invariant; this test mechanically verifies
+    that the module-level constants survive multi-instance construction.
+    """
+    snapshot = (
+        DEFAULT_TIMEOUT.connect,
+        DEFAULT_TIMEOUT.read,
+        DEFAULT_TIMEOUT.write,
+        DEFAULT_TIMEOUT.pool,
+        DEFAULT_LIMITS.max_connections,
+        DEFAULT_LIMITS.max_keepalive_connections,
+        DEFAULT_LIMITS.keepalive_expiry,
+    )
+    for _ in range(3):
+        # Construct without using ``async with`` — ``__init__`` is the
+        # only relevant path here (no need for ``__aenter__`` /
+        # ``__aexit__`` lifecycle on a constants-stability check).
+        OllamaClient(base_url="http://example.invalid")
+    assert (
+        DEFAULT_TIMEOUT.connect,
+        DEFAULT_TIMEOUT.read,
+        DEFAULT_TIMEOUT.write,
+        DEFAULT_TIMEOUT.pool,
+        DEFAULT_LIMITS.max_connections,
+        DEFAULT_LIMITS.max_keepalive_connections,
+        DEFAULT_LIMITS.keepalive_expiry,
+    ) == snapshot
+
+
 async def test_constructor_sets_base_url_on_internal_httpx_client() -> None:
     client = OllamaClient(base_url="http://localhost:11434")
     try:
@@ -317,11 +352,11 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
     async def slow_handler(_request: httpx.Request) -> httpx.Response:
         # Park the request long enough for the surrounding task to be
         # cancelled before the response materializes. 0.5s is well above
-        # the event-loop tick we wait for below; the prior 10s value risked
-        # a multi-second session-loop hang on a future cancellation-
-        # propagation regression (which would surface as "task never sees
-        # cancel()" — we'd wait the full sleep before the test bottoms out).
-        # Sub-second keeps regressions loud-but-fast.
+        # the event-loop tick we wait for below, and bounded enough that
+        # a future cancellation-propagation regression (where the task
+        # never sees ``cancel()``) hangs the suite for at most half a
+        # second before bottoming out. Sub-second keeps regressions
+        # loud-but-fast.
         await asyncio.sleep(0.5)
         return httpx.Response(200, json={"message": {"content": "x"}, "done_reason": "stop"})
 
@@ -338,7 +373,14 @@ async def test_chat_cancellation_emits_cancelled_event_and_not_failed_event() ->
             # Yield control so the task starts and parks on the slow handler.
             await asyncio.sleep(0)
             task.cancel()
-            with pytest.raises(asyncio.CancelledError):
+            # ``match="^$"`` keeps the project dialect ("every
+            # pytest.raises carries match=") consistent — CancelledError
+            # is constructed without a message in the cancellation
+            # pathway, so the empty-string anchor pins the no-message
+            # contract. ``match=""`` would warn ("matching against an
+            # empty string will *always* pass"); ``"^$"`` is the
+            # pytest-recommended form for "exactly empty message".
+            with pytest.raises(asyncio.CancelledError, match=r"^$"):
                 await task
 
         cancelled_events = [e for e in captured if e.get("event") == "ollama_call_cancelled"]

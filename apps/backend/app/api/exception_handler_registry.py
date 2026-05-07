@@ -618,9 +618,11 @@ async def _handle_validation_error(request: Request, exc: Exception) -> Response
         # module is "log the wire-status's level"; this branch
         # deliberately escapes that convention because the abnormal
         # path means the framework lied about its own contract.
-        # Sibling 4xx ``warning`` calls (line ~510 above and the
-        # http-exception 4xx branch) keep their level — only the
-        # framework-bug abnormal path escalates.
+        # The sibling 4xx ``warning`` calls (the typed ``DomainError``
+        # 4xx branch in ``_handle_domain_error`` and the framework-
+        # ``HTTPException`` 4xx branch in ``_handle_http_exception``)
+        # keep their level — only this framework-bug abnormal path
+        # escalates.
         # ``phase="request"`` defense-in-depth — see the rationale on
         # ``request_id_missing_in_state``; symmetric across the three
         # handler-edge diagnostics.
@@ -911,10 +913,11 @@ async def _handle_http_exception(request: Request, exc: Exception) -> Response:
         # only on the regression-class.
         if http_exc.headers is None or "allow" not in {k.lower() for k in http_exc.headers}:
             # ``method=request.method`` (no ``ascii_safe`` wrap) mirrors
-            # the existing access-log pattern at line 183 / 972 — the
-            # method is one of a closed alphabet (GET/POST/PUT/...) by
-            # the time it reaches the handler chain (Starlette rejects
-            # malformed methods earlier).
+            # the access-log pattern at the ``request_completed`` and
+            # ``http_exception_4xx_emitted`` emit sites — the method is
+            # one of a closed alphabet (GET/POST/PUT/...) by the time it
+            # reaches the handler chain (Starlette rejects malformed
+            # methods earlier).
             logger.warning(
                 "http_exception_405_missing_allow_header",
                 phase="request",

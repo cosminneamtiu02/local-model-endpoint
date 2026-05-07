@@ -50,6 +50,12 @@ def test_params_class_is_frozen_and_extra_forbid(params_cls: type[BaseModel]) ->
     )
 
 
-def test_at_least_one_params_class_exists_in_registry() -> None:
-    """Sanity check that the parametrize fixture isn't silently empty."""
+def test_params_class_registry_is_not_silently_empty() -> None:
+    """Parametrize sanity backstop — discovery returning empty would silently
+    collapse the per-class loop above to zero subtests with no failure signal.
+
+    The role here is "parametrize-empty tripwire", not "exists" — the
+    rename surfaces the test's true purpose so a future contributor
+    looking for "did discovery break?" greps the right name.
+    """
     assert _params_classes(), "Expected at least one *Params class in app.exceptions._generated"

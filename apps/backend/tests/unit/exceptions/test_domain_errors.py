@@ -126,11 +126,11 @@ def test_not_found_constructs_with_default_detail() -> None:
 def test_method_not_allowed_constructs_with_default_detail() -> None:
     """MethodNotAllowedError per-class invariants — closes the unit-coverage gap.
 
-    Coverage was previously routed only through the framework
-    405-wraps-into-RFC-7807 integration test plus the registry-shape
-    iteration. A YAML edit to METHOD_NOT_ALLOWED's title / type_uri /
-    detail_template would have surfaced only at the integration tier —
-    a slower red signal than this focused per-class assertion.
+    Per-class focused assertion against the framework-405-wraps-into-
+    RFC-7807 integration test plus the registry-shape iteration: a
+    YAML edit to METHOD_NOT_ALLOWED's title / type_uri / detail_template
+    would otherwise surface only at the integration tier — a slower red
+    signal than this focused unit-tier assertion.
     """
     err = MethodNotAllowedError()
     assert err.code == "METHOD_NOT_ALLOWED"
@@ -182,13 +182,27 @@ def test_pydantic_model_name_namespace_does_not_warn() -> None:
     """
     import warnings
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
+    # Capture every warning so we can assert ``len(captured) == 0`` at the
+    # end. ``simplefilter("error")`` would convert any warning to an
+    # exception, so the test would fail loudly on a regression — but
+    # reading the test, "no asserts" reads as a CLAUDE.md sacred-rule
+    # violation. The explicit ``assert captured == []`` makes the
+    # contract greppable AND symmetric with
+    # ``test_filterwarnings_anyio_suppression`` which uses the same
+    # ``warnings.catch_warnings(record=True)`` + ``assert == []`` shape.
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
         # Both raise sites in errors.yaml that currently use
         # ``model_name``: REGISTRY_NOT_FOUND and
         # MODEL_CAPABILITY_NOT_SUPPORTED.
         RegistryNotFoundError(model_name="phantom-model")
         ModelCapabilityNotSupportedError(model_name="text-only", requested_capability="audio")
+    namespace_warnings = [
+        w for w in captured if "protected" in str(w.message).lower() or "model_" in str(w.message)
+    ]
+    assert namespace_warnings == [], (
+        f"Pydantic emitted unexpected protected-namespace warnings: {namespace_warnings}"
+    )
 
 
 def test_domain_error_subclass_missing_classvar_raises_typeerror() -> None:

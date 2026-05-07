@@ -17,7 +17,7 @@ import ipaddress
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import AnyHttpUrl, Field, field_validator, model_validator
+from pydantic import AnyHttpUrl, Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -227,6 +227,21 @@ class Settings(BaseSettings):
             "of project scope per the ``ge=1024`` constraint)."
         ),
     )
+
+    @computed_field
+    @property
+    def is_production(self) -> bool:
+        """``True`` iff ``app_env == "production"``.
+
+        Single source of truth for the boolean derivation; ``main.py`` /
+        future feature handlers / log payloads consume this rather than
+        re-deriving the literal at every call site. CLAUDE.md sacred
+        rule "one way to do each thing" — the inline ``settings.app_env
+        == "production"`` shape was forking quietly and a future
+        ``Literal["production"]`` rename would have to chase every
+        comparison site instead of one centralized predicate.
+        """
+        return self.app_env == "production"
 
     @field_validator("log_level", mode="before")
     @classmethod

@@ -35,8 +35,14 @@ def test_validation_error_detail_rejects_unknown_keys() -> None:
 def test_validation_error_detail_requires_both_fields(
     kwargs: dict[str, str], missing_key: str
 ) -> None:
-    """Both fields are required — neither alone validates. Bind the parametrize id
-    via ``exc_info`` so each iteration asserts the right boundary fired."""
-    with pytest.raises(ValidationError) as exc_info:
+    """Both fields are required — neither alone validates.
+
+    ``match=missing_key`` is the project dialect for binding the
+    assertion to the parametrize id; the prior ``as exc_info`` shape
+    was the only outlier in the suite. ``pytest.raises`` runs the regex
+    against the rendered Pydantic message text, so ``"field"`` /
+    ``"reason"`` substring matches reach the same field-name signal
+    the prior ``str(exc_info.value)`` substring check did.
+    """
+    with pytest.raises(ValidationError, match=missing_key):
         ValidationErrorDetail.model_validate(kwargs)
-    assert missing_key in str(exc_info.value)

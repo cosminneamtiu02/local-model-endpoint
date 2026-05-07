@@ -13,10 +13,13 @@ from app.exceptions import (
     AdapterConnectionFailureError,
     ConflictError,
     InferenceTimeoutError,
+    MethodNotAllowedError,
     ModelCapabilityNotSupportedError,
+    NotFoundError,
     QueueFullError,
     RateLimitedError,
     RegistryNotFoundError,
+    ValidationFailedError,
 )
 from app.schemas import ValidationErrorDetail
 from app.schemas.wire_constants import PROBLEM_JSON_MEDIA_TYPE, REQUEST_ID_HEADER
@@ -60,6 +63,35 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
         # parameterless typed raise — the no-parens form per the
         # ``raise InternalError`` discipline at ``deps.py``.
         raise ConflictError
+
+    @test_app.get("/trigger-typed-not-found")
+    async def trigger_typed_not_found() -> dict[str, str]:
+        # Pin the wire-shape contract for a route-handler-raised
+        # ``NotFoundError`` (lane 8.2): ``_handle_http_exception``
+        # documents that typed and framework-404 paths share an
+        # identical wire body, but the typed-raise side is currently
+        # tested only indirectly via Starlette's auto-404 path. A
+        # future refactor that special-cased ``_handle_domain_error``
+        # for non-framework codes would silently break this contract.
+        raise NotFoundError
+
+    @test_app.get("/trigger-typed-method-not-allowed")
+    async def trigger_typed_method_not_allowed() -> dict[str, str]:
+        # Companion to ``trigger-typed-not-found`` for the 405 typed
+        # raise path. Exercises ``_handle_domain_error`` directly
+        # (rather than Starlette's auto-405 from a method mismatch).
+        raise MethodNotAllowedError
+
+    @test_app.get("/trigger-typed-validation-failed")
+    async def trigger_typed_validation_failed() -> dict[str, str]:
+        # Companion to the framework-validation path. ``_handle_validation
+        # _error`` synthesizes ValidationFailedError from a Pydantic
+        # ``RequestValidationError``; the direct-typed-raise path is the
+        # natural shape for app-side raises (e.g. capability-validation
+        # failures inside a future feature handler that wants the
+        # generic ``VALIDATION_FAILED`` envelope rather than a more
+        # specific code).
+        raise ValidationFailedError(field="x", reason="y")
 
     @test_app.get("/trigger-validation")
     async def trigger_validation(required_param: int) -> dict[str, int]:  # noqa: ARG001 — FastAPI signature drives validation; body unused
@@ -235,6 +267,49 @@ def test_conflict_maps_to_409(client: TestClient) -> None:
     assert body["type"] == "urn:lip:error:conflict"
     assert body["title"] == "Conflict"
     assert body["status"] == 409
+
+
+def test_typed_not_found_raise_ships_canonical_wire_shape(client: TestClient) -> None:
+    """A route-handler-raised NotFoundError ships the same body as a framework 404.
+
+    Lane 8.2: the comments at ``_handle_http_exception`` document that
+    typed and framework paths emit identical wire bodies. The framework
+    side is tested via Starlette's auto-404; this test covers the typed
+    side. A regression that special-cased ``_handle_domain_error`` for
+    non-framework codes would silently break this contract.
+    """
+    response = client.get("/trigger-typed-not-found")
+    assert response.status_code == 404
+    body = response.json()
+    assert body["code"] == "NOT_FOUND"
+    assert body["type"] == "urn:lip:error:not-found"
+    assert body["status"] == 404
+
+
+def test_typed_method_not_allowed_raise_ships_canonical_wire_shape(client: TestClient) -> None:
+    """A route-handler-raised MethodNotAllowedError ships the canonical 405 body."""
+    response = client.get("/trigger-typed-method-not-allowed")
+    assert response.status_code == 405
+    body = response.json()
+    assert body["code"] == "METHOD_NOT_ALLOWED"
+    assert body["type"] == "urn:lip:error:method-not-allowed"
+    assert body["status"] == 405
+
+
+def test_typed_validation_failed_raise_ships_canonical_wire_shape(client: TestClient) -> None:
+    """A route-handler-raised ValidationFailedError ships the canonical 422 body.
+
+    Distinct from ``test_validation_error_maps_to_422_problem_json``,
+    which exercises Pydantic-driven ``RequestValidationError`` synthesis;
+    this test covers app-side typed raises that bypass the synthesis
+    path entirely.
+    """
+    response = client.get("/trigger-typed-validation-failed")
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "VALIDATION_FAILED"
+    assert body["type"] == "urn:lip:error:validation-failed"
+    assert body["status"] == 422
 
 
 def test_rate_limited_still_works_under_rfc7807(client: TestClient) -> None:

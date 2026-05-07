@@ -663,7 +663,7 @@ class OllamaClient:
             body["stream"] = False
             response = await self._request("POST", CHAT_ENDPOINT, json=body)
             response.raise_for_status()
-            # FORWARD (lane 14.5 / streaming sibling): Ollama's
+            # FORWARD (LIP-E001-F002 envelope work): Ollama's
             # ``/api/chat`` non-stream response is a single JSON object
             # bounded in practice by the model's ``num_predict`` cap
             # (under 1 MiB on Gemma 4 E2B), and the LAN-local trusted-

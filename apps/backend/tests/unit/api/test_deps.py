@@ -176,7 +176,8 @@ def test_audit_lip_env_typos_no_ops_when_env_prefix_empty(
 
     The empty-prefix short-circuit at ``deps.py`` is the lockstep partner
     of a future ADR removing the ``LIP_`` prefix entirely. Without this
-    test the branch is uncovered (line 57 in coverage gap) and a refactor
+    test the branch is uncovered (the empty-prefix early-return in
+    ``audit_lip_env_typos`` lacks coverage) and a refactor
     that drops the early-return would silently surface ``PATH``, ``HOME``,
     and every other shell variable as a typo'd LIP env var.
     """
