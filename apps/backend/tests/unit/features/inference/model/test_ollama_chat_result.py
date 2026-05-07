@@ -7,6 +7,8 @@ fields it can itself observe (content, prompt/completion tokens,
 finish reason).
 """
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 

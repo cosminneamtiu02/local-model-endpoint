@@ -169,7 +169,16 @@ class Settings(BaseSettings):
     # the rationale in this lead-in.
     bind_host: str = Field(
         default="127.0.0.1",
-        description="Interface to bind uvicorn to (loopback / private LAN).",
+        # Description envelope mirrors the ``ollama_host`` envelope above —
+        # both fields validate against the same ``is_private_host()`` clamp,
+        # so the description should enumerate the same accept-list (loopback,
+        # RFC1918, link-local, ULA, mDNS) rather than the misleading
+        # "loopback / private LAN" shorthand. A future operator setting
+        # ``LIP_BIND_HOST=fd00::1`` would otherwise believe the ULA address
+        # required ``LIP_ALLOW_PUBLIC_BIND=true`` when the clamp accepts it.
+        description=(
+            "Interface to bind uvicorn to (loopback / RFC1918 / link-local / ULA / mDNS)."
+        ),
         # ``env_ignore_empty=True`` in model_config means an empty
         # ``LIP_BIND_HOST=`` env var is treated as missing and falls back
         # to the default; ``min_length=1`` here catches the direct-init

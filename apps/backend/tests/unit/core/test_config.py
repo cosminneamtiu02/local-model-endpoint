@@ -1,5 +1,7 @@
 """Unit tests for Settings (LIP-E003-F001 + safety-clamp coverage)."""
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 
@@ -357,6 +359,49 @@ def test_settings_bind_host_accepts_loopback_default() -> None:
     assert settings.bind_host == "127.0.0.1"
 
 
+@pytest.mark.parametrize(
+    "bracketed_loopback",
+    ["[::1]", "[::ffff:127.0.0.1]"],
+)
+def test_settings_bind_host_accepts_bracketed_ipv6_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+    bracketed_loopback: str,
+) -> None:
+    """Bracketed IPv6 forms (``[::1]``, ``[::ffff:127.0.0.1]``) must
+    construct cleanly with no ``LIP_ALLOW_PUBLIC_BIND``.
+
+    The bracket-strip branch in ``is_private_host`` (config.py:36)
+    carries an in-source comment justifying its existence specifically
+    as defense-in-depth for ``LIP_BIND_HOST`` (the comment notes
+    "could legitimately carry brackets (e.g. LIP_BIND_HOST=[::]")"). The
+    test surface previously only exercised bracketed forms on
+    ``ollama_host`` where ``AnyHttpUrl`` strips brackets pre-classifier;
+    the ``bind_host`` direct-input path was uncovered, so a future
+    refactor dropping the bracket-strip would silently break only the
+    ``bind_host`` half of the documented contract.
+    """
+    monkeypatch.setenv("LIP_BIND_HOST", bracketed_loopback)
+    settings = make_settings()
+    assert settings.bind_host == bracketed_loopback
+
+
+def test_settings_bind_host_rejects_bracketed_ipv6_unspecified_without_acknowledgement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``LIP_BIND_HOST=[::]`` must require ``LIP_ALLOW_PUBLIC_BIND=true``.
+
+    Negative counterpart to the bracketed-loopback test above —
+    ``[::]`` brackets-strip to ``::`` which is the IPv6 unspecified
+    address (``ipaddress.is_unspecified``); the bind clamp must reject
+    it without explicit ack. Without this test, a future refactor that
+    short-circuited the unspecified check before the bracket-strip
+    would silently let ``[::]`` slip through the clamp.
+    """
+    monkeypatch.setenv("LIP_BIND_HOST", "[::]")
+    with pytest.raises(ValidationError, match="ALLOW_PUBLIC_BIND"):
+        make_settings()
+
+
 # ── Bind-port clamp ──────────────────────────────────────────────────
 
 
@@ -528,22 +573,28 @@ def test_is_private_host_classifier_covers_ipv6_and_ula() -> None:
     (``2001:db8::/32``) as private, so we use a real public IPv6 (Cloudflare
     DNS ``2606:4700:4700::1111``) for the negative case.
     """
-    assert is_private_host("127.0.0.1")
-    assert is_private_host("::1")
-    assert is_private_host("fe80::1")  # link-local
-    assert is_private_host("fd00::1")  # ULA
-    assert is_private_host("localhost")
-    assert is_private_host("gemma.local")
+    # Strict-form predicate assertions (``is True`` / ``is False``) match
+    # the dialect already used at test_config.py:167 / :177 / :219 — the
+    # CLAUDE.md predicate carve-out names ``is_*`` functions but expects
+    # boolean returns specifically; a future regression returning ``0`` /
+    # ``1`` / ``None`` / a truthy custom object would silently pass bare
+    # ``assert is_private_host(...)`` truthiness checks.
+    assert is_private_host("127.0.0.1") is True
+    assert is_private_host("::1") is True
+    assert is_private_host("fe80::1") is True  # link-local
+    assert is_private_host("fd00::1") is True  # ULA
+    assert is_private_host("localhost") is True
+    assert is_private_host("gemma.local") is True
     # IPv4-mapped IPv6 forms unwrap to their v4 classification — without
     # the ``ipv4_mapped`` re-classification in ``is_private_host`` an
     # operator who wrote the loopback as ``::ffff:127.0.0.1`` would fail
     # the SSRF clamp despite literally pointing at loopback.
-    assert is_private_host("::ffff:127.0.0.1")
-    assert is_private_host("::ffff:10.0.0.1")
-    assert not is_private_host("::ffff:8.8.8.8")
-    assert not is_private_host("8.8.8.8")
-    assert not is_private_host("2606:4700:4700::1111")  # public IPv6
-    assert not is_private_host("")
+    assert is_private_host("::ffff:127.0.0.1") is True
+    assert is_private_host("::ffff:10.0.0.1") is True
+    assert is_private_host("::ffff:8.8.8.8") is False
+    assert is_private_host("8.8.8.8") is False
+    assert is_private_host("2606:4700:4700::1111") is False  # public IPv6
+    assert is_private_host("") is False
 
 
 # ── lru_cache singleton ──────────────────────────────────────────────

@@ -1,5 +1,7 @@
 """Tests for the RFC 7807 exception handler chain."""
 
+from __future__ import annotations
+
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -67,6 +69,16 @@ def _create_test_app() -> FastAPI:  # noqa: C901 — flat list of 10 trigger rou
         # explicit headers the typed-405 path silently ships RFC-9110-
         # non-compliant responses.
         raise HTTPException(status_code=405, headers={"Allow": "POST"})
+
+    @test_app.get("/trigger-http-405-without-allow")
+    async def trigger_http_405_without_allow() -> dict[str, str]:
+        # Negative companion to ``trigger-http-405``: a typed
+        # ``HTTPException(405)`` without an ``Allow`` header — exercises
+        # the defensive log branch that surfaces this RFC 9110 §15.5.6
+        # violation. The wire response still ships with the correct
+        # MethodNotAllowedError envelope; the operator-side signal is
+        # the ``http_exception_405_missing_allow_header`` log line.
+        raise HTTPException(status_code=405)
 
     @test_app.post("/post-only")
     async def post_only() -> dict[str, str]:
@@ -346,6 +358,43 @@ def test_http_exception_405_forwards_allow_header(client: TestClient) -> None:
     assert response.headers["allow"] == "POST"
 
 
+def test_http_exception_405_without_allow_header_emits_defensive_log(
+    client: TestClient,
+) -> None:
+    """A typed ``HTTPException(405)`` without an Allow header logs a
+    conformance-gap warning.
+
+    The framework-auto-405 path always sets the Allow header (per
+    Starlette's ``Route.handle``), and the typed-DomainError surface
+    is ``MethodNotAllowedError`` (which routes through the
+    ``MethodNotAllowedError()`` builder, not ``HTTPException``). A typed
+    ``HTTPException(status_code=405)`` from app code without
+    ``headers={"Allow": ...}`` would silently violate RFC 9110 §15.5.6.
+    The defensive log line surfaces this regression class so an
+    operator can trace it back to the offending raise site.
+    """
+    import structlog.testing
+
+    with structlog.testing.capture_logs() as captured:
+        response = client.get("/trigger-http-405-without-allow")
+
+    # The wire response is still a clean MethodNotAllowedError envelope
+    # (RFC 7807 typed) — the defensive log is the only operator-side
+    # signal, the response itself isn't degraded.
+    assert response.status_code == 405
+    body = response.json()
+    assert body["code"] == "METHOD_NOT_ALLOWED"
+
+    # The defensive log line landed; the wire path still got the typed
+    # 405 envelope above.
+    missing_allow = [
+        e for e in captured if e.get("event") == "http_exception_405_missing_allow_header"
+    ]
+    assert len(missing_allow) == 1, captured
+    assert missing_allow[0]["method"] == "GET"
+    assert missing_allow[0]["path"] == "/trigger-http-405-without-allow"
+
+
 def test_framework_405_on_method_mismatch_includes_allow_header(client: TestClient) -> None:
     """A real method-mismatch 405 (no typed raise) carries Starlette's auto Allow header.
 
@@ -374,3 +423,79 @@ def test_unmatched_route_returns_about_blank_404_problem_json(client: TestClient
     assert body["status"] == 404
     assert body["code"] == "NOT_FOUND"
     assert body["request_id"] == response.headers[REQUEST_ID_HEADER]
+
+
+# ── Defensive raise on extras collision ────────────────────────────────────
+
+
+def test_build_problem_payload_raises_internal_error_on_extras_collision() -> None:
+    """A typed-params key colliding with a ProblemExtras key raises
+    ``InternalError`` (defense-in-depth invariant).
+
+    The codegen's ``RESERVED_PARAM_NAMES`` set prevents this collision
+    at YAML-validation time, but the runtime guard exists in case the
+    YAML/codegen invariant ever drifts. The raise propagates to
+    ``_handle_unhandled_exception`` which renders a clean InternalError
+    problem+json regardless of the original exc type. This test
+    exercises the runtime guard directly via an artificially-crafted
+    Pydantic model whose fields collide with ``ProblemExtras``.
+    """
+    from typing import ClassVar
+    from unittest.mock import MagicMock
+
+    from pydantic import BaseModel, ConfigDict
+
+    from app.api.exception_handler_registry import _build_problem_payload
+    from app.exceptions import DomainError, InternalError, QueueFullError
+    from app.schemas import ProblemExtras, ValidationErrorDetail
+
+    class _CollidingParams(BaseModel):
+        # ``validation_errors`` is the only field on ``ProblemExtras``
+        # today; a typed-param of the same name simulates a future
+        # YAML/codegen invariant violation. The codegen
+        # ``RESERVED_PARAM_NAMES`` guard would catch this at build
+        # time; this test exercises the runtime defense.
+        model_config = ConfigDict(frozen=True)
+        validation_errors: list[dict[str, str]]
+
+    class _CollidingError(DomainError):
+        code: ClassVar[str] = "ARTIFICIAL_COLLISION"
+        http_status: ClassVar[int] = 500
+        type_uri: ClassVar[str] = "urn:lip:error:artificial-collision"
+        title: ClassVar[str] = "Artificial Collision"
+        detail_template: ClassVar[str] = "collision-detail"
+
+        def __init__(self) -> None:
+            super().__init__(
+                params=_CollidingParams(validation_errors=[{"field": "x", "reason": "y"}]),
+            )
+
+    # Construct an extras with the same key.
+    extras = ProblemExtras(
+        validation_errors=[ValidationErrorDetail(field="other", reason="value")],
+    )
+
+    # Mock request — _bounded_instance reads request.url.path; provide
+    # one so the helper doesn't fail at the instance-construction step
+    # (which it never reaches because the collision raise fires first).
+    mock_request = MagicMock()
+    mock_request.url.path = "/test"
+
+    # Use the existing QueueFullError as a sanity precondition: without
+    # a collision, _build_problem_payload should succeed. Then the
+    # _CollidingError + extras combination must raise InternalError.
+    sane = QueueFullError(max_waiters=4, current_waiters=5)
+    payload = _build_problem_payload(
+        sane,
+        mock_request,
+        request_id="00000000-0000-4000-8000-000000000abc",
+    )
+    assert payload.code == "QUEUE_FULL"
+
+    with pytest.raises(InternalError):
+        _build_problem_payload(
+            _CollidingError(),
+            mock_request,
+            request_id="00000000-0000-4000-8000-000000000abc",
+            extras=extras,
+        )

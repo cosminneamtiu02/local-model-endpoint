@@ -5,6 +5,8 @@ spec. ``exclude_unset`` semantics are core to the merge logic the
 service-layer feature (LIP-E001-F002) will build on top.
 """
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 

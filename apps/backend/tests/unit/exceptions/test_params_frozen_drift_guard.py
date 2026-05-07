@@ -9,6 +9,8 @@ pins the invariant across the registry so a regression in the codegen
 template fails CI rather than ship.
 """
 
+from __future__ import annotations
+
 import pytest
 from pydantic import BaseModel
 

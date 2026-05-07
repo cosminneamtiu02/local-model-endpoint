@@ -13,6 +13,8 @@ Adding a new hand-written file requires both updating this test AND adding
 an ADR explaining why the new surface needs to live outside ``errors.yaml``.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 # Locked here so a future move of the exceptions/ package surfaces as one

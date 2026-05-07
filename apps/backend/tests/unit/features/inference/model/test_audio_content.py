@@ -5,6 +5,8 @@ was made jointly to keep multimodal parts symmetric until the adapter
 layer translates to Ollama's wire format.
 """
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 

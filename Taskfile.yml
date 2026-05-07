@@ -43,6 +43,7 @@ tasks:
       - task: check:coverage:errors
       - task: check:test-class-regex-sync
       - task: check:detect-secrets-version-sync
+      - task: check:dev-tool-version-sync
       - task: check:plist
       - task: check:audit
       - task: check:secrets
@@ -268,9 +269,10 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        precommit_pin=$(grep -E '^\s+rev:\s+v[0-9]' .pre-commit-config.yaml | grep -A 0 'detect-secrets' || true)
-        # Re-anchor the search if the rev: line precedes the repo: line in the YAML order
-        # (the ``-B 1`` form is portable across BSD/GNU grep).
+        # awk re-anchors at the detect-secrets repo block (since the
+        # rev: line and the repo: line can appear in either order under
+        # YAML rules) then captures the next rev: line — robust against
+        # re-ordered hooks; portable across BSD/GNU awk.
         precommit_rev=$(awk '/repo:.*detect-secrets/{found=1; next} found && /rev:/ {print $2; exit}' .pre-commit-config.yaml)
         taskfile_rev=$(grep -oE 'detect-secrets==[0-9.]+' Taskfile.yml | head -1 | cut -d= -f3)
         # Strip the leading ``v`` from the pre-commit pin (tag style) so
@@ -279,6 +281,51 @@ tasks:
         precommit_norm=${precommit_rev#v}
         if [ "$precommit_norm" != "$taskfile_rev" ]; then
           echo "::error::detect-secrets version drift: .pre-commit-config.yaml=${precommit_rev} (normalized ${precommit_norm}), Taskfile.yml=${taskfile_rev}"
+          exit 1
+        fi
+
+  check:dev-tool-version-sync:
+    desc: Verify shared dev-tool pins stay in lockstep across workspaces
+    # Six dev tools are pinned identically in BOTH workspaces today —
+    # ``pytest``, ``pytest-cov``, ``ruff``, ``pyright``, ``pip-audit``,
+    # ``pyyaml``. Dependabot opens separate PRs per workspace; without
+    # a sync gate, a Dependabot PR that bumps ``pytest`` in
+    # ``apps/backend`` could merge while the matching
+    # ``packages/error-contracts`` PR is still red, leaving the two
+    # workspaces on different ``pytest`` versions until the sibling
+    # PR catches up. Asymmetric pytest/pyright versions across
+    # workspaces produce subtle behavior differences (strict-mode rule
+    # changes, plugin-API breaks) that the per-workspace ``task check``
+    # runs hide because each workspace runs against its own resolved
+    # environment. This guard fails CI on the drift window.
+    #
+    # ``pytest-asyncio`` is INTENTIONALLY excluded — the error-contracts
+    # workspace deliberately omits it (codegen tests are sync); the
+    # symmetric pin appears once the FIRST async test lands there
+    # (per the comment block at packages/error-contracts/pyproject.toml).
+    cmds:
+      - |
+        set -euo pipefail
+        # Each tool name is checked as a literal `==X.Y.Z` pin in both
+        # ``[dependency-groups].dev`` arrays. Mismatches print every
+        # drifted tool before exiting non-zero so the operator sees
+        # the full drift surface, not just the first mismatch.
+        backend_py=apps/backend/pyproject.toml
+        errors_py=packages/error-contracts/pyproject.toml
+        drifted=0
+        for tool in pytest pytest-cov ruff pyright pip-audit pyyaml; do
+          backend_pin=$(grep -oE "\"${tool}==[^\"]+\"" "$backend_py" | head -1 || true)
+          errors_pin=$(grep -oE "\"${tool}==[^\"]+\"" "$errors_py" | head -1 || true)
+          if [ -z "$backend_pin" ] || [ -z "$errors_pin" ]; then
+            # Tool absent from one or both workspaces — skip, not drift.
+            continue
+          fi
+          if [ "$backend_pin" != "$errors_pin" ]; then
+            echo "::error::${tool} pin drift: apps/backend=${backend_pin}, packages/error-contracts=${errors_pin}"
+            drifted=1
+          fi
+        done
+        if [ "$drifted" != 0 ]; then
           exit 1
         fi
 

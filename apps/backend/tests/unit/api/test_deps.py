@@ -6,6 +6,10 @@ they exercise the misconfigured-app branches so a future refactor of
 AppState construction cannot break the type-narrowing without a red bar.
 """
 
+from __future__ import annotations
+
+import inspect
+
 import pytest
 import structlog
 from fastapi import FastAPI
@@ -227,3 +231,49 @@ def test_get_settings_construction_no_longer_emits_warnings(
     with structlog.testing.capture_logs() as captured:
         get_settings()
     assert captured == []
+
+
+def test_audit_lip_env_typos_handles_alias_path_when_field_uses_it() -> None:
+    """Tripwire-canary for the ADR-011-deferred ``AliasPath`` handling
+    in ``audit_lip_env_typos``.
+
+    The deps.py audit's prose-comment forward-defers ``AliasPath`` (the
+    segment-list form of ``validation_alias``) per ADR-011 ("no
+    scaffolding before the feature lands"). This test passes vacuously
+    today (no Settings field uses ``AliasPath``); the moment a future
+    contributor lands a Settings field with ``Field(...,
+    validation_alias=AliasPath("foo", "bar"))`` without extending the
+    audit's loop to iterate ``getattr(validation_alias, "path", ())``,
+    this test turns red — surfacing the silent false-positive surface
+    the prose-comment promises to handle in lockstep.
+
+    Symmetric with the existing ``Settings.model_fields`` introspection
+    discipline used by ``test_audit_lip_env_typos_does_not_warn_when_all_env_vars_known``.
+    """
+    from pydantic import AliasPath
+
+    from app.core.config import Settings
+
+    fields_with_alias_path = [
+        name
+        for name, info in Settings.model_fields.items()
+        if isinstance(info.validation_alias, AliasPath)
+    ]
+    if not fields_with_alias_path:
+        # No field uses AliasPath today — the canary passes vacuously.
+        # When the first such field is added, this assert flips to a
+        # source-line read of audit_lip_env_typos to verify the loop
+        # was extended in lockstep. The prose-comment in deps.py is the
+        # source of truth for the extension contract.
+        return
+
+    # Once the first AliasPath field exists, this branch must verify
+    # the audit was extended. The check is encoded as a string-search
+    # against the audit source so a future regression that only added
+    # a field but forgot to extend the loop fails this test loud.
+    audit_src = inspect.getsource(audit_lip_env_typos)
+    assert 'getattr(validation_alias, "path"' in audit_src, (
+        f"Settings field(s) {fields_with_alias_path} declare AliasPath but "
+        "audit_lip_env_typos has not been extended to iterate the path "
+        "segments. Extend the loop per the deps.py forward-comment."
+    )

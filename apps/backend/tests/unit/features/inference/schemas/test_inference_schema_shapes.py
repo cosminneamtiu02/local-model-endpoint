@@ -13,6 +13,8 @@ constraints), not the ref-path strings — so the unit-level proxy is
 ref-template-agnostic and remains valid once FastAPI mounts the schemas.
 """
 
+from __future__ import annotations
+
 from typing import Any, cast
 
 import pytest

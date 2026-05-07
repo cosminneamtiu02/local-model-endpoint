@@ -13,6 +13,8 @@ The accompanying ``docs/ollama-launchd.md`` is also asserted to exist and
 contain the operator-facing section anchors named in the spec.
 """
 
+from __future__ import annotations
+
 import plistlib
 import shutil
 import subprocess

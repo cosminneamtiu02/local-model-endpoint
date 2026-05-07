@@ -8,7 +8,12 @@ so a reviewer grepping ``find tests -name 'test_<module>.py'`` from the
 documented file name finds the test on the first try.
 """
 
-from httpx import AsyncClient
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from httpx import AsyncClient
 
 
 async def test_health_returns_200(client: AsyncClient) -> None:

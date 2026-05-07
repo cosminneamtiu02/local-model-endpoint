@@ -1,5 +1,7 @@
 """Tests for generated domain error classes."""
 
+from __future__ import annotations
+
 from typing import ClassVar
 
 import pytest
@@ -140,9 +142,53 @@ def test_method_not_allowed_constructs_with_default_detail() -> None:
 
 
 def test_queue_full_rejects_missing_required_param() -> None:
-    """Required params are positional-keyword on __init__; missing them is a TypeError."""
-    with pytest.raises(TypeError):
+    """Required params are positional-keyword on __init__; missing them is a TypeError.
+
+    The ``match=`` pin binds the assertion to the specific
+    "missing required keyword-only argument" failure mode rather than any
+    ``TypeError`` (e.g. a future ``__init_subclass__`` regression or
+    metaclass typo that raised ``TypeError`` at instantiation would
+    otherwise pass this test silently). Mirrors the dialect of the sibling
+    ``test_domain_error_subclass_missing_classvar_raises_typeerror``.
+    """
+    with pytest.raises(TypeError, match="current_waiters"):
         QueueFullError(max_waiters=4)  # pyright: ignore[reportCallIssue]
+
+
+def test_pydantic_model_name_namespace_does_not_warn() -> None:
+    """``RegistryNotFoundParams.model_name`` does not collide with Pydantic's
+    protected ``model_*`` namespace.
+
+    Pydantic v2 historically reserved the ``model_`` namespace for
+    internal methods (``model_config``, ``model_dump``, ``model_fields``)
+    and emitted a ``UserWarning`` when a field named ``model_*`` was
+    declared. Pydantic 2.10+ relaxed this, but a future Pydantic upgrade
+    that re-asserts the strict namespace policy (or adds a fresh
+    ``model.name`` accessor) would silently flood logs with
+    ``UserWarning`` per request — and the wire body would still ship
+    ``model_name`` because it's bound by the codegen.
+
+    The drift-guard turns the latent fragility into a loud test
+    failure: a future Pydantic that emits namespace warnings on
+    ``RegistryNotFoundError(model_name=...)`` or
+    ``ModelCapabilityNotSupportedError(model_name=...)`` raise sites
+    fails this test loudly under
+    ``filterwarnings = ["error"]``. The corrective action would be
+    either to (a) rename the YAML param ``model_name`` → ``name`` in
+    lockstep with consumer raise sites, or (b) extend the codegen
+    template to emit ``protected_namespaces=()`` on the affected
+    ``*Params`` classes. Today, neither is needed — this test passes
+    cleanly on pydantic ``2.13.3``.
+    """
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        # Both raise sites in errors.yaml that currently use
+        # ``model_name``: REGISTRY_NOT_FOUND and
+        # MODEL_CAPABILITY_NOT_SUPPORTED.
+        RegistryNotFoundError(model_name="phantom-model")
+        ModelCapabilityNotSupportedError(model_name="text-only", requested_capability="audio")
 
 
 def test_domain_error_subclass_missing_classvar_raises_typeerror() -> None:

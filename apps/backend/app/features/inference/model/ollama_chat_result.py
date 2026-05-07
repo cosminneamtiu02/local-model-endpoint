@@ -28,15 +28,39 @@ class OllamaChatResult(BaseModel):
     # ``StringConstraints`` only where the cap-bypass concern is real.
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    # ``min_length=0`` is the deliberate "empty content is OK" stance —
-    # ``finish_reason="length"`` with ``max_tokens=1`` and the first
-    # token being a stop token is a legitimate empty-output path. The
-    # explicit ``0`` documents the intent on the wire schema (vs an
-    # absent ``minLength`` which OpenAPI consumers cannot distinguish
-    # from "unset, may change").
-    content: str = Field(min_length=0, max_length=CONTENT_MAX_LENGTH)
-    prompt_tokens: int = Field(ge=0, le=TOKEN_COUNT_MAX)
-    completion_tokens: int = Field(ge=0, le=TOKEN_COUNT_MAX)
+    content: str = Field(
+        # ``min_length=0`` is the deliberate "empty content is OK" stance —
+        # ``finish_reason="length"`` with ``max_tokens=1`` and the first
+        # token being a stop token is a legitimate empty-output path. The
+        # explicit ``0`` documents the intent on the wire schema (vs an
+        # absent ``minLength`` which OpenAPI consumers cannot distinguish
+        # from "unset, may change").
+        min_length=0,
+        max_length=CONTENT_MAX_LENGTH,
+        description=(
+            "Raw model-generated assistant text from Ollama's `/api/chat` "
+            "response. Empty string is a legitimate output (length-cap with a "
+            "stop-token-first generation); see the cap-rationale comment above."
+        ),
+    )
+    prompt_tokens: int = Field(
+        ge=0,
+        le=TOKEN_COUNT_MAX,
+        description=(
+            "Number of input tokens Ollama counted for the prompt context. "
+            "Reported as-is from Ollama's `prompt_eval_count` field; the "
+            "orchestrator (LIP-E001-F002) carries this onto the public "
+            "InferenceResponse for downstream cost/observability."
+        ),
+    )
+    completion_tokens: int = Field(
+        ge=0,
+        le=TOKEN_COUNT_MAX,
+        description=(
+            "Number of generated tokens Ollama emitted in this response. "
+            "Reported as-is from Ollama's `eval_count` field."
+        ),
+    )
     finish_reason: FinishReason = Field(
         description=(
             "stop=natural model halt; length=hit max_tokens; timeout=request budget exceeded."

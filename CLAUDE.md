@@ -164,8 +164,9 @@ preserved but with redefined semantics for a no-DB feature:
   pass `logger.exception(..., exc_info=exc_info)` after the await.
 - Never reuse `logger.critical` outside lifespan-singleton failures
   (currently `app_startup_failed` / `app_shutdown_failed` in
-  `app/main.py`). Operator paging keys on `level=CRITICAL`; a third
-  CRITICAL site dilutes the signal. Per-request errors use `logger.error`
+  `app/main.py`). Operator paging keys on `level=critical` (lowercase
+  per `structlog.stdlib.add_log_level`'s wire form); a third
+  critical site dilutes the signal. Per-request errors use `logger.error`
   or `logger.exception`.
 
 ## Forbidden Patterns -- Cross-cutting

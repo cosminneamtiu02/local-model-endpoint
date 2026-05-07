@@ -1,5 +1,7 @@
 """Unit tests for DomainError base class invariants."""
 
+from __future__ import annotations
+
 import pytest
 
 from app.exceptions import DomainError

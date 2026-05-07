@@ -1,10 +1,12 @@
 """Tests for the error contracts code generator."""
 
+from __future__ import annotations
+
 import ast
 import importlib.util
 import sys
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,6 +14,9 @@ import pytest
 # C0 controls at parse time, so going through load_and_validate would not
 # exercise the in-codegen layer. Private-symbol access is justified.
 from scripts.generate import _validate_detail_template
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _load_class_to_snake() -> Callable[[str], str]:
@@ -513,6 +518,168 @@ errors:
         load_and_validate(path)
 
 
+@pytest.mark.parametrize(
+    ("bad_name", "match_fragment"),
+    [
+        # Python reserved keyword — emitting `def __init__(self, *, class:
+        # str)` would be a SyntaxError. Without this branch test, a
+        # regression dropping the ``keyword.iskeyword`` arm from
+        # _validate_params would only surface when codegen runs on a YAML
+        # adding a keyword param.
+        pytest.param("class", "Invalid param name 'class'", id="reserved-keyword"),
+        # Non-identifier (digit-leading) — emitting `def __init__(self, *,
+        # 1bad: str)` would be a SyntaxError. Without this branch test, a
+        # regression dropping the ``isidentifier`` arm would silently
+        # ship broken Python.
+        pytest.param("1bad", "Invalid param name '1bad'", id="leading-digit"),
+        # Non-identifier (hyphen) — same regression class as above.
+        pytest.param("bad-name", "Invalid param name 'bad-name'", id="hyphen-in-name"),
+    ],
+)
+def test_codegen_rejects_invalid_param_identifiers(
+    tmp_path: Path, bad_name: str, match_fragment: str
+) -> None:
+    """_validate_params rejects names that aren't valid Python identifiers
+    or that are reserved keywords; both arms cover separate regression classes
+    (the codegen would otherwise emit invalid Python at the
+    ``def __init__(self, *, <name>: <type>)`` line).
+    """
+    yaml_text = f"""
+version: 1
+errors:
+  BAD_PARAM_NAME:
+    http_status: 400
+    description: Bad param name test
+    title: Bad Param
+    detail_template: "v"
+    params:
+      "{bad_name}": string
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=match_fragment):
+        load_and_validate(path)
+
+
+@pytest.mark.parametrize(
+    "bad_substring",
+    [
+        # Embedded triple-quote — would close the generated docstring
+        # early and corrupt the rendered Python module.
+        pytest.param('a"""b', id="embedded-triple-quote"),
+        # Embedded backslash — interpreted by Python's docstring parser
+        # as an escape sequence; can produce SyntaxWarning or change the
+        # rendered character.
+        pytest.param("a\\b", id="embedded-backslash"),
+    ],
+)
+def test_codegen_rejects_description_with_forbidden_substrings(
+    tmp_path: Path, bad_substring: str
+) -> None:
+    """_validate_description_safe_for_docstring rejects substrings that
+    would corrupt the generated single-line docstring (triple-quote /
+    backslash). PyYAML safe_load handles the embedded-newline case
+    naturally (it would parse as a multi-line string and the substring
+    check still triggers), so this test focuses on the two "looks
+    fine in YAML, breaks in Python" failure modes.
+    """
+    # Build the YAML by escaping the backslash for safe_load — embedding
+    # the literal char into the YAML string is what we test against.
+    description_yaml_value = bad_substring.replace("\\", "\\\\").replace('"', '\\"')
+    yaml_text = f"""
+version: 1
+errors:
+  BAD_DESC:
+    http_status: 400
+    description: "{description_yaml_value}"
+    title: Bad Desc
+    detail_template: "v"
+    params: {{}}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match="forbidden substring"):
+        load_and_validate(path)
+
+
+@pytest.mark.parametrize(
+    ("bad_template", "match_fragment"),
+    [
+        # `{x:>10}` is a format spec — would be honored by str.format and
+        # could enable padding-based amplification or surprise in detail
+        # output. The codegen forbids it for parity with the
+        # attribute-access / positional-placeholder rejections.
+        pytest.param("v {x:>10}", "format spec / conversion", id="format-spec-padding"),
+        # `{x!r}` is a conversion — would change the rendered output to
+        # repr() of the param value, leaking quoted strings (and
+        # arbitrary attribute access via repr() on custom types).
+        pytest.param("v {x!r}", "format spec / conversion", id="conversion-repr"),
+    ],
+)
+def test_codegen_rejects_template_format_specs_and_conversions(
+    tmp_path: Path, bad_template: str, match_fragment: str
+) -> None:
+    """_validate_detail_template rejects format specs and conversions on
+    placeholders. Closes the third arm of the placeholder-safety guard
+    (the other two — positional, attribute-access — already have branch
+    tests at lines 516+ and 538+).
+    """
+    yaml_text = f"""
+version: 1
+errors:
+  BAD_TEMPLATE_FORMAT:
+    http_status: 400
+    description: Bad template format spec test
+    title: Bad Template
+    detail_template: "{bad_template}"
+    params:
+      x: string
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=match_fragment):
+        load_and_validate(path)
+
+
+def test_codegen_rejects_title_over_cap(tmp_path: Path) -> None:
+    """Codegen enforces the 128-char cap on title (matches ProblemDetails wire schema).
+
+    Symmetric with test_codegen_rejects_description_over_cap. Without
+    this codegen-time check, a YAML edit setting a 200-char title would
+    pass load_and_validate, generate a working *_error.py module, and
+    only fail at request time when the wire-schema validator on
+    ProblemDetails.title rejected the over-cap value — silently demoting
+    the typed error into the catch-all 500 InternalError.
+    """
+    long_title = "x" * 129
+    yaml_text = f"""
+version: 1
+errors:
+  TOO_LONG_TITLE:
+    http_status: 400
+    description: ok
+    title: "{long_title}"
+    detail_template: "x"
+    params: {{}}
+"""
+    path = tmp_path / "errors.yaml"
+    path.write_text(yaml_text)
+
+    from scripts.generate import load_and_validate
+
+    with pytest.raises(ValueError, match=r"TOO_LONG_TITLE.*title exceeds 128-char cap"):
+        load_and_validate(path)
+
+
 def test_codegen_rejects_positional_template_placeholders(tmp_path: Path) -> None:
     """detail_template with positional placeholders ({0}) is rejected at codegen."""
     yaml_text = """
@@ -716,9 +883,18 @@ def test_codegen_rejects_control_chars_in_detail_template(control_char: str) -> 
     ["\t", "\n"],
 )
 def test_codegen_accepts_whitespace_chars_in_detail_template(whitespace_char: str) -> None:
-    """Tab/newline are accepted in detail templates (counter-test for the control-char rejector)."""
+    """Tab/newline are accepted in detail templates (counter-test for the control-char rejector).
+
+    The validator returns ``None`` on success; binding the return value to
+    a local + asserting ``is None`` enforces the "no test without an
+    explicit assertion" sacred rule (a future regression that made the
+    validator return a Match-like sentinel would still trip a CLAUDE.md
+    "Never write a test with no assertions" test that bound only on the
+    "must not raise" comment.)
+    """
     template = f"before{whitespace_char}after"
-    _validate_detail_template("WHITESPACE_OK", template, {})  # must not raise
+    result = _validate_detail_template("WHITESPACE_OK", template, {})
+    assert result is None
 
 
 def test_codegen_rejects_5xx_with_non_allowlisted_string_param(tmp_path: Path) -> None:
@@ -770,7 +946,13 @@ errors:
 
     from scripts.generate import load_and_validate
 
-    load_and_validate(path)  # must not raise
+    loaded = load_and_validate(path)
+    # Pin the post-condition: the loader returned the parsed YAML mapping
+    # with the integer-only error definition intact. Without this assert,
+    # a future regression that made ``load_and_validate`` no-op on success
+    # (returning ``None``) would still pass a "must not raise" stub test.
+    assert "COUNTED_INTERNAL_ERROR" in loaded["errors"]
+    assert loaded["errors"]["COUNTED_INTERNAL_ERROR"]["params"] == {"attempts": "integer"}
 
 
 def test_codegen_does_not_unlink_files_without_generator_sentinel(

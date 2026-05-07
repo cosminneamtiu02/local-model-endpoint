@@ -364,6 +364,16 @@ SUPPORTED_SCHEMA_VERSION: Final[int] = 1
 
 _DESCRIPTION_MAX_CHARS: Final[int] = 512
 
+# Symmetric with the wire-side cap on ``ProblemDetails.title``
+# (``apps/backend/app/schemas/problem_details.py:_TITLE_MAX_CHARS = 128``).
+# Pinned at codegen time so a YAML-side over-cap title fails the build
+# rather than at request time as a 500 (the typed-error handler would
+# otherwise hit the wire-schema validator and demote the typed error
+# into the catch-all InternalError fallback). Drift-guard test in
+# ``apps/backend/tests/unit/exceptions/test_title_max_chars_drift_guard.py``
+# pins the two literals to the same value.
+_TITLE_MAX_CHARS: Final[int] = 128
+
 
 def _validate_description_safe_for_docstring(code: str, description: str) -> None:
     """Reject characters that would corrupt the generated docstring.
@@ -410,9 +420,22 @@ def _validate_description_safe_for_docstring(code: str, description: str) -> Non
 # specific error's raise sites.
 _PII_SAFE_5XX_STRING_PARAMS: Final[frozenset[tuple[str, str]]] = frozenset(
     {
-        # closed enum: only "ollama" today; LIP-internal label
+        # closed enum: only "ollama" today; LIP-internal label.
+        # Future adapter additions (e.g. a vLLM backend) extend the
+        # closed alphabet by adding a value, NOT by re-allowlisting a
+        # different param name.
         ("ADAPTER_CONNECTION_FAILURE", "backend"),
-        # closed enum: "timeout" / "connection_refused" / etc.
+        # The ``reason`` allowlist depends on every raise site keeping
+        # to the documented closed alphabet ("timeout",
+        # "connection_refused", "http_status", "transport",
+        # "unsupported_input", "malformed_frame", "unknown" — see the
+        # ``failure_category`` literal arms in
+        # ``app/features/inference/repository/ollama_client.py``).
+        # Adding a free-form ``reason="HTTP 500: <upstream-body>"`` raise
+        # site would silently land PII on the wire. Reviewers MUST
+        # require the new raise site to use one of the closed-alphabet
+        # values; the codegen guard cannot enforce that contract because
+        # the values are decided at the python raise site, not in YAML.
         ("ADAPTER_CONNECTION_FAILURE", "reason"),
     }
 )
@@ -524,6 +547,21 @@ def load_and_validate(errors_path: Path) -> _ErrorsFile:
                     f"(must be a non-empty string)."
                 )
                 raise ValueError(msg)
+
+        # Title is bounded by ProblemDetails.title (max_length=128 on the
+        # wire schema). Enforce at codegen so a YAML-side over-cap title
+        # fails the build instead of at request time as a 500 (the typed
+        # error would otherwise be silently demoted to InternalError by
+        # the wire-schema validator in _build_problem_payload's except
+        # arm). Symmetric with _validate_description_safe_for_docstring.
+        if len(spec["title"]) > _TITLE_MAX_CHARS:
+            msg = (
+                f"Error {code} title exceeds {_TITLE_MAX_CHARS}-char cap "
+                f"({len(spec['title'])} chars). The wire schema "
+                "(ProblemDetails.title) rejects over-cap titles at request "
+                "time; the codegen-time check fails fast at build instead."
+            )
+            raise ValueError(msg)
 
         # Description is emitted into a single-line triple-quoted docstring;
         # the dedicated helper rejects unsafe substrings + over-cap length

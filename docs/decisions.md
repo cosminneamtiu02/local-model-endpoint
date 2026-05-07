@@ -171,9 +171,12 @@ fields after construction, so a lifespan-managed httpx client cannot be
 silently swapped mid-request.
 
 `Depends(get_app_state)` and `Depends(get_ollama_client)` factories in
-`app/api/deps.py` are the only call sites that touch `app.state.context`;
-route handlers stay pure (`async def handler(client = Depends(get_ollama_client))`)
-without ever knowing the wrapper exists.
+`app/api/deps.py` are the only **read** call sites that touch
+`app.state.context`; route handlers stay pure
+(`async def handler(client = Depends(get_ollama_client))`) without ever
+knowing the wrapper exists. The `application.state.context = state` write
+in `app/main.py`'s lifespan is the construction site by design and is
+not a violation of this rule.
 
 **Implication.** Adding a new lifespan-managed resource is a four-step
 edit: append a field to `AppState`, construct it in `lifespan_resources`

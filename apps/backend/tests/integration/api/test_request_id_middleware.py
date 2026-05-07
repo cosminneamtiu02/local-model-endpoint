@@ -6,7 +6,9 @@ test_health.py mirrors the production module name so a reviewer hunting
 for X-Request-ID coverage greps the obvious filename.
 """
 
-from httpx import AsyncClient
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from app.api.request_id_middleware import _MAX_REQUEST_BODY_BYTES
 from app.schemas.wire_constants import (
@@ -14,6 +16,9 @@ from app.schemas.wire_constants import (
     REQUEST_ID_HEADER,
     UUID_REGEX,
 )
+
+if TYPE_CHECKING:
+    from httpx import AsyncClient
 
 
 async def test_response_includes_x_request_id(client: AsyncClient) -> None:

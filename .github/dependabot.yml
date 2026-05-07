@@ -120,11 +120,16 @@ updates:
         patterns:
           - "pytest"
           - "pytest-*"
-      # ``import-linter`` intentionally excluded — this workspace has no
-      # linter config. If a future addition lands import-linter here
-      # (e.g. when codegen invariants warrant their own contracts),
-      # add ``import-linter`` to this group in lockstep with the
-      # backend's ``dev-tools`` group entry. ``pip-audit`` co-grouped
+      # ``import-linter`` is pre-emptively listed here even though this
+      # workspace has no linter config TODAY. The pattern matches no
+      # installed package (no-op for Dependabot until a contributor
+      # adds ``import-linter`` to this workspace's pyproject), but
+      # leaving the entry pre-listed closes the lockstep coupling
+      # between the cross-workspace dev-tool versions: the moment
+      # someone adds the dep here, the group already absorbs it
+      # alongside the backend's ``import-linter`` bumps rather than
+      # opening as a solo PR that consumes a slot under the
+      # ``open-pull-requests-limit: 5`` cap. ``pip-audit`` co-grouped
       # with ruff/pyright now that this workspace also runs
       # ``task check:audit:errors`` (mirrors the backend group), so a
       # pip-audit bump rides the same PR as sibling dev-tool bumps
@@ -134,6 +139,7 @@ updates:
           - "ruff"
           - "pyright"
           - "pip-audit"
+          - "import-linter"
           # ``pyyaml`` is the workspace's runtime dep but ships often enough
           # that a solo bump can cascade-conflict with sibling dev-tool PRs
           # on adjacent lines of pyproject.toml. Co-grouping mirrors the
@@ -194,6 +200,17 @@ updates:
       # re-opens the cascade-conflict surface (PR #20/#21-shaped bug),
       # re-add explicit URL forms here as belt-and-braces — the
       # load-bearing context lives in TEMPLATE_FRICTION.md.
+      #
+      # Cross-ecosystem sync note: when Dependabot bumps the
+      # detect-secrets hook here, the operator MUST mirror the version
+      # into ``Taskfile.yml``'s ``uv tool run --from
+      # detect-secrets==X.Y.Z`` line in the same PR — otherwise the
+      # ``check:detect-secrets-version-sync`` Taskfile target (now also
+      # wired into the error-contracts CI job) fails CI. Dependabot's
+      # pre-commit ecosystem only updates ``.pre-commit-config.yaml`` —
+      # it has no awareness of the Taskfile literal, so cross-ecosystem
+      # sync is currently manual. The sync-guard turns silent drift into
+      # a loud CI red so operators have an actionable signal.
       pre-commit-tools:
         patterns:
           - "*"

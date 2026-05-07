@@ -12,6 +12,8 @@ These tests pin the structural floor: the YAML must declare
 carry a non-empty description and an HTTP status in the 400-599 range.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest

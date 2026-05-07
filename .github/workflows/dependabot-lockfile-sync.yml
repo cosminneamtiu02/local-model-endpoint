@@ -160,27 +160,13 @@ jobs:
           fetch-depth: 50
           token: ${{ secrets.DEPENDABOT_LOCKFILE_SYNC_PAT }}
 
-      - name: Read Python version from .python-version
-        # ``.python-version`` at the repo root is the single source of
-        # truth for the Python interpreter version. Piped through
-        # ``$GITHUB_ENV`` so the setup-uv step references
-        # ``${{ env.PYTHON_VERSION }}``. setup-uv@v8 does not natively
-        # read .python-version, so the explicit read step is the bridge.
-        # Defensive read pattern (set -euo pipefail + empty-check) so a
-        # missing or empty ``.python-version`` is a loud CI failure, not
-        # a silent ``setup-uv`` default fallback.
-        # Note: this job has NO job-level ``defaults: working-directory:``,
-        # so the ``tr -d ... < .python-version`` runs from the repo
-        # root by default. If a future maintainer ever adds a job-level
-        # ``defaults`` block, also add ``working-directory: .`` to this
-        # step (mirroring the sibling step at ci.yml:64 / :204) — the
-        # absence of an override is intentional but makes the
-        # working-directory pin invisible at edit time.
-        run: |
-          set -euo pipefail
-          v=$(tr -d '[:space:]' < .python-version)
-          [ -n "$v" ] || { echo "::error::.python-version is empty or missing"; exit 1; }
-          echo "PYTHON_VERSION=$v" >> "$GITHUB_ENV"
+      # Composite action — see ``.github/actions/read-python-version/action.yml``
+      # for the rationale block (set -euo pipefail, empty-string check,
+      # working-directory override against job-level defaults). The
+      # composite action's ``working-directory: .`` override is
+      # robust against a future maintainer adding a job-level
+      # ``defaults: working-directory:`` block to this job.
+      - uses: ./.github/actions/read-python-version
 
       - name: Guard against self-triggered loops
         id: loop_guard
@@ -305,6 +291,16 @@ jobs:
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          # Pin the C locale for the git-push subprocess so the
+          # ``non-fast-forward|stale info`` discriminator (lane 10.10
+          # rationale block ~50 lines below) lands the literal English
+          # error message regardless of runner-image LANG defaults.
+          # A future runner image that defaults to a non-English locale
+          # would otherwise localize the error and silently re-introduce
+          # the credential-error-as-success bug the discriminator was
+          # added to fix.
+          LANG: C
+          LC_ALL: C
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"

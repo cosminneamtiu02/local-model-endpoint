@@ -284,11 +284,21 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # also-not-critical case (e.g. uvicorn aborted before resources
         # constructed). The bare ``raise`` preserves cancellation propagation.
         event_name = "app_shutdown_cancelled" if entered_yield else "app_startup_cancelled"
+        # Field-set parity with the lifespan ``_started`` / ``_completed``
+        # peers — ``scope=`` discriminates construction vs uptime so a jq
+        # filter ``select(.phase == "lifespan") | .scope`` finds non-null
+        # values across every lifespan event uniformly. ``duration_ms`` is
+        # bounded by ``start`` (set at the top of the lifespan generator),
+        # so a shutdown-cancel reports the time the consumer had it up
+        # before SIGTERM — useful for cancellation-rate-vs-uptime
+        # correlation in operator dashboards.
         logger.info(
             event_name,
             phase="lifespan",
             version=application.version,
             env=settings.app_env,
+            duration_ms=elapsed_ms(start),
+            scope="uptime" if entered_yield else "construction",
         )
         raise
     except Exception:
@@ -309,12 +319,19 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         # ``reason="exception"``) sees them; that's intentional, paging
         # on operator-initiated SIGINT would also be alert-fatigue.
         event_name = "app_shutdown_failed" if entered_yield else "app_startup_failed"
+        # ``scope=`` matches the field-set used by every other lifespan
+        # event (``_started`` / ``_completed`` / ``_cancelled``) so
+        # operator paging dashboards joining on ``select(.phase ==
+        # "lifespan") | .scope`` see non-null values across every line —
+        # the CRITICAL emit is the most operator-actionable line and was
+        # the only lifespan event missing the discriminator.
         logger.critical(
             event_name,
             phase="lifespan",
             version=application.version,
             env=settings.app_env,
             exc_info=True,
+            scope="teardown" if entered_yield else "construction",
         )
         raise
     finally:

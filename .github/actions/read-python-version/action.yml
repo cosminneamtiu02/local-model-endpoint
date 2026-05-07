@@ -1,0 +1,33 @@
+name: Read Python version from .python-version
+description: |
+  Reads the project's pinned Python interpreter version from ``.python-version``
+  at the repo root and writes it to ``$GITHUB_ENV`` as ``PYTHON_VERSION`` for
+  subsequent steps. Composite action so the read logic + its rationale block
+  live in one place — the three callsites (``ci.yml`` backend-checks,
+  ``ci.yml`` error-contracts, ``dependabot-lockfile-sync.yml``) reduce to a
+  single ``uses:`` line each.
+
+  ``set -euo pipefail`` + the explicit empty-string check turns a missing
+  ``.python-version`` into a loud ``::error::`` annotation rather than a
+  silent unpinned interpreter. ``working-directory: .`` is REQUIRED because
+  the calling jobs may have job-level ``defaults: run: working-directory:``
+  set to a workspace subdir, but ``.python-version`` only exists at the
+  repo root.
+
+  No inputs/outputs — the value flows via $GITHUB_ENV, mirroring the
+  pre-composite-action pattern. Subsequent steps reference the
+  env.PYTHON_VERSION value via the standard expression syntax exactly
+  as before. (Action descriptions parse $-curly expressions, so the
+  literal expression syntax is elided here to avoid a load-time
+  template-validation error.)
+runs:
+  using: composite
+  steps:
+    - name: Read .python-version
+      working-directory: .
+      shell: bash
+      run: |
+        set -euo pipefail
+        v=$(tr -d '[:space:]' < .python-version)
+        [ -n "$v" ] || { echo "::error::.python-version is empty or missing"; exit 1; }
+        echo "PYTHON_VERSION=$v" >> "$GITHUB_ENV"

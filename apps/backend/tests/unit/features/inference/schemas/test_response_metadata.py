@@ -1,5 +1,7 @@
 """Unit tests for ResponseMetadata (LIP-E001-F001)."""
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 
