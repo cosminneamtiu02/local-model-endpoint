@@ -14,9 +14,12 @@ description: |
   set to a workspace subdir, but ``.python-version`` only exists at the
   repo root.
 
-  No inputs/outputs — the value flows via ``$GITHUB_ENV``, mirroring the
-  pre-composite-action pattern. Subsequent steps reference
-  ``${{ env.PYTHON_VERSION }}`` exactly as before.
+  No inputs/outputs — the value flows via $GITHUB_ENV, mirroring the
+  pre-composite-action pattern. Subsequent steps reference the
+  env.PYTHON_VERSION value via the standard expression syntax exactly
+  as before. (Action descriptions parse $-curly expressions, so the
+  literal expression syntax is elided here to avoid a load-time
+  template-validation error.)
 runs:
   using: composite
   steps:
