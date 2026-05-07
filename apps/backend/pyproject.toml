@@ -45,7 +45,7 @@ dependencies = [
     "httptools==0.7.1",
     "uvloop==0.22.1",
     "watchfiles==1.1.1",
-    "pydantic==2.13.3",
+    "pydantic==2.13.4",
     "pydantic-settings==2.14.0",
     "structlog==25.5.0",
     # httpx 0.28.1 (2024-12-06) is the current PyPI tip as of 2026-05-07;
