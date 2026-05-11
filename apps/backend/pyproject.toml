@@ -106,7 +106,7 @@ dev = [
     # against ``yaml.safe_load`` only and the fallback's ``Any`` return
     # is harmless under that single usage. If a second yaml call site
     # lands in error-contracts, mirror this stub pin there in lockstep.
-    "types-pyyaml==6.0.12.20260408",
+    "types-pyyaml==6.0.12.20260510",
     # ``anyio`` is a transitive of httpx + starlette, but the test
     # ``tests/unit/test_filterwarnings_anyio_suppression.py`` directly
     # imports ``anyio.create_memory_object_stream`` to canary that the
