@@ -36,7 +36,7 @@ repos:
       - id: detect-private-key
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+    rev: v0.15.13
     hooks:
       # Lane 10.8: ``--fix`` removed so pre-commit and CI behave
       # identically (CI runs ``ruff check`` without auto-fix). The
