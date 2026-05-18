@@ -40,7 +40,7 @@ dev = [
     # workspace's tests pins the deliberate omission so the contributor
     # adding async tests sees a red bar guiding the lockstep edit.
 
-    "ruff==0.15.12",
+    "ruff==0.15.13",
     "pyright==1.1.409",
     # pip-audit mirrors the backend's CVE scan via ``task check:audit:errors``
     # so both workspaces share the same gating shape.
