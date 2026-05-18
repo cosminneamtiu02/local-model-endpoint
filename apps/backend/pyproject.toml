@@ -71,7 +71,7 @@ dev = [
     # the first session-scoped async fixture added.
     "pytest-asyncio==1.3.0",
     "pytest-cov==7.1.0",
-    "ruff==0.15.12",
+    "ruff==0.15.13",
     # Pinned to ``==2.11`` (no trailing ``.0``) to match what PyPI publishes;
     # PEP 440 normalizes both forms to the same release, but the manifest
     # string drifts from the resolved lockfile string when written as
@@ -106,7 +106,7 @@ dev = [
     # against ``yaml.safe_load`` only and the fallback's ``Any`` return
     # is harmless under that single usage. If a second yaml call site
     # lands in error-contracts, mirror this stub pin there in lockstep.
-    "types-pyyaml==6.0.12.20260408",
+    "types-pyyaml==6.0.12.20260518",
     # ``anyio`` is a transitive of httpx + starlette, but the test
     # ``tests/unit/test_filterwarnings_anyio_suppression.py`` directly
     # imports ``anyio.create_memory_object_stream`` to canary that the
